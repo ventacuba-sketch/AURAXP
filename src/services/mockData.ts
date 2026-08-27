@@ -6,58 +6,60 @@
  * real services are built. Replace with real API calls in a later step.
  */
 
-import { Challenge, ScanResult, User } from '../types';
+import {
+  AuraChain,
+  FriendChallenge,
+  ReplayHighlight,
+  ScanResult,
+  User,
+} from '../types';
 
 export const mockUser: User = {
   id: 'u_001',
   username: 'ventacuba',
   avatarEmoji: '🦋',
+  founderNumber: '00428',
   level: 7,
-  xp: 2450,
-  xpToNextLevel: 3000,
+  xp: 24680,
+  xpToNextLevel: 30000,
   streakDays: 5,
 };
 
-export const mockChallenges: Challenge[] = [
-  {
-    id: 'c_001',
-    title: 'Morning Run',
-    description: 'Post a 1km+ run before 9am.',
-    xpReward: 150,
-    status: 'active',
-    emoji: '🏃',
-  },
-  {
-    id: 'c_002',
-    title: 'Hydrate Check',
-    description: 'Scan a full water bottle 3x today.',
-    xpReward: 80,
-    status: 'active',
-    emoji: '💧',
-  },
-  {
-    id: 'c_003',
-    title: 'Touch Grass',
-    description: 'Log 20 minutes outside, no phone.',
-    xpReward: 120,
-    status: 'completed',
-    emoji: '🌿',
-  },
-  {
-    id: 'c_004',
-    title: 'Night Owl Ban',
-    description: 'Lights out before midnight, 3 nights in a row.',
-    xpReward: 200,
-    status: 'locked',
-    emoji: '🌙',
-  },
-];
+export const mockLatestReplay: ReplayHighlight = {
+  id: 'r_001',
+  xpDelta: 8420,
+  momentLabel: 'Cold entrance',
+  timestamp: '2h ago',
+};
+
+export const mockFriendChallenge: FriendChallenge = {
+  id: 'fc_001',
+  friendName: 'Carlos',
+  friendScore: 8730,
+  prompt: 'Can you beat it?',
+};
 
 export const mockScanResult: ScanResult = {
   id: 's_001',
-  challengeTitle: 'Morning Run',
   verdict: 'verified',
-  xpEarned: 150,
-  confidence: 0.94,
+  verdictHeadline: 'Almost legendary. Looking back cost you the 10K.',
+  xpEarned: 8420,
+  timeline: [
+    { time: '0:01', delta: 1500, label: 'COLD ENTRANCE' },
+    { time: '0:02', delta: 900, label: 'ZERO HESITATION' },
+    { time: '0:04', delta: 2400, label: 'PERFECT TIMING' },
+    { time: '0:05', delta: -600, label: 'LOOKED BACK' },
+    { time: '0:06', delta: 1900, label: 'CLEAN EXIT' },
+  ],
+  stats: {
+    confidence: 9.1,
+    style: 8.4,
+    timing: 9.0,
+    cringeRisk: 1.8,
+  },
   createdAt: new Date().toISOString(),
+};
+
+export const mockAuraChain: AuraChain = {
+  names: ['You', 'Carlos', 'Ana', 'Leo'],
 };

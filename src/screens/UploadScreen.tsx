@@ -1,44 +1,92 @@
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import React, { useState } from 'react';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Card } from '../components/Card';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
+import { useRootNavigation } from '../hooks/useRootNavigation';
 import { colors, radius, spacing, typography } from '../theme/colors';
-import { RootStackParamList } from '../types';
 
-type Nav = NativeStackNavigationProp<RootStackParamList, 'Upload'>;
+type CaptureMode = 'record' | 'upload';
+
+const GUIDELINES = [
+  'Max 8 seconds',
+  'Keep the full action visible',
+  'AURAXP judges the moment, not your appearance.',
+];
 
 export default function UploadScreen() {
-  const navigation = useNavigation<Nav>();
+  const navigation = useRootNavigation();
+  // Mock "selected" state — no real camera/file picker wired up yet.
+  const [selected, setSelected] = useState<CaptureMode | null>(null);
 
   return (
-    <ScreenContainer>
-      <View style={styles.header}>
-        <Text style={styles.title}>Prove it 📸</Text>
-        <Text style={styles.subtitle}>Upload a photo or video for your active challenge.</Text>
+    <ScreenContainer style={styles.container}>
+      <View>
+        <View style={styles.header}>
+          <Text style={styles.title}>SHOW US THE MOMENT</Text>
+          <Text style={styles.subtitle}>5–8 seconds works best.</Text>
+        </View>
+
+        <View style={styles.options}>
+          <CaptureOption
+            label="RECORD VIDEO"
+            icon="●"
+            selected={selected === 'record'}
+            onPress={() => setSelected('record')}
+          />
+          <CaptureOption
+            label="UPLOAD VIDEO"
+            icon="⬆"
+            selected={selected === 'upload'}
+            onPress={() => setSelected('upload')}
+          />
+        </View>
+
+        <View style={styles.guidelines}>
+          {GUIDELINES.map((line) => (
+            <Text key={line} style={styles.guideline}>
+              •  {line}
+            </Text>
+          ))}
+        </View>
       </View>
 
-      <Card style={styles.dropZone}>
-        <Text style={styles.dropIcon}>⬆️</Text>
-        <Text style={styles.dropText}>Tap to select media</Text>
-        <Text style={styles.dropHint}>(placeholder — no upload wired up yet)</Text>
-      </Card>
-
       <PrimaryButton
-        label="Submit for scoring"
-        onPress={() => navigation.navigate('ScanResult', undefined)}
+        label="ANALYZE MY AURA"
+        disabled={!selected}
+        onPress={() => navigation.navigate('Analyzing')}
       />
     </ScreenContainer>
   );
 }
 
+interface CaptureOptionProps {
+  label: string;
+  icon: string;
+  selected: boolean;
+  onPress: () => void;
+}
+
+function CaptureOption({ label, icon, selected, onPress }: CaptureOptionProps) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={[styles.option, selected && styles.optionSelected]}
+    >
+      <Text style={[styles.optionIcon, selected && styles.optionIconSelected]}>{icon}</Text>
+      <Text style={[styles.optionLabel, selected && styles.optionLabelSelected]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 const styles = StyleSheet.create({
+  container: {
+    justifyContent: 'space-between',
+    paddingBottom: spacing.lg,
+  },
   header: {
     marginTop: spacing.lg,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.xl,
   },
   title: {
     ...typography.hero,
@@ -49,25 +97,45 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.xs,
   },
-  dropZone: {
+  options: {
+    gap: spacing.md,
+    marginBottom: spacing.xl,
+  },
+  option: {
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: spacing.xl,
-    marginBottom: spacing.lg,
-    borderStyle: 'dashed',
     borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
   },
-  dropIcon: {
-    fontSize: 36,
+  optionSelected: {
+    borderColor: colors.accent,
+    backgroundColor: colors.surfaceAlt,
+  },
+  optionIcon: {
+    fontSize: 28,
+    color: colors.textSecondary,
     marginBottom: spacing.sm,
   },
-  dropText: {
+  optionIconSelected: {
+    color: colors.accent,
+  },
+  optionLabel: {
     ...typography.subtitle,
     color: colors.textPrimary,
+    letterSpacing: 1,
   },
-  dropHint: {
+  optionLabelSelected: {
+    color: colors.accent,
+  },
+  guidelines: {
+    marginBottom: spacing.xl,
+    gap: spacing.xs,
+  },
+  guideline: {
     ...typography.caption,
     color: colors.textMuted,
-    marginTop: spacing.xs,
   },
 });

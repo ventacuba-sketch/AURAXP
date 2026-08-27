@@ -1,48 +1,62 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { Card } from '../components/Card';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { ReplayPlaceholder } from '../components/ReplayPlaceholder';
 import { ScreenContainer } from '../components/ScreenContainer';
+import { StatTile } from '../components/StatTile';
+import { TimelineRow } from '../components/TimelineRow';
+import { useRootNavigation } from '../hooks/useRootNavigation';
 import { mockScanResult } from '../services/mockData';
-import { colors, radius, spacing, typography } from '../theme/colors';
-import { RootStackParamList } from '../types';
-import { formatPercent, formatXP } from '../utils/format';
-
-type Nav = NativeStackNavigationProp<RootStackParamList, 'ScanResult'>;
-
-const verdictLabel: Record<string, string> = {
-  verified: '✅ Verified',
-  pending: '⏳ Pending review',
-  rejected: '❌ Rejected',
-};
+import { colors, spacing, typography } from '../theme/colors';
+import { formatSignedXP } from '../utils/format';
+import { shareText } from '../utils/share';
 
 export default function ScanResultScreen() {
   // Placeholder result — a real scan will come from the AI scoring service.
   const result = mockScanResult;
-  const navigation = useNavigation<Nav>();
+  const navigation = useRootNavigation();
 
   return (
-    <ScreenContainer>
+    <ScreenContainer scroll>
       <View style={styles.header}>
-        <Text style={styles.title}>Scan result</Text>
-        <Text style={styles.subtitle}>{result.challengeTitle}</Text>
+        <Text style={styles.eyebrow}>AURA REPLAY</Text>
+        <Text style={styles.score}>{formatSignedXP(result.xpEarned)} AURA</Text>
+        <Text style={styles.verdict}>{result.verdictHeadline}</Text>
+        <Text style={styles.disclaimer}>Scored on what you did — not how you look.</Text>
       </View>
 
-      <Card style={styles.verdictCard}>
-        <Text style={styles.verdict}>{verdictLabel[result.verdict]}</Text>
-        <Text style={styles.xpEarned}>+{formatXP(result.xpEarned)}</Text>
-        <View style={styles.confidenceRow}>
-          <Text style={styles.confidenceLabel}>AI confidence</Text>
-          <Text style={styles.confidenceValue}>{formatPercent(result.confidence)}</Text>
-        </View>
+      <ReplayPlaceholder size="lg" style={styles.replay} />
+
+      <Text style={styles.sectionLabel}>BREAKDOWN</Text>
+      <Card style={styles.timelineCard}>
+        {result.timeline.map((event, index) => (
+          <React.Fragment key={event.time}>
+            <TimelineRow {...event} />
+            {index < result.timeline.length - 1 && <View style={styles.divider} />}
+          </React.Fragment>
+        ))}
       </Card>
 
-      <Text style={styles.footnote}>This is placeholder data — real AI scoring isn't connected yet.</Text>
+      <View style={styles.statsGrid}>
+        <StatTile label="CONFIDENCE" value={result.stats.confidence.toFixed(1)} />
+        <StatTile label="STYLE" value={result.stats.style.toFixed(1)} />
+        <StatTile label="TIMING" value={result.stats.timing.toFixed(1)} />
+        <StatTile label="CRINGE RISK" value={result.stats.cringeRisk.toFixed(1)} />
+      </View>
 
-      <PrimaryButton label="View challenge" onPress={() => navigation.navigate('Challenge')} />
+      <View style={styles.actions}>
+        <PrimaryButton label="CHALLENGE A FRIEND" onPress={() => navigation.navigate('Challenge')} />
+        <PrimaryButton
+          label="SHARE RESULT"
+          variant="ghost"
+          onPress={() =>
+            shareText(`I just scored ${formatSignedXP(result.xpEarned)} AURA on AURAXP. Beat it. 👀`)
+          }
+        />
+        <PrimaryButton label="SCAN AGAIN" variant="text" onPress={() => navigation.navigate('Upload')} />
+      </View>
     </ScreenContainer>
   );
 }
@@ -52,48 +66,48 @@ const styles = StyleSheet.create({
     marginTop: spacing.lg,
     marginBottom: spacing.lg,
   },
-  title: {
-    ...typography.hero,
-    color: colors.textPrimary,
-  },
-  subtitle: {
-    ...typography.body,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  verdictCard: {
-    alignItems: 'center',
-    paddingVertical: spacing.xl,
-    borderRadius: radius.lg,
-    marginBottom: spacing.lg,
-  },
-  verdict: {
-    ...typography.title,
-    color: colors.success,
+  eyebrow: {
+    ...typography.eyebrow,
+    color: colors.secondary,
     marginBottom: spacing.sm,
   },
-  xpEarned: {
-    ...typography.hero,
+  score: {
+    ...typography.display,
     color: colors.accent,
-    marginBottom: spacing.md,
   },
-  confidenceRow: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-  },
-  confidenceLabel: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-  confidenceValue: {
-    ...typography.caption,
+  verdict: {
+    ...typography.subtitle,
     color: colors.textPrimary,
-    fontWeight: '700',
+    marginTop: spacing.sm,
   },
-  footnote: {
+  disclaimer: {
     ...typography.caption,
     color: colors.textMuted,
-    textAlign: 'center',
+    marginTop: spacing.xs,
+  },
+  replay: {
+    width: '100%',
     marginBottom: spacing.lg,
+  },
+  sectionLabel: {
+    ...typography.eyebrow,
+    color: colors.textMuted,
+    marginBottom: spacing.sm,
+  },
+  timelineCard: {
+    marginBottom: spacing.lg,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.border,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  actions: {
+    gap: spacing.sm,
   },
 });

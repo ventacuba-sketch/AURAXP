@@ -3,6 +3,7 @@ import { DarkTheme, NavigationContainer, Theme } from '@react-navigation/native'
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { MainTabNavigator } from './MainTabNavigator';
+import AnalyzingScreen from '../screens/AnalyzingScreen';
 import ChallengeScreen from '../screens/ChallengeScreen';
 import ScanResultScreen from '../screens/ScanResultScreen';
 import UploadScreen from '../screens/UploadScreen';
@@ -25,26 +26,28 @@ const navigationTheme: Theme = {
 
 /**
  * Root native stack: hosts the bottom tab navigator (Home / Scan / Profile)
- * as its base screen, plus the capture → result → challenge flow screens
- * pushed on top of it.
+ * as its base screen, plus the flow screens pushed on top of it. Every flow
+ * screen owns its own full-bleed layout and headline, so the native header
+ * chrome stays hidden throughout for a premium, non-SaaS feel — back
+ * navigation is via the platform swipe/hardware gesture instead.
  *
- * Flow: Home → Scan → Upload/Capture → ScanResult → Challenge / Share
+ * Flow: Home/Scan -> Upload/Capture -> Analyzing -> Aura Replay (ScanResult) -> Challenge / Share
  */
 export function RootNavigator() {
   return (
     <NavigationContainer theme={navigationTheme}>
       <Stack.Navigator
         screenOptions={{
-          headerStyle: { backgroundColor: colors.surface },
-          headerTintColor: colors.textPrimary,
-          headerShadowVisible: false,
+          headerShown: false,
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        <Stack.Screen name="MainTabs" component={MainTabNavigator} options={{ headerShown: false }} />
-        <Stack.Screen name="Upload" component={UploadScreen} options={{ title: 'Capture' }} />
-        <Stack.Screen name="ScanResult" component={ScanResultScreen} options={{ title: 'Scan Result' }} />
-        <Stack.Screen name="Challenge" component={ChallengeScreen} options={{ title: 'Challenges' }} />
+        <Stack.Screen name="MainTabs" component={MainTabNavigator} />
+        <Stack.Screen name="Upload" component={UploadScreen} />
+        {/* Transient auto-advancing state — block swiping back out of it. */}
+        <Stack.Screen name="Analyzing" component={AnalyzingScreen} options={{ gestureEnabled: false }} />
+        <Stack.Screen name="ScanResult" component={ScanResultScreen} />
+        <Stack.Screen name="Challenge" component={ChallengeScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

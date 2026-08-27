@@ -1,11 +1,14 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { Badge } from '../components/Badge';
 import { Card } from '../components/Card';
 import { ScreenContainer } from '../components/ScreenContainer';
+import { StatTile } from '../components/StatTile';
 import { XPBar } from '../components/XPBar';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { colors, spacing, typography } from '../theme/colors';
+import { formatLevel } from '../utils/format';
 
 export default function ProfileScreen() {
   const { user } = useCurrentUser();
@@ -15,6 +18,7 @@ export default function ProfileScreen() {
       <View style={styles.avatarBlock}>
         <Text style={styles.avatar}>{user?.avatarEmoji ?? '🙂'}</Text>
         <Text style={styles.username}>@{user?.username ?? 'you'}</Text>
+        {user && <Badge label={`FOUNDER #${user.founderNumber}`} tone="accent" />}
       </View>
 
       <Card style={styles.card}>
@@ -22,14 +26,8 @@ export default function ProfileScreen() {
       </Card>
 
       <View style={styles.statsRow}>
-        <Card style={styles.statCard}>
-          <Text style={styles.statValue}>{user?.streakDays ?? 0}</Text>
-          <Text style={styles.statLabel}>Day streak 🔥</Text>
-        </Card>
-        <Card style={styles.statCard}>
-          <Text style={styles.statValue}>{user?.level ?? 0}</Text>
-          <Text style={styles.statLabel}>Level</Text>
-        </Card>
+        <StatTile label="DAY STREAK 🔥" value={String(user?.streakDays ?? 0)} />
+        <StatTile label="LEVEL" value={formatLevel(user?.level ?? 0)} />
       </View>
     </ScreenContainer>
   );
@@ -40,6 +38,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: spacing.xl,
     marginBottom: spacing.lg,
+    gap: spacing.xs,
   },
   avatar: {
     fontSize: 56,
@@ -55,18 +54,5 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
     gap: spacing.md,
-  },
-  statCard: {
-    flex: 1,
-    alignItems: 'center',
-  },
-  statValue: {
-    ...typography.hero,
-    color: colors.accent,
-  },
-  statLabel: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
   },
 });

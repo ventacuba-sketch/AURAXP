@@ -1,106 +1,130 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { Badge } from '../components/Badge';
 import { Card } from '../components/Card';
+import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
-import { useChallenges } from '../hooks/useChallenges';
+import { useAsyncData } from '../hooks/useAsyncData';
+import { useRootNavigation } from '../hooks/useRootNavigation';
+import { fetchAuraChain, fetchFriendChallenge } from '../services/api';
+import { mockScanResult, mockUser } from '../services/mockData';
 import { colors, radius, spacing, typography } from '../theme/colors';
-import { ChallengeStatus } from '../types';
-
-const statusStyle: Record<ChallengeStatus, { label: string; color: string }> = {
-  active: { label: 'Active', color: colors.accent },
-  completed: { label: 'Done', color: colors.success },
-  locked: { label: 'Locked', color: colors.textMuted },
-};
+import { formatSignedXP } from '../utils/format';
+import { shareText } from '../utils/share';
 
 export default function ChallengeScreen() {
-  const { challenges } = useChallenges();
+  const { data: friendChallenge } = useAsyncData(fetchFriendChallenge);
+  const { data: chain } = useAsyncData(fetchAuraChain);
+  const navigation = useRootNavigation();
+
+  const yourScore = mockScanResult.xpEarned;
+  const friendScore = friendChallenge?.friendScore ?? 0;
+  const friendName = friendChallenge?.friendName ?? '...';
 
   return (
     <ScreenContainer scroll>
-      <View style={styles.header}>
-        <Text style={styles.title}>Challenges</Text>
-        <Text style={styles.subtitle}>Complete them, prove it, earn Aura XP.</Text>
+      <Text style={styles.headline}>BEAT MY AURA</Text>
+
+      <View style={styles.versusRow}>
+        <View style={styles.player}>
+          <Text style={styles.playerName}>YOU</Text>
+          <Text style={[styles.playerScore, styles.youColor]}>{formatSignedXP(yourScore)}</Text>
+        </View>
+
+        <View style={styles.vsBadge}>
+          <Text style={styles.vsText}>VS</Text>
+        </View>
+
+        <View style={styles.player}>
+          <Text style={styles.playerName}>{friendName.toUpperCase()}</Text>
+          <Text style={[styles.playerScore, styles.friendColor]}>{formatSignedXP(friendScore)}</Text>
+        </View>
       </View>
 
-      {challenges.map((challenge) => {
-        const status = statusStyle[challenge.status];
-        return (
-          <Card key={challenge.id} style={styles.card}>
-            <View style={styles.row}>
-              <Text style={styles.emoji}>{challenge.emoji}</Text>
-              <View style={styles.textBlock}>
-                <Text style={styles.cardTitle}>{challenge.title}</Text>
-                <Text style={styles.cardDescription}>{challenge.description}</Text>
-              </View>
-            </View>
-            <View style={styles.footerRow}>
-              <View style={[styles.badge, { borderColor: status.color }]}>
-                <Text style={[styles.badgeText, { color: status.color }]}>{status.label}</Text>
-              </View>
-              <Text style={styles.xpReward}>+{challenge.xpReward} XP</Text>
-            </View>
-          </Card>
-        );
-      })}
+      <Text style={styles.copy}>Upload your version and beat this score.</Text>
+
+      <View style={styles.actions}>
+        <PrimaryButton label="TAKE THE CHALLENGE" onPress={() => navigation.navigate('Upload')} />
+        <PrimaryButton
+          label="SHARE CHALLENGE LINK"
+          variant="ghost"
+          onPress={() => shareText(`${mockUser.username} is challenging you on AURAXP. Beat ${formatSignedXP(yourScore)} AURA. 🔥`)}
+        />
+      </View>
+
+      <Card style={styles.chainCard}>
+        <Badge label={`AURA CHAIN x${chain?.names.length ?? 0}`} tone="secondary" />
+        <Text style={styles.chainNames}>{chain?.names.join(' → ') ?? ''}</Text>
+      </Card>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
-    marginTop: spacing.lg,
-    marginBottom: spacing.lg,
-  },
-  title: {
+  headline: {
     ...typography.hero,
     color: colors.textPrimary,
+    marginTop: spacing.lg,
+    marginBottom: spacing.xl,
+    textAlign: 'center',
   },
-  subtitle: {
-    ...typography.body,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  card: {
-    marginBottom: spacing.sm,
-  },
-  row: {
+  versusRow: {
     flexDirection: 'row',
-    marginBottom: spacing.sm,
-  },
-  emoji: {
-    fontSize: 28,
-    marginRight: spacing.md,
-  },
-  textBlock: {
-    flex: 1,
-  },
-  cardTitle: {
-    ...typography.subtitle,
-    color: colors.textPrimary,
-  },
-  cardDescription: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  footerRow: {
-    flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+  },
+  player: {
+    flex: 1,
     alignItems: 'center',
   },
-  badge: {
-    borderWidth: 1,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-  },
-  badgeText: {
-    ...typography.caption,
-    fontWeight: '700',
-  },
-  xpReward: {
-    ...typography.caption,
+  playerName: {
+    ...typography.eyebrow,
     color: colors.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  playerScore: {
+    ...typography.hero,
+  },
+  youColor: {
+    color: colors.accent,
+  },
+  friendColor: {
+    color: colors.secondary,
+  },
+  vsBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: spacing.sm,
+  },
+  vsText: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontWeight: '800',
+  },
+  copy: {
+    ...typography.body,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: spacing.xl,
+  },
+  actions: {
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  chainCard: {
+    alignItems: 'center',
+  },
+  chainNames: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginTop: spacing.sm,
+    textAlign: 'center',
   },
 });

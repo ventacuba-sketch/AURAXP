@@ -1,8 +1,7 @@
 import { useEffect } from 'react';
-import { useIsFocused, useNavigation } from '@react-navigation/native';
-import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useIsFocused } from '@react-navigation/native';
 
-import { RootStackParamList } from '../types';
+import { useRootNavigation } from '../hooks/useRootNavigation';
 
 /**
  * The "Scan" tab is an action, not a content screen — it should never be
@@ -14,12 +13,12 @@ import { RootStackParamList } from '../types';
  * state) so the tab still can't be lingered on as a normal screen.
  */
 export default function ScanScreen() {
-  const navigation = useNavigation();
+  const navigation = useRootNavigation();
   const isFocused = useIsFocused();
 
   useEffect(() => {
     if (isFocused) {
-      navigation.getParent<NativeStackNavigationProp<RootStackParamList>>()?.navigate('Upload');
+      navigation.navigate('Upload');
     }
   }, [isFocused, navigation]);
 
