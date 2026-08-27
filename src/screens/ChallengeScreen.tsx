@@ -1,26 +1,63 @@
-import React, { Fragment } from 'react';
+import React, { Fragment, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { RouteProp, useRoute } from '@react-navigation/native';
 
 import { Card } from '../components/Card';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useAsyncData } from '../hooks/useAsyncData';
+import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useRootNavigation } from '../hooks/useRootNavigation';
+import { useScanResult } from '../hooks/useScanResult';
 import { fetchAuraChain, fetchFriendChallenge } from '../services/api';
-import { mockScanResult, mockUser } from '../services/mockData';
+import { createChallenge } from '../services/challengeService';
+import { mockUser } from '../services/mockData';
+import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
+import { RootStackParamList } from '../types';
 import { formatSignedXP } from '../utils/format';
 import { shareText } from '../utils/share';
 
+// Placeholder hasta que la app esté deployada — reemplazar por el origen
+// web real (o el de EAS Hosting) cuando exista.
+const WEB_ORIGIN = 'https://auraxp.app';
+
+type ChallengeRoute = RouteProp<RootStackParamList, 'Challenge'>;
+
 export default function ChallengeScreen() {
+  const { params } = useRoute<ChallengeRoute>();
+  const { result: scanResult } = useScanResult(params?.scanId);
+  const { user } = useCurrentUser();
   const { data: friendChallenge } = useAsyncData(fetchFriendChallenge);
   const { data: chain } = useAsyncData(fetchAuraChain);
   const navigation = useRootNavigation();
+  const [sharing, setSharing] = useState(false);
 
-  const yourScore = mockScanResult.xpEarned;
+  const yourScore = scanResult?.auraScore ?? 0;
+  const username = user?.username ?? mockUser.username;
   const friendScore = friendChallenge?.friendScore ?? 0;
   const friendName = friendChallenge?.friendName ?? '...';
   const chainNames = chain?.names ?? [];
+
+  async function handleShareChallenge() {
+    if (isSupabaseConfigured && scanResult) {
+      setSharing(true);
+      try {
+        const token = await createChallenge(scanResult.id);
+        await shareText(
+          `${username} te desafió en AURAXP a superar ${formatSignedXP(yourScore)} AURA. ${WEB_ORIGIN}/c/${token}`,
+        );
+      } catch (e) {
+        console.warn('No se pudo crear el challenge', e);
+      } finally {
+        setSharing(false);
+      }
+    } else {
+      await shareText(
+        `${username} te desafió en AURAXP. Supera sus ${formatSignedXP(yourScore)} AURA. 🔥`,
+      );
+    }
+  }
 
   return (
     <ScreenContainer scroll>
@@ -71,7 +108,8 @@ export default function ChallengeScreen() {
         <PrimaryButton
           label="COMPARTIR CHALLENGE"
           variant="ghost"
-          onPress={() => shareText(`${mockUser.username} te desafió en AURAXP. Supera sus ${formatSignedXP(yourScore)} AURA. 🔥`)}
+          disabled={sharing}
+          onPress={handleShareChallenge}
         />
       </View>
     </ScreenContainer>

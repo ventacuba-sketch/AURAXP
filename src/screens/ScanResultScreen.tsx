@@ -1,5 +1,6 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { RouteProp, useRoute } from '@react-navigation/native';
 
 import { AuraScanner } from '../components/AuraScanner';
 import { Badge } from '../components/Badge';
@@ -9,15 +10,26 @@ import { ScreenContainer } from '../components/ScreenContainer';
 import { StatMeter } from '../components/StatMeter';
 import { TimelineRow } from '../components/TimelineRow';
 import { useRootNavigation } from '../hooks/useRootNavigation';
-import { mockScanResult } from '../services/mockData';
+import { useScanResult } from '../hooks/useScanResult';
 import { colors, radius, spacing, typography } from '../theme/colors';
+import { RootStackParamList } from '../types';
 import { formatSignedXP } from '../utils/format';
 import { shareText } from '../utils/share';
 
+type ScanResultRoute = RouteProp<RootStackParamList, 'ScanResult'>;
+
 export default function ScanResultScreen() {
-  // Placeholder result — a real scan will come from the AI scoring service.
-  const result = mockScanResult;
+  const { params } = useRoute<ScanResultRoute>();
+  const { result, loading } = useScanResult(params?.scanId);
   const navigation = useRootNavigation();
+
+  if (loading || !result) {
+    return (
+      <ScreenContainer style={styles.center}>
+        <ActivityIndicator color={colors.accent} size="large" />
+      </ScreenContainer>
+    );
+  }
 
   return (
     <ScreenContainer scroll>
@@ -25,7 +37,7 @@ export default function ScanResultScreen() {
       <Card style={styles.heroCard}>
         <Text style={styles.eyebrow}>AURA REPLAY</Text>
         <Badge label={result.verdictTag} tone="accent" style={styles.verdictBadge} />
-        <Text style={styles.score}>{formatSignedXP(result.xpEarned)} AURA</Text>
+        <Text style={styles.score}>{formatSignedXP(result.auraScore)} AURA</Text>
         <Text style={styles.verdict}>{result.verdictHeadline}</Text>
 
         <View style={styles.videoBox}>
@@ -36,6 +48,10 @@ export default function ScanResultScreen() {
 
         <Text style={styles.disclaimer}>Puntuamos lo que hiciste, no cómo te ves.</Text>
       </Card>
+
+      {result.xpAwarded > 0 && (
+        <Text style={styles.xpLine}>+{result.xpAwarded} XP a tu progreso</Text>
+      )}
 
       <Text style={styles.sectionLabel}>DESGLOSE</Text>
       <Card style={styles.timelineCard}>
@@ -55,12 +71,15 @@ export default function ScanResultScreen() {
       </View>
 
       <View style={styles.actions}>
-        <PrimaryButton label="DESAFIAR A UN AMIGO" onPress={() => navigation.navigate('Challenge')} />
+        <PrimaryButton
+          label="DESAFIAR A UN AMIGO"
+          onPress={() => navigation.navigate('Challenge', { scanId: result.id })}
+        />
         <PrimaryButton
           label="COMPARTIR RESULTADO"
           variant="ghost"
           onPress={() =>
-            shareText(`Acabo de sacar ${formatSignedXP(result.xpEarned)} AURA en AURAXP. Supéralo si puedes. 👀`)
+            shareText(`Acabo de sacar ${formatSignedXP(result.auraScore)} AURA en AURAXP. Supéralo si puedes. 👀`)
           }
         />
         <PrimaryButton label="ESCANEAR DE NUEVO" variant="text" onPress={() => navigation.navigate('Upload')} />
@@ -70,6 +89,10 @@ export default function ScanResultScreen() {
 }
 
 const styles = StyleSheet.create({
+  center: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   heroCard: {
     marginTop: spacing.lg,
     marginBottom: spacing.lg,
@@ -117,6 +140,12 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textMuted,
     textAlign: 'center',
+  },
+  xpLine: {
+    ...typography.caption,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginBottom: spacing.lg,
   },
   sectionLabel: {
     ...typography.eyebrow,

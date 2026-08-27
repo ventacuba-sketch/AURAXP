@@ -42,9 +42,12 @@ export const mockFriendChallenge: FriendChallenge = {
 export const mockScanResult: ScanResult = {
   id: 's_001',
   verdict: 'verified',
-  verdictTag: 'CASI LEGENDARIO',
+  // Tier real para 8,420 según Scoring v1 (EXCELENTE = 6,000-8,499) — el
+  // tag y el XP quedan consistentes con la fórmula, no inventados.
+  verdictTag: 'EXCELENTE',
   verdictHeadline: 'Mirar atrás te costó llegar a los 10K.',
-  xpEarned: 8420,
+  auraScore: 8420,
+  xpAwarded: 110, // XP_BASE(50) + bonus EXCELENTE(60)
   timeline: [
     { time: '0:01', delta: 1500, label: 'ENTRADA FRÍA' },
     { time: '0:02', delta: 900, label: 'CERO DUDA' },

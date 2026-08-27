@@ -3,6 +3,7 @@
     "name": "AURAXP",
     "slug": "auraxp",
     "version": "1.0.0",
+    "scheme": "auraxp",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",

@@ -1,12 +1,24 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { RouteProp, useRoute } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
 
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
+import { uploadAndSubmitScan } from '../services/scanService';
+import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
+import { RootStackParamList } from '../types';
 
-type CaptureMode = 'record' | 'upload';
+type UploadRoute = RouteProp<RootStackParamList, 'Upload'>;
+
+const MAX_DURATION_MS = 8000;
+
+interface PickedVideo {
+  uri: string;
+  durationMs: number;
+}
 
 const GUIDELINES = [
   'Máximo 8 segundos',
@@ -16,8 +28,69 @@ const GUIDELINES = [
 
 export default function UploadScreen() {
   const navigation = useRootNavigation();
-  // Mock "selected" state — no real camera/file picker wired up yet.
-  const [selected, setSelected] = useState<CaptureMode | null>(null);
+  const { params } = useRoute<UploadRoute>();
+  const [video, setVideo] = useState<PickedVideo | null>(null);
+  const [source, setSource] = useState<'record' | 'upload' | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handlePicked(result: ImagePicker.ImagePickerResult, mode: 'record' | 'upload') {
+    if (result.canceled || !result.assets?.[0]) return;
+
+    const asset = result.assets[0];
+    const durationMs = asset.duration ?? 0;
+
+    if (durationMs > MAX_DURATION_MS) {
+      Alert.alert('Muy largo', 'El clip tiene que durar máximo 8 segundos.');
+      return;
+    }
+
+    setVideo({ uri: asset.uri, durationMs });
+    setSource(mode);
+  }
+
+  async function handleRecord() {
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Falta permiso', 'AURAXP necesita acceso a la cámara para grabar.');
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ['videos'],
+      videoMaxDuration: MAX_DURATION_MS / 1000,
+    });
+    handlePicked(result, 'record');
+  }
+
+  async function handlePickFromLibrary() {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Falta permiso', 'AURAXP necesita acceso a tus videos para subir uno.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'] });
+    handlePicked(result, 'upload');
+  }
+
+  async function handleAnalyze() {
+    if (!video) return;
+
+    if (!isSupabaseConfigured) {
+      // Sin backend configurado todavía — Analyzing cae a su fallback mock.
+      navigation.navigate('Analyzing');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const scanId = await uploadAndSubmitScan(video.uri, video.durationMs, params?.challengeToken);
+      navigation.navigate('Analyzing', { scanId });
+    } catch (e) {
+      console.warn('uploadAndSubmitScan failed', e);
+      Alert.alert('No se pudo subir el video', 'Intentá de nuevo en unos segundos.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <ScreenContainer style={styles.container}>
@@ -30,25 +103,21 @@ export default function UploadScreen() {
           the capture action in it instead of leaving a dead gap below. */}
       <View style={styles.middle}>
         <View style={styles.captureArea}>
-          <Pressable
-            onPress={() => setSelected('record')}
-            style={styles.recordWrap}
-            hitSlop={8}
-          >
-            <View style={[styles.recordCircle, selected === 'record' && styles.recordCircleActive]}>
+          <Pressable onPress={handleRecord} style={styles.recordWrap} hitSlop={8}>
+            <View style={[styles.recordCircle, source === 'record' && styles.recordCircleActive]}>
               <View style={styles.recordDot} />
             </View>
-            <Text style={[styles.recordLabel, selected === 'record' && styles.recordLabelActive]}>
+            <Text style={[styles.recordLabel, source === 'record' && styles.recordLabelActive]}>
               GRABAR VIDEO
             </Text>
           </Pressable>
 
           <Pressable
-            onPress={() => setSelected('upload')}
-            style={[styles.uploadOption, selected === 'upload' && styles.uploadOptionActive]}
+            onPress={handlePickFromLibrary}
+            style={[styles.uploadOption, source === 'upload' && styles.uploadOptionActive]}
           >
-            <Text style={[styles.uploadIcon, selected === 'upload' && styles.uploadTextActive]}>⬆</Text>
-            <Text style={[styles.uploadLabel, selected === 'upload' && styles.uploadTextActive]}>
+            <Text style={[styles.uploadIcon, source === 'upload' && styles.uploadTextActive]}>⬆</Text>
+            <Text style={[styles.uploadLabel, source === 'upload' && styles.uploadTextActive]}>
               SUBIR VIDEO
             </Text>
           </Pressable>
@@ -64,9 +133,9 @@ export default function UploadScreen() {
       </View>
 
       <PrimaryButton
-        label="ANALIZAR MI AURA"
-        disabled={!selected}
-        onPress={() => navigation.navigate('Analyzing')}
+        label={submitting ? 'SUBIENDO...' : 'ANALIZAR MI AURA'}
+        disabled={!video || submitting}
+        onPress={handleAnalyze}
       />
     </ScreenContainer>
   );

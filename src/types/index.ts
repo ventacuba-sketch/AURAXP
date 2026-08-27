@@ -17,13 +17,22 @@ export type MainTabParamList = {
  * Root stack — hosts the tab navigator plus the flow screens that get
  * pushed on top of it: Home/Scan -> Upload/Capture -> Analyzing ->
  * ScanResult (Aura Replay) -> Challenge / Share.
+ *
+ * `challengeToken` rides along into Upload when the flow started from
+ * accepting a shared challenge, so the finished scan can be linked back
+ * to it. `scanId` is the real backend scan, created by Upload before it
+ * navigates to Analyzing — when absent (Supabase not configured yet),
+ * both Analyzing and ScanResult fall back to mock data.
  */
 export type RootStackParamList = {
   MainTabs: undefined;
-  Upload: undefined;
-  Analyzing: undefined;
+  Upload: { challengeToken?: string } | undefined;
+  Analyzing: { scanId?: string } | undefined;
   ScanResult: { scanId?: string } | undefined;
-  Challenge: undefined;
+  Challenge: { scanId?: string } | undefined;
+  ChallengeLanding: { token: string };
+  /** Solo registrada en el navigator cuando no hay sesión — ver RootNavigator. */
+  Auth: undefined;
 };
 
 export interface User {
@@ -70,13 +79,21 @@ export interface AuraStats {
 
 export type ScanVerdict = 'verified' | 'pending' | 'rejected';
 
-/** A scored "Aura Replay" — the result of running a moment through AURAXP. */
+/**
+ * A scored "Aura Replay" — the result of running a moment through AURAXP.
+ *
+ * `auraScore` and `xpAwarded` are deliberately separate numbers: Aura
+ * measures how good/bad THIS moment was (can be negative, is what gets
+ * shared/challenged); XP is the small, always-positive amount that adds
+ * to the user's lifetime progression. Never conflate the two.
+ */
 export interface ScanResult {
   id: string;
   verdict: ScanVerdict;
   verdictTag: string; // short, punchy verdict — "CASI LEGENDARIO"
-  verdictHeadline: string; // one-line explanation — "Almost legendary. Looking back cost you the 10K."
-  xpEarned: number;
+  verdictHeadline: string; // one-line explanation — "Mirar atrás te costó llegar a los 10K."
+  auraScore: number;
+  xpAwarded: number;
   timeline: TimelineEvent[];
   stats: AuraStats;
   createdAt: string;
@@ -85,4 +102,12 @@ export interface ScanResult {
 /** A chain of friends who've passed a challenge along. */
 export interface AuraChain {
   names: string[]; // ["You", "Carlos", "Ana", "Leo"]
+}
+
+/** Public preview of a shared challenge — served by get-challenge-preview, no auth needed. */
+export interface ChallengePreview {
+  fromUsername: string;
+  fromAvatarEmoji: string;
+  auraScore: number;
+  verdictTag: string;
 }
