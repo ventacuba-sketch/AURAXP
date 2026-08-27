@@ -23,9 +23,11 @@ connected to a backend yet — no Supabase, no AI scoring API.
 Home → Scan → Upload/Capture → ScanResult → Challenge / Share
 ```
 
-Tapping **Scan** starts the capture flow; the flow screens are pushed onto
-the root stack (with a native back button) rather than living as their own
-permanent tabs.
+**Scan** is an action, not a landing screen — tapping it immediately pushes
+Upload/Capture onto the root stack instead of switching to tab content, so
+it never sits there as its own screen. The rest of the flow (ScanResult,
+Challenge) is pushed the same way, with a native back button, rather than
+living as permanent tabs.
 
 ## Folder structure
 

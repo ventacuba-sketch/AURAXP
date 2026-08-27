@@ -1,63 +1,27 @@
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { CompositeNavigationProp, useNavigation } from '@react-navigation/native';
-import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { useEffect } from 'react';
+import { useIsFocused, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
-import { Card } from '../components/Card';
-import { PrimaryButton } from '../components/PrimaryButton';
-import { ScreenContainer } from '../components/ScreenContainer';
-import { colors, spacing, typography } from '../theme/colors';
-import { MainTabParamList, RootStackParamList } from '../types';
+import { RootStackParamList } from '../types';
 
-// This tab lives inside MainTabNavigator, but "Scan" is an action, not a
-// destination — tapping through pushes the Upload/Capture flow onto the
-// parent root stack, so the nav type is a composite of both.
-type Nav = CompositeNavigationProp<
-  BottomTabNavigationProp<MainTabParamList, 'Scan'>,
-  NativeStackNavigationProp<RootStackParamList>
->;
-
+/**
+ * The "Scan" tab is an action, not a content screen — it should never be
+ * seen. `MainTabNavigator` intercepts the tab press and pushes straight
+ * into the Upload/Capture flow before this ever mounts.
+ *
+ * This redirect is a fallback for the rare path that bypasses that
+ * interception (e.g. a programmatic `navigate('Scan')` or restored nav
+ * state) so the tab still can't be lingered on as a normal screen.
+ */
 export default function ScanScreen() {
-  const navigation = useNavigation<Nav>();
+  const navigation = useNavigation();
+  const isFocused = useIsFocused();
 
-  return (
-    <ScreenContainer>
-      <View style={styles.header}>
-        <Text style={styles.title}>Ready to scan? 🎯</Text>
-        <Text style={styles.subtitle}>Capture proof for your active challenge and earn XP.</Text>
-      </View>
+  useEffect(() => {
+    if (isFocused) {
+      navigation.getParent<NativeStackNavigationProp<RootStackParamList>>()?.navigate('Upload');
+    }
+  }, [isFocused, navigation]);
 
-      <Card style={styles.card}>
-        <Text style={styles.cardText}>
-          Tap below to open the capture flow, submit your proof, and see your result.
-        </Text>
-      </Card>
-
-      <PrimaryButton label="Start scan" onPress={() => navigation.navigate('Upload')} />
-    </ScreenContainer>
-  );
+  return null;
 }
-
-const styles = StyleSheet.create({
-  header: {
-    marginTop: spacing.lg,
-    marginBottom: spacing.lg,
-  },
-  title: {
-    ...typography.hero,
-    color: colors.textPrimary,
-  },
-  subtitle: {
-    ...typography.body,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  card: {
-    marginBottom: spacing.lg,
-  },
-  cardText: {
-    ...typography.body,
-    color: colors.textSecondary,
-  },
-});

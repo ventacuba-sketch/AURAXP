@@ -1,12 +1,13 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import HomeScreen from '../screens/HomeScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import ScanScreen from '../screens/ScanScreen';
 import { colors, radius } from '../theme/colors';
-import { MainTabParamList } from '../types';
+import { MainTabParamList, RootStackParamList } from '../types';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
 
@@ -39,7 +40,19 @@ export function MainTabNavigator() {
       })}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
-      <Tab.Screen name="Scan" component={ScanScreen} />
+      <Tab.Screen
+        name="Scan"
+        component={ScanScreen}
+        listeners={({ navigation }) => ({
+          // "Scan" is an entry point into the capture flow, not a tab you
+          // land on — swallow the normal tab-switch and immediately push
+          // Upload/Capture onto the root stack instead.
+          tabPress: (e) => {
+            e.preventDefault();
+            navigation.getParent<NativeStackNavigationProp<RootStackParamList>>()?.navigate('Upload');
+          },
+        })}
+      />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
