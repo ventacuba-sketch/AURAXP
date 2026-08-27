@@ -9,9 +9,9 @@ import { colors, radius, spacing, typography } from '../theme/colors';
 type CaptureMode = 'record' | 'upload';
 
 const GUIDELINES = [
-  'Max 8 seconds',
-  'Keep the full action visible',
-  'AURAXP judges the moment, not your appearance.',
+  'Máximo 8 segundos',
+  'Procura que se vea la acción completa.',
+  'AURAXP analiza el momento, no tu apariencia.',
 ];
 
 export default function UploadScreen() {
@@ -23,19 +23,19 @@ export default function UploadScreen() {
     <ScreenContainer style={styles.container}>
       <View>
         <View style={styles.header}>
-          <Text style={styles.title}>SHOW US THE MOMENT</Text>
-          <Text style={styles.subtitle}>5–8 seconds works best.</Text>
+          <Text style={styles.title}>MUÉSTRANOS EL MOMENTO</Text>
+          <Text style={styles.subtitle}>Entre 5 y 8 segundos funciona mejor.</Text>
         </View>
 
         <View style={styles.options}>
           <CaptureOption
-            label="RECORD VIDEO"
+            label="GRABAR VIDEO"
             icon="●"
             selected={selected === 'record'}
             onPress={() => setSelected('record')}
           />
           <CaptureOption
-            label="UPLOAD VIDEO"
+            label="SUBIR VIDEO"
             icon="⬆"
             selected={selected === 'upload'}
             onPress={() => setSelected('upload')}
@@ -52,7 +52,7 @@ export default function UploadScreen() {
       </View>
 
       <PrimaryButton
-        label="ANALYZE MY AURA"
+        label="ANALIZAR MI AURA"
         disabled={!selected}
         onPress={() => navigation.navigate('Analyzing')}
       />

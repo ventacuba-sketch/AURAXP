@@ -26,6 +26,11 @@ export const colors = {
   secondaryMuted: '#8465D1',
   danger: '#FF5C7A',
   success: '#3DDC97',
+
+  // Web-only: the letterboxed backdrop behind the mobile-sized preview
+  // (see WebMobileFrame). Slightly darker than `background` so the phone
+  // reads as a distinct surface against it.
+  webOuterBackground: '#000000',
 } as const;
 
 export const spacing = {

@@ -6,7 +6,9 @@ import { useRootNavigation } from '../hooks/useRootNavigation';
 import { submitScan } from '../services/api';
 import { colors, radius, spacing, typography } from '../theme/colors';
 
-const LABELS = ['TIMING', 'CONFIDENCE', 'STYLE', 'CRINGE RISK'];
+// Matches the stat names on the Result screen (TIMING stays — it already
+// reads naturally in Spanish; the rest use the same short label ScanResult uses).
+const LABELS = ['TIMING', 'CONFIANZA', 'ESTILO', 'RIESGO CRINGE'];
 const LABEL_INTERVAL_MS = 380;
 
 export default function AnalyzingScreen() {
@@ -60,7 +62,7 @@ export default function AnalyzingScreen() {
   return (
     <ScreenContainer style={styles.center}>
       <Animated.View style={[styles.ring, { opacity: pulse, transform: [{ scale: pulse }] }]} />
-      <Text style={styles.title}>READING THE AURA...</Text>
+      <Text style={styles.title}>LEYENDO TU AURA...</Text>
       <View style={styles.labelRow}>
         {LABELS.map((label, index) => (
           <View

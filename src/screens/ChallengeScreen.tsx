@@ -24,11 +24,11 @@ export default function ChallengeScreen() {
 
   return (
     <ScreenContainer scroll>
-      <Text style={styles.headline}>BEAT MY AURA</Text>
+      <Text style={styles.headline}>SUPERA MI AURA</Text>
 
       <View style={styles.versusRow}>
         <View style={styles.player}>
-          <Text style={styles.playerName}>YOU</Text>
+          <Text style={styles.playerName}>TÚ</Text>
           <Text style={[styles.playerScore, styles.youColor]}>{formatSignedXP(yourScore)}</Text>
         </View>
 
@@ -42,14 +42,14 @@ export default function ChallengeScreen() {
         </View>
       </View>
 
-      <Text style={styles.copy}>Upload your version and beat this score.</Text>
+      <Text style={styles.copy}>Sube tu versión e intenta superar este puntaje.</Text>
 
       <View style={styles.actions}>
-        <PrimaryButton label="TAKE THE CHALLENGE" onPress={() => navigation.navigate('Upload')} />
+        <PrimaryButton label="ACEPTAR CHALLENGE" onPress={() => navigation.navigate('Upload')} />
         <PrimaryButton
-          label="SHARE CHALLENGE LINK"
+          label="COMPARTIR CHALLENGE"
           variant="ghost"
-          onPress={() => shareText(`${mockUser.username} is challenging you on AURAXP. Beat ${formatSignedXP(yourScore)} AURA. 🔥`)}
+          onPress={() => shareText(`${mockUser.username} te desafió en AURAXP. Supera sus ${formatSignedXP(yourScore)} AURA. 🔥`)}
         />
       </View>
 

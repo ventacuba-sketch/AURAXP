@@ -28,28 +28,28 @@ export const mockUser: User = {
 export const mockLatestReplay: ReplayHighlight = {
   id: 'r_001',
   xpDelta: 8420,
-  momentLabel: 'Cold entrance',
-  timestamp: '2h ago',
+  momentLabel: 'Entrada fría',
+  timestamp: 'Hace 2h',
 };
 
 export const mockFriendChallenge: FriendChallenge = {
   id: 'fc_001',
   friendName: 'Carlos',
   friendScore: 8730,
-  prompt: 'Can you beat it?',
+  prompt: '¿Puedes superarlo?',
 };
 
 export const mockScanResult: ScanResult = {
   id: 's_001',
   verdict: 'verified',
-  verdictHeadline: 'Almost legendary. Looking back cost you the 10K.',
+  verdictHeadline: 'Casi legendario. Mirar atrás te costó llegar a los 10K.',
   xpEarned: 8420,
   timeline: [
-    { time: '0:01', delta: 1500, label: 'COLD ENTRANCE' },
-    { time: '0:02', delta: 900, label: 'ZERO HESITATION' },
-    { time: '0:04', delta: 2400, label: 'PERFECT TIMING' },
-    { time: '0:05', delta: -600, label: 'LOOKED BACK' },
-    { time: '0:06', delta: 1900, label: 'CLEAN EXIT' },
+    { time: '0:01', delta: 1500, label: 'ENTRADA FRÍA' },
+    { time: '0:02', delta: 900, label: 'CERO DUDA' },
+    { time: '0:04', delta: 2400, label: 'TIMING PERFECTO' },
+    { time: '0:05', delta: -600, label: 'MIRASTE ATRÁS' },
+    { time: '0:06', delta: 1900, label: 'SALIDA LIMPIA' },
   ],
   stats: {
     confidence: 9.1,
@@ -61,5 +61,5 @@ export const mockScanResult: ScanResult = {
 };
 
 export const mockAuraChain: AuraChain = {
-  names: ['You', 'Carlos', 'Ana', 'Leo'],
+  names: ['Tú', 'Carlos', 'Ana', 'Leo'],
 };

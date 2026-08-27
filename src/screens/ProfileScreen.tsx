@@ -26,8 +26,8 @@ export default function ProfileScreen() {
       </Card>
 
       <View style={styles.statsRow}>
-        <StatTile label="DAY STREAK 🔥" value={String(user?.streakDays ?? 0)} />
-        <StatTile label="LEVEL" value={formatLevel(user?.level ?? 0)} />
+        <StatTile label="RACHA 🔥" value={String(user?.streakDays ?? 0)} />
+        <StatTile label="NIVEL" value={formatLevel(user?.level ?? 0)} />
       </View>
     </ScreenContainer>
   );

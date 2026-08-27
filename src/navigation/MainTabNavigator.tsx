@@ -17,6 +17,14 @@ const tabIcons: Record<keyof MainTabParamList, string> = {
   Profile: '🦋',
 };
 
+// "Scan" stays in English (part of the app's kept gaming vocabulary);
+// Home/Profile get their tab bar label localized like the rest of the UI.
+const tabLabels: Record<keyof MainTabParamList, string> = {
+  Home: 'Inicio',
+  Scan: 'Scan',
+  Profile: 'Perfil',
+};
+
 /** The always-visible bottom navigation: Home, Scan (primary action), Profile. */
 export function MainTabNavigator() {
   return (
@@ -29,6 +37,7 @@ export function MainTabNavigator() {
           backgroundColor: colors.surface,
           borderTopColor: colors.border,
         },
+        tabBarLabel: tabLabels[route.name],
         tabBarIcon: () =>
           route.name === 'Scan' ? (
             <View style={styles.scanBadge}>

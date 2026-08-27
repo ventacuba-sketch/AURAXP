@@ -28,19 +28,22 @@ export default function HomeScreen() {
       </View>
 
       <View style={styles.hero}>
-        <Text style={styles.headline}>HOW MUCH AURA DID THAT MOMENT HAVE?</Text>
-        <Text style={styles.heroSubtitle}>Upload a moment. Let AURAXP break it down.</Text>
-        <PrimaryButton label="SCAN MY AURA" onPress={() => navigation.navigate('Upload')} />
+        <Text style={styles.headline}>¿CUÁNTA AURA TUVO ESE MOMENTO?</Text>
+        <Text style={styles.heroSubtitle}>
+          Sube el momento. AURAXP te dice dónde ganaste o perdiste Aura.
+        </Text>
+        <PrimaryButton label="ESCANEAR MI AURA" onPress={() => navigation.navigate('Upload')} />
       </View>
 
       <View style={styles.auraSection}>
-        <Text style={styles.eyebrow}>YOUR AURA</Text>
+        <Text style={styles.eyebrow}>TU AURA</Text>
         <Text style={styles.auraScore}>{user ? formatXP(user.xp) : '—'}</Text>
         <XPBar xp={user?.xp ?? 0} xpToNextLevel={user?.xpToNextLevel ?? 1} level={user?.level ?? 1} />
       </View>
 
       {latestReplay && (
         <Card style={styles.replayCard}>
+          <Text style={styles.eyebrow}>ÚLTIMO REPLAY</Text>
           <View style={styles.replayRow}>
             <ReplayPlaceholder size="sm" />
             <View style={styles.replayInfo}>
@@ -50,7 +53,7 @@ export default function HomeScreen() {
             </View>
           </View>
           <PrimaryButton
-            label="View replay"
+            label="Ver replay"
             variant="text"
             onPress={() => navigation.navigate('ScanResult', undefined)}
           />
@@ -59,12 +62,12 @@ export default function HomeScreen() {
 
       {friendChallenge && (
         <Card style={styles.challengeCard}>
-          <Text style={styles.challengeTitle}>{friendChallenge.friendName} challenged you</Text>
+          <Text style={styles.challengeTitle}>{friendChallenge.friendName} te desafió</Text>
           <Text style={styles.challengeScore}>
             {friendChallenge.friendName}: {formatNumber(friendChallenge.friendScore)}
           </Text>
           <Text style={styles.challengePrompt}>{friendChallenge.prompt}</Text>
-          <PrimaryButton label="ACCEPT" onPress={() => navigation.navigate('Challenge')} />
+          <PrimaryButton label="ACEPTAR" onPress={() => navigation.navigate('Challenge')} />
         </Card>
       )}
     </ScreenContainer>
