@@ -60,7 +60,7 @@ export interface TimelineEvent {
   label: string; // "COLD ENTRANCE"
 }
 
-/** The four mini stats shown under a scored replay. */
+/** The four mini stats shown under a scored replay, each on a 0-100 scale. */
 export interface AuraStats {
   confidence: number;
   style: number;
@@ -74,7 +74,8 @@ export type ScanVerdict = 'verified' | 'pending' | 'rejected';
 export interface ScanResult {
   id: string;
   verdict: ScanVerdict;
-  verdictHeadline: string; // "Almost legendary. Looking back cost you the 10K."
+  verdictTag: string; // short, punchy verdict — "CASI LEGENDARIO"
+  verdictHeadline: string; // one-line explanation — "Almost legendary. Looking back cost you the 10K."
   xpEarned: number;
   timeline: TimelineEvent[];
   stats: AuraStats;

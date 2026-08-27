@@ -1,7 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { Badge } from '../components/Badge';
 import { Card } from '../components/Card';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ReplayPlaceholder } from '../components/ReplayPlaceholder';
@@ -24,13 +23,12 @@ export default function HomeScreen() {
     <ScreenContainer scroll>
       <View style={styles.topRow}>
         <Text style={styles.wordmark}>AURAXP</Text>
-        {user && <Badge label={`FOUNDER #${user.founderNumber}`} tone="accent" />}
       </View>
 
       <View style={styles.hero}>
-        <Text style={styles.headline}>¿CUÁNTA AURA TUVO ESE MOMENTO?</Text>
+        <Text style={styles.headline}>¿CUÁNTA AURA TIENES?</Text>
         <Text style={styles.heroSubtitle}>
-          Sube el momento. AURAXP te dice dónde ganaste o perdiste Aura.
+          Sube un momento. AURAXP te dice dónde ganaste o perdiste Aura.
         </Text>
         <PrimaryButton label="ESCANEAR MI AURA" onPress={() => navigation.navigate('Upload')} />
       </View>

@@ -42,7 +42,8 @@ export const mockFriendChallenge: FriendChallenge = {
 export const mockScanResult: ScanResult = {
   id: 's_001',
   verdict: 'verified',
-  verdictHeadline: 'Casi legendario. Mirar atrás te costó llegar a los 10K.',
+  verdictTag: 'CASI LEGENDARIO',
+  verdictHeadline: 'Mirar atrás te costó llegar a los 10K.',
   xpEarned: 8420,
   timeline: [
     { time: '0:01', delta: 1500, label: 'ENTRADA FRÍA' },
@@ -52,10 +53,10 @@ export const mockScanResult: ScanResult = {
     { time: '0:06', delta: 1900, label: 'SALIDA LIMPIA' },
   ],
   stats: {
-    confidence: 9.1,
-    style: 8.4,
-    timing: 9.0,
-    cringeRisk: 1.8,
+    confidence: 91,
+    style: 84,
+    timing: 90,
+    cringeRisk: 18,
   },
   createdAt: new Date().toISOString(),
 };

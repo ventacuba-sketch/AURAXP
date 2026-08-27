@@ -21,25 +21,37 @@ export default function UploadScreen() {
 
   return (
     <ScreenContainer style={styles.container}>
-      <View>
-        <View style={styles.header}>
-          <Text style={styles.title}>MUÉSTRANOS EL MOMENTO</Text>
-          <Text style={styles.subtitle}>Entre 5 y 8 segundos funciona mejor.</Text>
-        </View>
+      <View style={styles.header}>
+        <Text style={styles.title}>MUÉSTRANOS EL MOMENTO</Text>
+        <Text style={styles.subtitle}>Entre 5 y 8 segundos funciona mejor.</Text>
+      </View>
 
-        <View style={styles.options}>
-          <CaptureOption
-            label="GRABAR VIDEO"
-            icon="●"
-            selected={selected === 'record'}
+      {/* Fills the space between the header and the pinned CTA, centering
+          the capture action in it instead of leaving a dead gap below. */}
+      <View style={styles.middle}>
+        <View style={styles.captureArea}>
+          <Pressable
             onPress={() => setSelected('record')}
-          />
-          <CaptureOption
-            label="SUBIR VIDEO"
-            icon="⬆"
-            selected={selected === 'upload'}
+            style={styles.recordWrap}
+            hitSlop={8}
+          >
+            <View style={[styles.recordCircle, selected === 'record' && styles.recordCircleActive]}>
+              <View style={styles.recordDot} />
+            </View>
+            <Text style={[styles.recordLabel, selected === 'record' && styles.recordLabelActive]}>
+              GRABAR VIDEO
+            </Text>
+          </Pressable>
+
+          <Pressable
             onPress={() => setSelected('upload')}
-          />
+            style={[styles.uploadOption, selected === 'upload' && styles.uploadOptionActive]}
+          >
+            <Text style={[styles.uploadIcon, selected === 'upload' && styles.uploadTextActive]}>⬆</Text>
+            <Text style={[styles.uploadLabel, selected === 'upload' && styles.uploadTextActive]}>
+              SUBIR VIDEO
+            </Text>
+          </Pressable>
         </View>
 
         <View style={styles.guidelines}>
@@ -60,33 +72,16 @@ export default function UploadScreen() {
   );
 }
 
-interface CaptureOptionProps {
-  label: string;
-  icon: string;
-  selected: boolean;
-  onPress: () => void;
-}
-
-function CaptureOption({ label, icon, selected, onPress }: CaptureOptionProps) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={[styles.option, selected && styles.optionSelected]}
-    >
-      <Text style={[styles.optionIcon, selected && styles.optionIconSelected]}>{icon}</Text>
-      <Text style={[styles.optionLabel, selected && styles.optionLabelSelected]}>{label}</Text>
-    </Pressable>
-  );
-}
-
 const styles = StyleSheet.create({
   container: {
-    justifyContent: 'space-between',
     paddingBottom: spacing.lg,
   },
   header: {
     marginTop: spacing.lg,
-    marginBottom: spacing.xl,
+  },
+  middle: {
+    flex: 1,
+    justifyContent: 'center',
   },
   title: {
     ...typography.hero,
@@ -97,41 +92,69 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.xs,
   },
-  options: {
-    gap: spacing.md,
-    marginBottom: spacing.xl,
-  },
-  option: {
+  captureArea: {
     alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.xl,
-    borderRadius: radius.lg,
-    borderWidth: 1,
+    marginBottom: spacing.lg,
+  },
+  recordWrap: {
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  recordCircle: {
+    width: 176,
+    height: 176,
+    borderRadius: radius.pill,
+    borderWidth: 3,
     borderColor: colors.border,
     backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  optionSelected: {
+  recordCircleActive: {
     borderColor: colors.accent,
     backgroundColor: colors.surfaceAlt,
   },
-  optionIcon: {
-    fontSize: 28,
-    color: colors.textSecondary,
-    marginBottom: spacing.sm,
+  recordDot: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.pill,
+    backgroundColor: colors.danger,
   },
-  optionIconSelected: {
-    color: colors.accent,
-  },
-  optionLabel: {
+  recordLabel: {
     ...typography.subtitle,
     color: colors.textPrimary,
     letterSpacing: 1,
+    marginTop: spacing.md,
   },
-  optionLabelSelected: {
+  recordLabelActive: {
+    color: colors.accent,
+  },
+  uploadOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  uploadOptionActive: {
+    borderColor: colors.accent,
+  },
+  uploadIcon: {
+    fontSize: 16,
+    color: colors.textSecondary,
+  },
+  uploadLabel: {
+    ...typography.body,
+    color: colors.textSecondary,
+    letterSpacing: 0.5,
+  },
+  uploadTextActive: {
     color: colors.accent,
   },
   guidelines: {
-    marginBottom: spacing.xl,
     gap: spacing.xs,
   },
   guideline: {

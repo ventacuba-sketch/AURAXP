@@ -33,6 +33,9 @@ export async function fetchAuraChain(): Promise<AuraChain> {
   return mockAuraChain;
 }
 
+/** How long the mock scan takes — shared with the Analyzing screen's progress ring. */
+export const SCAN_DURATION_MS = 1500;
+
 /**
  * Simulates submitting a captured moment for scoring. Resolves the same
  * mock replay result after a short delay — this is what the Analyzing
@@ -40,6 +43,6 @@ export async function fetchAuraChain(): Promise<AuraChain> {
  */
 export async function submitScan(_mediaUri: string | null): Promise<ScanResult> {
   return new Promise((resolve) => {
-    setTimeout(() => resolve(mockScanResult), 1500);
+    setTimeout(() => resolve(mockScanResult), SCAN_DURATION_MS);
   });
 }

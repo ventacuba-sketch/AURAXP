@@ -1,15 +1,16 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { AuraScanner } from '../components/AuraScanner';
+import { Badge } from '../components/Badge';
 import { Card } from '../components/Card';
 import { PrimaryButton } from '../components/PrimaryButton';
-import { ReplayPlaceholder } from '../components/ReplayPlaceholder';
 import { ScreenContainer } from '../components/ScreenContainer';
-import { StatTile } from '../components/StatTile';
+import { StatMeter } from '../components/StatMeter';
 import { TimelineRow } from '../components/TimelineRow';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { mockScanResult } from '../services/mockData';
-import { colors, spacing, typography } from '../theme/colors';
+import { colors, radius, spacing, typography } from '../theme/colors';
 import { formatSignedXP } from '../utils/format';
 import { shareText } from '../utils/share';
 
@@ -20,14 +21,21 @@ export default function ScanResultScreen() {
 
   return (
     <ScreenContainer scroll>
-      <View style={styles.header}>
+      {/* The shareable "poster" — everything a Story/TikTok export would need. */}
+      <Card style={styles.heroCard}>
         <Text style={styles.eyebrow}>AURA REPLAY</Text>
+        <Badge label={result.verdictTag} tone="accent" style={styles.verdictBadge} />
         <Text style={styles.score}>{formatSignedXP(result.xpEarned)} AURA</Text>
         <Text style={styles.verdict}>{result.verdictHeadline}</Text>
-        <Text style={styles.disclaimer}>Puntuamos lo que hiciste, no cómo te ves.</Text>
-      </View>
 
-      <ReplayPlaceholder size="lg" style={styles.replay} />
+        <View style={styles.videoBox}>
+          <AuraScanner progress={1} size={120}>
+            <Text style={styles.playGlyph}>▶</Text>
+          </AuraScanner>
+        </View>
+
+        <Text style={styles.disclaimer}>Puntuamos lo que hiciste, no cómo te ves.</Text>
+      </Card>
 
       <Text style={styles.sectionLabel}>DESGLOSE</Text>
       <Card style={styles.timelineCard}>
@@ -40,10 +48,10 @@ export default function ScanResultScreen() {
       </Card>
 
       <View style={styles.statsGrid}>
-        <StatTile label="CONFIANZA" value={result.stats.confidence.toFixed(1)} />
-        <StatTile label="ESTILO" value={result.stats.style.toFixed(1)} />
-        <StatTile label="TIMING" value={result.stats.timing.toFixed(1)} />
-        <StatTile label="RIESGO CRINGE" value={result.stats.cringeRisk.toFixed(1)} />
+        <StatMeter label="CONFIANZA" value={result.stats.confidence} />
+        <StatMeter label="ESTILO" value={result.stats.style} />
+        <StatMeter label="TIMING" value={result.stats.timing} />
+        <StatMeter label="RIESGO CRINGE" value={result.stats.cringeRisk} tone="danger" />
       </View>
 
       <View style={styles.actions}>
@@ -62,32 +70,53 @@ export default function ScanResultScreen() {
 }
 
 const styles = StyleSheet.create({
-  header: {
+  heroCard: {
     marginTop: spacing.lg,
     marginBottom: spacing.lg,
+    padding: spacing.lg,
+    borderColor: colors.secondary,
+    alignItems: 'center',
   },
   eyebrow: {
     ...typography.eyebrow,
     color: colors.secondary,
     marginBottom: spacing.sm,
   },
+  verdictBadge: {
+    alignSelf: 'center',
+  },
   score: {
     ...typography.display,
     color: colors.accent,
+    marginTop: spacing.md,
   },
   verdict: {
     ...typography.subtitle,
     color: colors.textPrimary,
     marginTop: spacing.sm,
+    textAlign: 'center',
+  },
+  videoBox: {
+    width: '100%',
+    aspectRatio: 9 / 12,
+    marginTop: spacing.lg,
+    marginBottom: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  playGlyph: {
+    ...typography.title,
+    color: colors.textPrimary,
+    marginLeft: spacing.xs / 2,
   },
   disclaimer: {
     ...typography.caption,
     color: colors.textMuted,
-    marginTop: spacing.xs,
-  },
-  replay: {
-    width: '100%',
-    marginBottom: spacing.lg,
+    textAlign: 'center',
   },
   sectionLabel: {
     ...typography.eyebrow,

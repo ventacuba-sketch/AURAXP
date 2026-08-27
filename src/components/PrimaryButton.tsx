@@ -17,6 +17,10 @@ interface Props {
  * - `text`: no fill/border — tertiary/low-emphasis action (e.g. "SCAN AGAIN").
  */
 export function PrimaryButton({ label, onPress, variant = 'primary', disabled = false }: Props) {
+  // Primary gets an unmistakable inactive look (flat grey, muted text) rather
+  // than just a dimmed accent — so "can I tap this yet" is never ambiguous.
+  const primaryDisabled = variant === 'primary' && disabled;
+
   return (
     <Pressable
       onPress={disabled ? undefined : onPress}
@@ -24,9 +28,10 @@ export function PrimaryButton({ label, onPress, variant = 'primary', disabled = 
       style={({ pressed }) => [
         styles.base,
         variant === 'primary' && styles.primary,
+        primaryDisabled && styles.primaryDisabled,
         variant === 'ghost' && styles.ghost,
         variant === 'text' && styles.text,
-        disabled && styles.disabled,
+        disabled && !primaryDisabled && styles.disabled,
         pressed && !disabled && styles.pressed,
       ]}
     >
@@ -34,6 +39,7 @@ export function PrimaryButton({ label, onPress, variant = 'primary', disabled = 
         style={[
           styles.label,
           variant === 'primary' && styles.labelPrimary,
+          primaryDisabled && styles.labelPrimaryDisabled,
           variant === 'ghost' && styles.labelGhost,
           variant === 'text' && styles.labelText,
         ]}
@@ -55,6 +61,11 @@ const styles = StyleSheet.create({
   primary: {
     backgroundColor: colors.accent,
   },
+  primaryDisabled: {
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   ghost: {
     backgroundColor: 'transparent',
     borderWidth: 1,
@@ -75,6 +86,9 @@ const styles = StyleSheet.create({
   },
   labelPrimary: {
     color: colors.onAccent,
+  },
+  labelPrimaryDisabled: {
+    color: colors.textMuted,
   },
   labelGhost: {
     color: colors.textPrimary,

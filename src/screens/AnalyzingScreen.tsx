@@ -1,42 +1,32 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 
+import { AuraScanner } from '../components/AuraScanner';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
-import { submitScan } from '../services/api';
+import { SCAN_DURATION_MS, submitScan } from '../services/api';
 import { colors, radius, spacing, typography } from '../theme/colors';
 
 // Matches the stat names on the Result screen (TIMING stays — it already
 // reads naturally in Spanish; the rest use the same short label ScanResult uses).
 const LABELS = ['TIMING', 'CONFIANZA', 'ESTILO', 'RIESGO CRINGE'];
 const LABEL_INTERVAL_MS = 380;
+const PROGRESS_STEP_MS = 40;
 
 export default function AnalyzingScreen() {
   const navigation = useRootNavigation();
   const [labelIndex, setLabelIndex] = useState(0);
-  const pulse = useRef(new Animated.Value(0.6)).current;
+  const [progress, setProgress] = useState(0);
 
-  // Pulsing ring — plain Animated, native driver, no external animation lib.
+  // Drives the AuraScanner ring — the same scanner identity reused on the
+  // result screen — filling in step with the (mock) scan duration.
   useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 700,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulse, {
-          toValue: 0.6,
-          duration: 700,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [pulse]);
+    const start = Date.now();
+    const interval = setInterval(() => {
+      setProgress(Math.min(1, (Date.now() - start) / SCAN_DURATION_MS));
+    }, PROGRESS_STEP_MS);
+    return () => clearInterval(interval);
+  }, []);
 
   // Cycle through the label chips while the (mock) scan is "processed".
   useEffect(() => {
@@ -61,7 +51,9 @@ export default function AnalyzingScreen() {
 
   return (
     <ScreenContainer style={styles.center}>
-      <Animated.View style={[styles.ring, { opacity: pulse, transform: [{ scale: pulse }] }]} />
+      <AuraScanner progress={progress} active size={176}>
+        <Text style={styles.percent}>{Math.round(progress * 100)}%</Text>
+      </AuraScanner>
       <Text style={styles.title}>LEYENDO TU AURA...</Text>
       <View style={styles.labelRow}>
         {LABELS.map((label, index) => (
@@ -84,17 +76,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  ring: {
-    width: 96,
-    height: 96,
-    borderRadius: radius.pill,
-    borderWidth: 3,
-    borderColor: colors.accent,
-    marginBottom: spacing.xl,
+  percent: {
+    ...typography.title,
+    color: colors.textPrimary,
   },
   title: {
     ...typography.title,
     color: colors.textPrimary,
+    marginTop: spacing.xl,
     marginBottom: spacing.lg,
     letterSpacing: 1,
   },
