@@ -6,12 +6,22 @@
  * a real backend or AI API.
  */
 
-export type RootTabParamList = {
+/** Bottom tabs — always-available destinations. */
+export type MainTabParamList = {
   Home: undefined;
+  Scan: undefined;
+  Profile: undefined;
+};
+
+/**
+ * Root stack — hosts the tab navigator plus the flow screens that get
+ * pushed on top of it (capture → result → challenge/share).
+ */
+export type RootStackParamList = {
+  MainTabs: undefined;
   Upload: undefined;
   ScanResult: { scanId?: string } | undefined;
   Challenge: undefined;
-  Profile: undefined;
 };
 
 export interface User {

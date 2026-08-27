@@ -1,15 +1,15 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { Card } from '../components/Card';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { colors, radius, spacing, typography } from '../theme/colors';
-import { RootTabParamList } from '../types';
+import { RootStackParamList } from '../types';
 
-type Nav = BottomTabNavigationProp<RootTabParamList, 'Upload'>;
+type Nav = NativeStackNavigationProp<RootStackParamList, 'Upload'>;
 
 export default function UploadScreen() {
   const navigation = useNavigation<Nav>();

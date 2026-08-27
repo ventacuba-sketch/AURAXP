@@ -1,11 +1,17 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
+import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { Card } from '../components/Card';
+import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { mockScanResult } from '../services/mockData';
 import { colors, radius, spacing, typography } from '../theme/colors';
+import { RootStackParamList } from '../types';
 import { formatPercent, formatXP } from '../utils/format';
+
+type Nav = NativeStackNavigationProp<RootStackParamList, 'ScanResult'>;
 
 const verdictLabel: Record<string, string> = {
   verified: '✅ Verified',
@@ -16,6 +22,7 @@ const verdictLabel: Record<string, string> = {
 export default function ScanResultScreen() {
   // Placeholder result — a real scan will come from the AI scoring service.
   const result = mockScanResult;
+  const navigation = useNavigation<Nav>();
 
   return (
     <ScreenContainer>
@@ -34,6 +41,8 @@ export default function ScanResultScreen() {
       </Card>
 
       <Text style={styles.footnote}>This is placeholder data — real AI scoring isn't connected yet.</Text>
+
+      <PrimaryButton label="View challenge" onPress={() => navigation.navigate('Challenge')} />
     </ScreenContainer>
   );
 }
@@ -85,5 +94,6 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textMuted,
     textAlign: 'center',
+    marginBottom: spacing.lg,
   },
 });

@@ -1,25 +1,15 @@
 import React from 'react';
-import { Text } from 'react-native';
 import { DarkTheme, NavigationContainer, Theme } from '@react-navigation/native';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
+import { MainTabNavigator } from './MainTabNavigator';
 import ChallengeScreen from '../screens/ChallengeScreen';
-import HomeScreen from '../screens/HomeScreen';
-import ProfileScreen from '../screens/ProfileScreen';
 import ScanResultScreen from '../screens/ScanResultScreen';
 import UploadScreen from '../screens/UploadScreen';
 import { colors } from '../theme/colors';
-import { RootTabParamList } from '../types';
+import { RootStackParamList } from '../types';
 
-const Tab = createBottomTabNavigator<RootTabParamList>();
-
-const tabIcons: Record<keyof RootTabParamList, string> = {
-  Home: '🏠',
-  Upload: '⬆️',
-  ScanResult: '🎯',
-  Challenge: '⚡',
-  Profile: '🦋',
-};
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 const navigationTheme: Theme = {
   ...DarkTheme,
@@ -33,27 +23,29 @@ const navigationTheme: Theme = {
   },
 };
 
+/**
+ * Root native stack: hosts the bottom tab navigator (Home / Scan / Profile)
+ * as its base screen, plus the capture → result → challenge flow screens
+ * pushed on top of it.
+ *
+ * Flow: Home → Scan → Upload/Capture → ScanResult → Challenge / Share
+ */
 export function RootNavigator() {
   return (
     <NavigationContainer theme={navigationTheme}>
-      <Tab.Navigator
-        screenOptions={({ route }) => ({
-          headerShown: false,
-          tabBarActiveTintColor: colors.accent,
-          tabBarInactiveTintColor: colors.textMuted,
-          tabBarStyle: {
-            backgroundColor: colors.surface,
-            borderTopColor: colors.border,
-          },
-          tabBarIcon: () => <Text style={{ fontSize: 18 }}>{tabIcons[route.name]}</Text>,
-        })}
+      <Stack.Navigator
+        screenOptions={{
+          headerStyle: { backgroundColor: colors.surface },
+          headerTintColor: colors.textPrimary,
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: colors.background },
+        }}
       >
-        <Tab.Screen name="Home" component={HomeScreen} />
-        <Tab.Screen name="Upload" component={UploadScreen} />
-        <Tab.Screen name="ScanResult" component={ScanResultScreen} options={{ title: 'Scan' }} />
-        <Tab.Screen name="Challenge" component={ChallengeScreen} options={{ title: 'Challenges' }} />
-        <Tab.Screen name="Profile" component={ProfileScreen} />
-      </Tab.Navigator>
+        <Stack.Screen name="MainTabs" component={MainTabNavigator} options={{ headerShown: false }} />
+        <Stack.Screen name="Upload" component={UploadScreen} options={{ title: 'Capture' }} />
+        <Stack.Screen name="ScanResult" component={ScanResultScreen} options={{ title: 'Scan Result' }} />
+        <Stack.Screen name="Challenge" component={ChallengeScreen} options={{ title: 'Challenges' }} />
+      </Stack.Navigator>
     </NavigationContainer>
   );
 }

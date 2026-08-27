@@ -10,16 +10,30 @@ connected to a backend yet — no Supabase, no AI scoring API.
 ## Tech stack
 
 - [Expo](https://expo.dev) (SDK 57) + React Native + TypeScript
-- [React Navigation](https://reactnavigation.org) (bottom tabs) for
-  navigation between screens
+- [React Navigation](https://reactnavigation.org) — a root native stack
+  hosting a bottom tab navigator plus screens pushed on top of it
+
+## Navigation structure
+
+**Bottom tabs** (always visible): Home · Scan · Profile
+
+**Flow screens** (pushed on top of the tabs): Upload/Capture → ScanResult → Challenge
+
+```
+Home → Scan → Upload/Capture → ScanResult → Challenge / Share
+```
+
+Tapping **Scan** starts the capture flow; the flow screens are pushed onto
+the root stack (with a native back button) rather than living as their own
+permanent tabs.
 
 ## Folder structure
 
 ```
 src/
-  screens/       # One component per app screen (Home, Upload, ScanResult, Challenge, Profile)
+  screens/       # One component per app screen (Home, Scan, Upload, ScanResult, Challenge, Profile)
   components/     # Reusable UI building blocks (buttons, cards, XP bar, screen wrapper)
-  navigation/     # React Navigation setup (RootNavigator)
+  navigation/     # React Navigation setup (RootNavigator = stack, MainTabNavigator = bottom tabs)
   services/       # Data-access layer — currently returns mock/placeholder data
   hooks/          # Reusable React hooks (e.g. useCurrentUser, useChallenges)
   types/          # Shared TypeScript types
