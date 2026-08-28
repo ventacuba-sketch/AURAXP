@@ -6,7 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
-import { uploadAndSubmitScan } from '../services/scanService';
+import { uploadAndSubmitScan, VideoTooLargeError } from '../services/scanService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { RootStackParamList } from '../types';
@@ -127,7 +127,16 @@ export default function UploadScreen() {
       navigation.navigate('Analyzing', { scanId });
     } catch (e) {
       console.warn('uploadAndSubmitScan failed', e);
-      notify('No se pudo subir el video', 'Intenta de nuevo en unos segundos.');
+      if (e instanceof VideoTooLargeError) {
+        const sizeMb = (e.sizeBytes / (1024 * 1024)).toFixed(1);
+        const maxMb = Math.round(e.maxBytes / (1024 * 1024));
+        notify(
+          'Video muy pesado',
+          `Tu video pesa ${sizeMb} MB y el máximo es ${maxMb} MB. Prueba grabando en una calidad más baja (1080p en vez de 4K) o un clip más corto.`,
+        );
+      } else {
+        notify('No se pudo subir el video', 'Intenta de nuevo en unos segundos.');
+      }
     } finally {
       setSubmitting(false);
     }

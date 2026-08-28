@@ -7,6 +7,27 @@ import { supabase } from './supabaseClient';
 
 const BUCKET = 'scans';
 
+// Debe coincidir con el file_size_limit del bucket "scans" (ver
+// supabase/migrations/20260828010000_scans_bucket_size_limit.sql) — 60 MB
+// cubre con margen un clip de hasta 8s en los modos de grabación estándar
+// de un teléfono moderno (4K/60 o slow-motion 1080p), sin permitir modos
+// fuera de alcance para esta app (ProRes, 8K). Validar acá antes de subir
+// evita gastar una signed URL y le da al usuario un mensaje claro en vez
+// del error crudo de Storage.
+export const MAX_VIDEO_BYTES = 60 * 1024 * 1024;
+
+export class VideoTooLargeError extends Error {
+  sizeBytes: number;
+  maxBytes: number;
+
+  constructor(sizeBytes: number, maxBytes: number) {
+    super('VIDEO_TOO_LARGE');
+    this.name = 'VideoTooLargeError';
+    this.sizeBytes = sizeBytes;
+    this.maxBytes = maxBytes;
+  }
+}
+
 const MIME_EXTENSIONS: Record<string, string> = {
   'video/mp4': 'mp4',
   'video/quicktime': 'mov',
@@ -79,6 +100,10 @@ export async function uploadAndSubmitScan(
   // Funciona igual para file:// (nativo) y blob: (web).
   const fileResponse = await fetch(videoUri);
   const blob = await fileResponse.blob();
+
+  if (blob.size > MAX_VIDEO_BYTES) {
+    throw new VideoTooLargeError(blob.size, MAX_VIDEO_BYTES);
+  }
 
   const fingerprint = await computeVideoFingerprint(blob, durationMs);
   const extension = guessExtension(videoUri, blob.type);
