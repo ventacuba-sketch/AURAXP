@@ -9,7 +9,9 @@
 import type { GeminiResult } from './scoring.ts';
 
 const GEMINI_MODEL = 'gemini-2.0-flash';
-const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+const GEMINI_API_URL = `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent`;
+const GEMINI_FILES_UPLOAD_URL = 'https://generativelanguage.googleapis.com/upload/v1beta/files';
 
 export const SYSTEM_PROMPT = `Sos el motor de análisis de AURAXP, una app social Gen Z. Tu trabajo es leer
 un clip de video corto (máximo 8 segundos) de CUALQUIER tipo de momento
@@ -133,14 +135,26 @@ export const RESPONSE_SCHEMA = {
 
 interface AnalyzeVideoParams {
   apiKey: string;
-  videoBase64: string;
+  fileUri: string;
   mimeType: string;
 }
 
-/** Llama a Gemini con el video inline y fuerza el JSON del contrato. */
+/**
+ * Llama a Gemini referenciando un video ya subido a la Files API (por URI,
+ * `fileData`) y fuerza el JSON del contrato.
+ *
+ * Antes esto recibía el video entero en base64 y lo embebía inline
+ * (`inlineData`) en este mismo request — la causa real del "Memory limit
+ * exceeded" en producción: entre el string base64 y el JSON.stringify que
+ * lo envuelve, un video de apenas 25-35MB podía superar el límite de
+ * memoria de la Edge Function (150MB en el plan Free) mucho antes de que
+ * el video en sí fuera "grande". Referenciar por URI evita construir esos
+ * strings gigantes por completo, sin importar el tamaño del archivo — ver
+ * uploadVideoToGeminiFiles/prepareGeminiVideoFile más abajo.
+ */
 export async function analyzeVideo({
   apiKey,
-  videoBase64,
+  fileUri,
   mimeType,
 }: AnalyzeVideoParams): Promise<GeminiResult> {
   const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
@@ -152,7 +166,7 @@ export async function analyzeVideo({
           role: 'user',
           parts: [
             { text: SYSTEM_PROMPT },
-            { inlineData: { mimeType, data: videoBase64 } },
+            { fileData: { fileUri, mimeType } },
           ],
         },
       ],
@@ -176,6 +190,128 @@ export async function analyzeVideo({
   const parsed = JSON.parse(text) as GeminiResult;
   validateGeminiResult(parsed);
   return parsed;
+}
+
+interface UploadedGeminiFile {
+  uri: string;
+  mimeType: string;
+  /** Resource name (p. ej. "files/abc123") — hace falta para el polling de estado y para borrarlo después. */
+  name: string;
+}
+
+/**
+ * Sube el video a la Files API de Gemini vía su protocolo de upload
+ * resumible, en vez de embeberlo como base64 inline. `body` puede ser un
+ * ReadableStream o un Blob — ambos son BodyInit válidos para fetch() y
+ * ninguno de los dos pasa por un string base64 intermedio.
+ */
+async function uploadVideoToGeminiFiles({
+  apiKey,
+  body,
+  sizeBytes,
+  mimeType,
+}: {
+  apiKey: string;
+  body: BodyInit;
+  sizeBytes: number;
+  mimeType: string;
+}): Promise<UploadedGeminiFile> {
+  // Paso 1: iniciar la sesión de upload resumible — Gemini responde con la
+  // URL real de subida en el header X-Goog-Upload-URL.
+  const startResponse = await fetch(`${GEMINI_FILES_UPLOAD_URL}?key=${apiKey}`, {
+    method: 'POST',
+    headers: {
+      'X-Goog-Upload-Protocol': 'resumable',
+      'X-Goog-Upload-Command': 'start',
+      'X-Goog-Upload-Header-Content-Length': String(sizeBytes),
+      'X-Goog-Upload-Header-Content-Type': mimeType,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ file: { display_name: `auraxp-scan-${Date.now()}` } }),
+  });
+
+  if (!startResponse.ok) {
+    throw new Error(`Gemini Files API (start) error ${startResponse.status}: ${await startResponse.text()}`);
+  }
+
+  const uploadUrl = startResponse.headers.get('x-goog-upload-url');
+  if (!uploadUrl) throw new Error('Gemini Files API no devolvió upload URL');
+
+  // Paso 2: subir los bytes — stream directo desde Supabase Storage hasta
+  // Gemini, sin materializar el video completo en memoria en ningún punto.
+  const uploadResponse = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: {
+      'X-Goog-Upload-Offset': '0',
+      'X-Goog-Upload-Command': 'upload, finalize',
+    },
+    body,
+    // Requerido por la spec de fetch cuando el body es un ReadableStream.
+    duplex: 'half',
+  } as RequestInit);
+
+  if (!uploadResponse.ok) {
+    throw new Error(`Gemini Files API (upload) error ${uploadResponse.status}: ${await uploadResponse.text()}`);
+  }
+
+  const uploadData = await uploadResponse.json();
+  const file = uploadData?.file;
+  if (!file?.uri || !file?.name) throw new Error('Gemini Files API no devolvió el archivo subido');
+
+  return { uri: file.uri, mimeType: file.mimeType || mimeType, name: file.name };
+}
+
+/**
+ * Los videos suben en estado PROCESSING y hay que esperar a ACTIVE antes
+ * de poder referenciarlos en generateContent. Para un clip de máximo 8s
+ * esto es cuestión de segundos — acotamos el polling para no dejar la
+ * Edge Function esperando indefinidamente si algo sale mal del lado de
+ * Gemini.
+ */
+async function waitForGeminiFileActive(apiKey: string, name: string): Promise<void> {
+  const maxAttempts = 20;
+  const delayMs = 1000;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const response = await fetch(`${GEMINI_API_BASE}/${name}?key=${apiKey}`);
+    if (!response.ok) {
+      throw new Error(`Gemini Files API (status) error ${response.status}: ${await response.text()}`);
+    }
+
+    const data = await response.json();
+    if (data.state === 'ACTIVE') return;
+    if (data.state === 'FAILED') {
+      throw new Error(`Gemini no pudo procesar el video: ${JSON.stringify(data.error ?? {})}`);
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+
+  throw new Error('Timeout esperando a que Gemini termine de procesar el video');
+}
+
+/** Sube el video y espera a que quede listo para usarse en analyzeVideo(). */
+export async function prepareGeminiVideoFile(params: {
+  apiKey: string;
+  body: BodyInit;
+  sizeBytes: number;
+  mimeType: string;
+}): Promise<UploadedGeminiFile> {
+  const file = await uploadVideoToGeminiFiles(params);
+  await waitForGeminiFileActive(params.apiKey, file.name);
+  return file;
+}
+
+/**
+ * Borra el archivo subido a Gemini Files. Best-effort: Gemini los expira
+ * solo a las 48h de todos modos, así que un fallo acá nunca debe romper
+ * ni demorar el flujo del scan — el caller solo debe loguearlo.
+ */
+export async function deleteGeminiFile(apiKey: string, name: string): Promise<void> {
+  const response = await fetch(`${GEMINI_API_BASE}/${name}?key=${apiKey}`, { method: 'DELETE' });
+  if (!response.ok) {
+    throw new Error(`Gemini Files API (delete) error ${response.status}: ${await response.text()}`);
+  }
 }
 
 /** Validación defensiva — nunca confiar ciegamente en la salida de un LLM. */

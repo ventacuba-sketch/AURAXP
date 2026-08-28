@@ -11,7 +11,7 @@
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
-import { analyzeVideo } from '../_shared/gemini.ts';
+import { analyzeVideo, deleteGeminiFile, prepareGeminiVideoFile } from '../_shared/gemini.ts';
 import {
   computeAuraScore,
   computeLevel,
@@ -127,12 +127,29 @@ Deno.serve(async (req: Request) => {
 
     await admin.from('scans').update({ status: 'processing' }).eq('id', scanId);
 
-    // ── Descargar el video y llamar a Gemini ────────────────────────────
-    const { data: fileData, error: downloadErr } = await admin.storage
-      .from('scans')
-      .download(scan.video_path);
+    // ── Leer el video y subirlo a Gemini sin bufferizarlo completo ──────
+    // Antes: .download() (Blob completo) + .arrayBuffer() + base64 +
+    // JSON.stringify inline -- 3-4 copias superpuestas del video en
+    // memoria, la causa real del "Memory limit exceeded" en producción
+    // (ver diagnóstico). Ahora: leemos metadata (tamaño/mime) sin
+    // descargar nada, streameamos el video directo desde Storage a la
+    // Files API de Gemini, y lo referenciamos por URI -- nunca se arma un
+    // string base64 del video completo.
+    const { data: videoInfo, error: infoErr } = await admin.storage.from('scans').info(scan.video_path);
+    if (infoErr || !videoInfo) {
+      await admin
+        .from('scans')
+        .update({ status: 'failed', error_message: 'video_info_failed' })
+        .eq('id', scanId);
+      return jsonResponse({ error: 'No se pudo leer el video' }, 500);
+    }
 
-    if (downloadErr || !fileData) {
+    const { data: videoStream, error: streamErr } = await admin.storage
+      .from('scans')
+      .download(scan.video_path)
+      .asStream();
+
+    if (streamErr || !videoStream) {
       await admin
         .from('scans')
         .update({ status: 'failed', error_message: 'download_failed' })
@@ -140,23 +157,47 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: 'No se pudo leer el video' }, 500);
     }
 
-    const videoBase64 = arrayBufferToBase64(await fileData.arrayBuffer());
-    const mimeType = fileData.type || 'video/mp4';
+    const mimeType = videoInfo.contentType || 'video/mp4';
+
+    let videoFile;
+    try {
+      videoFile = await prepareGeminiVideoFile({
+        apiKey: GEMINI_API_KEY,
+        body: videoStream,
+        sizeBytes: videoInfo.size ?? 0,
+        mimeType,
+      });
+    } catch (e) {
+      await admin
+        .from('scans')
+        .update({ status: 'failed', error_message: `video_upload_failed: ${String(e)}` })
+        .eq('id', scanId);
+      return jsonResponse({ error: 'No se pudo preparar el video' }, 500);
+    }
 
     let gemini;
     try {
-      gemini = await analyzeVideo({ apiKey: GEMINI_API_KEY, videoBase64, mimeType });
-    } catch (e) {
-      // Un reintento simple ante un fallo de parseo/red.
       try {
-        gemini = await analyzeVideo({ apiKey: GEMINI_API_KEY, videoBase64, mimeType });
-      } catch (e2) {
-        await admin
-          .from('scans')
-          .update({ status: 'failed', error_message: String(e2) })
-          .eq('id', scanId);
-        return jsonResponse({ error: 'Análisis falló' }, 502);
+        gemini = await analyzeVideo({ apiKey: GEMINI_API_KEY, fileUri: videoFile.uri, mimeType: videoFile.mimeType });
+      } catch (e) {
+        // Un reintento simple ante un fallo de parseo/red -- el video ya
+        // está subido a Gemini, así que reintentamos solo el análisis, no
+        // el upload completo.
+        gemini = await analyzeVideo({ apiKey: GEMINI_API_KEY, fileUri: videoFile.uri, mimeType: videoFile.mimeType });
       }
+    } catch (e2) {
+      await admin
+        .from('scans')
+        .update({ status: 'failed', error_message: String(e2) })
+        .eq('id', scanId);
+      return jsonResponse({ error: 'Análisis falló' }, 502);
+    } finally {
+      // Best-effort: liberar el archivo en Gemini apenas terminamos con
+      // él. Nunca debe bloquear ni fallar el scan -- Gemini lo expira
+      // solo a las 48h de todos modos.
+      deleteGeminiFile(GEMINI_API_KEY, videoFile.name).catch((e) =>
+        console.warn('gemini file cleanup failed', e),
+      );
     }
 
     // ── Moderación ───────────────────────────────────────────────────
@@ -247,14 +288,4 @@ function jsonResponse(body: unknown, status = 200): Response {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   });
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-  }
-  return btoa(binary);
 }
