@@ -46,6 +46,18 @@ function detectWebRecordingSupport(): { supported: boolean; mimeType: string | n
 }
 
 type PermissionState = 'pending' | 'granted' | 'denied';
+type PreviewState = 'idle' | 'waiting' | 'ready' | 'error';
+
+const PREVIEW_READY_TIMEOUT_MS = 8000;
+
+/**
+ * Logging TEMPORAL para diagnosticar el preview negro en Safari iOS (ver
+ * conversación) -- mismo formato usado en el resto del proyecto para este
+ * tipo de diagnóstico. Sacar una vez confirmado el fix en un iPhone real.
+ */
+function log(step: string, data?: Record<string, unknown>) {
+  console.log(JSON.stringify({ src: 'WebCameraCapture', step, t: Date.now(), ...data }));
+}
 
 /**
  * Cámara propia de AURAXP para Safari/iPhone y navegadores desktop, usando
@@ -71,6 +83,11 @@ export function WebCameraCapture() {
   // pantalla.
   const [{ supported, mimeType }] = useState(detectWebRecordingSupport);
   const [permissionState, setPermissionState] = useState<PermissionState>('pending');
+  // Separado de permissionState a propósito: "permiso concedido" (stream
+  // obtenido) no es lo mismo que "el <video> está realmente reproduciendo
+  // frames" -- ver el efecto de abajo que asigna srcObject y espera a que
+  // sea reproducible antes de dejar grabar.
+  const [previewState, setPreviewState] = useState<PreviewState>('idle');
   const [recording, setRecording] = useState(false);
   const [elapsedMs, setElapsedMs] = useState(0);
 
@@ -114,20 +131,38 @@ export function WebCameraCapture() {
     if (!supported) return;
     let cancelled = false;
 
+    log('getUserMedia:start');
     navigator.mediaDevices
-      .getUserMedia({ video: { facingMode: 'environment' }, audio: true })
+      // facingMode como objeto con `ideal` (no el string suelto) evita
+      // tratarlo como constraint exacta -- si el equipo no tiene cámara
+      // trasera, igual devuelve la que tenga en vez de rechazar el pedido.
+      .getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: true })
       .then((stream) => {
         if (cancelled) {
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
+        log('getUserMedia:success', {
+          tracks: stream.getTracks().map((t) => ({
+            kind: t.kind,
+            label: t.label,
+            readyState: t.readyState,
+            enabled: t.enabled,
+            muted: t.muted,
+          })),
+        });
+        // OJO: NO tocar videoRef.current acá -- en este punto permissionState
+        // todavía es 'pending', así que el <video> ni siquiera está montado
+        // todavía (se monta recién cuando permissionState pasa a 'granted',
+        // más abajo en el render). Asignarlo acá sería un no-op silencioso
+        // contra un ref null -- era exactamente el bug del preview negro.
+        // El efecto de más abajo (dependiente de permissionState) es quien
+        // conecta el stream al <video> una vez que ya existe en el DOM.
         streamRef.current = stream;
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
         setPermissionState('granted');
       })
       .catch((e) => {
+        log('getUserMedia:error', { error: String(e), name: e instanceof Error ? e.name : undefined });
         console.warn('getUserMedia failed', e);
         if (!cancelled) setPermissionState('denied');
       });
@@ -137,6 +172,110 @@ export function WebCameraCapture() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [supported]);
+
+  // Conecta el stream al <video> DESPUÉS de que permissionState pase a
+  // 'granted' -- recién ahí React ya montó el elemento (ver el render más
+  // abajo), así que videoRef.current es válido. Espera a loadedmetadata/
+  // canplay (y confirma videoWidth/videoHeight > 0) antes de habilitar
+  // grabar, para nunca dejar grabar un preview que en realidad está negro.
+  useEffect(() => {
+    if (permissionState !== 'granted') return undefined;
+
+    const stream = streamRef.current;
+    const video = videoRef.current;
+    if (!stream || !video) {
+      log('preview:missing_refs', { hasStream: Boolean(stream), hasVideoEl: Boolean(video) });
+      setPreviewState('error');
+      return undefined;
+    }
+
+    let settled = false;
+    setPreviewState('waiting');
+    video.srcObject = stream;
+
+    function markReadyIfPlayable(source: string) {
+      if (settled || !video) return;
+      const { videoWidth, videoHeight, readyState } = video;
+      if (videoWidth > 0 && videoHeight > 0) {
+        settled = true;
+        log('preview:ready', { source, videoWidth, videoHeight, readyState });
+        setPreviewState('ready');
+      } else {
+        log('preview:dimensions_still_zero', { source, videoWidth, videoHeight, readyState });
+      }
+    }
+
+    function handleLoadedMetadata() {
+      if (!video) return;
+      log('preview:loadedmetadata', {
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        readyState: video.readyState,
+      });
+      markReadyIfPlayable('loadedmetadata');
+    }
+
+    function handleCanPlay() {
+      if (!video) return;
+      log('preview:canplay', {
+        videoWidth: video.videoWidth,
+        videoHeight: video.videoHeight,
+        readyState: video.readyState,
+      });
+      markReadyIfPlayable('canplay');
+    }
+
+    function handleVideoError() {
+      log('preview:video_error', {
+        error: video?.error ? { code: video.error.code, message: video.error.message } : null,
+      });
+      if (!settled) {
+        settled = true;
+        setPreviewState('error');
+      }
+    }
+
+    video.addEventListener('loadedmetadata', handleLoadedMetadata);
+    video.addEventListener('canplay', handleCanPlay);
+    video.addEventListener('error', handleVideoError);
+
+    // Safari requiere invocar play() explícitamente (autoPlay solo no
+    // alcanza siempre) y su Promise puede rechazar -- nunca la dejamos sin
+    // manejar.
+    video
+      .play()
+      .then(() => {
+        log('preview:play_resolved', {
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+          readyState: video.readyState,
+        });
+        markReadyIfPlayable('play_resolved');
+      })
+      .catch((e) => {
+        log('preview:play_rejected', { error: String(e) });
+        console.warn('video.play() failed', e);
+      });
+
+    const timeoutId = setTimeout(() => {
+      if (!settled) {
+        log('preview:timeout', {
+          videoWidth: video.videoWidth,
+          videoHeight: video.videoHeight,
+          readyState: video.readyState,
+        });
+        settled = true;
+        setPreviewState('error');
+      }
+    }, PREVIEW_READY_TIMEOUT_MS);
+
+    return () => {
+      clearTimeout(timeoutId);
+      video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      video.removeEventListener('canplay', handleCanPlay);
+      video.removeEventListener('error', handleVideoError);
+    };
+  }, [permissionState]);
 
   // Nunca dejar el stream, el MediaRecorder ni los timers vivos si esta
   // pantalla se desmonta (volver atrás, o cualquier otra navegación)
@@ -167,7 +306,11 @@ export function WebCameraCapture() {
   }
 
   function handleStartRecording() {
-    if (recording || !streamRef.current || !mimeType) return;
+    // previewState !== 'ready' cubre justo el bug que estamos arreglando:
+    // nunca arrancar a grabar mientras el <video> no esté confirmado
+    // reproduciendo frames reales (videoWidth/videoHeight > 0) -- si no,
+    // grabaríamos un clip negro sin que nadie se entere hasta Gemini.
+    if (recording || !streamRef.current || !mimeType || previewState !== 'ready') return;
 
     const recorder = new MediaRecorder(streamRef.current, { mimeType });
     recorderRef.current = recorder;
@@ -276,6 +419,18 @@ export function WebCameraCapture() {
     );
   }
 
+  if (previewState === 'error') {
+    return (
+      <View style={[styles.center, { paddingTop: insets.top + spacing.lg }]}>
+        <Text style={styles.permissionTitle}>No pudimos mostrar la cámara</Text>
+        <Text style={styles.permissionText}>
+          Hubo un problema mostrando la vista previa. Intenta de nuevo o usa SUBIR VIDEO.
+        </Text>
+        <PrimaryButton label="VOLVER" onPress={() => goToUpload()} />
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {React.createElement('video', {
@@ -305,18 +460,29 @@ export function WebCameraCapture() {
 
         <Pressable
           onPress={recording ? requestStop : handleStartRecording}
+          disabled={!recording && previewState !== 'ready'}
           style={styles.recordButtonWrap}
           hitSlop={12}
           accessibilityRole="button"
           accessibilityLabel={recording ? 'Detener grabación' : 'Grabar video'}
         >
-          <View style={[styles.recordButtonOuter, recording && styles.recordButtonOuterActive]}>
+          <View
+            style={[
+              styles.recordButtonOuter,
+              recording && styles.recordButtonOuterActive,
+              !recording && previewState !== 'ready' && styles.recordButtonOuterDisabled,
+            ]}
+          >
             <View style={[styles.recordButtonInner, recording && styles.recordButtonInnerActive]} />
           </View>
         </Pressable>
 
         <Text style={styles.hint}>
-          {recording ? 'Toca para detener antes de tiempo' : 'Toca para grabar (máximo 8 segundos)'}
+          {recording
+            ? 'Toca para detener antes de tiempo'
+            : previewState === 'ready'
+              ? 'Toca para grabar (máximo 8 segundos)'
+              : 'Preparando cámara…'}
         </Text>
       </View>
     </View>
@@ -411,6 +577,9 @@ const styles = StyleSheet.create({
   },
   recordButtonOuterActive: {
     borderColor: colors.danger,
+  },
+  recordButtonOuterDisabled: {
+    opacity: 0.4,
   },
   recordButtonInner: {
     width: 64,
