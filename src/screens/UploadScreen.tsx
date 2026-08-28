@@ -17,7 +17,8 @@ const MAX_DURATION_MS = 8000;
 
 interface PickedVideo {
   uri: string;
-  durationMs: number;
+  /** null cuando la duración no se pudo determinar de forma confiable. */
+  durationMs: number | null;
 }
 
 const GUIDELINES = [
@@ -50,13 +51,20 @@ export default function UploadScreen() {
     if (result.canceled || !result.assets?.[0]) return;
 
     const asset = result.assets[0];
-    // En web, expo-image-picker no siempre puede leer la duración del
-    // archivo (queda undefined/0) — no es un video de 0 segundos real,
-    // así que no lo tratamos como "demasiado largo" ni lo mostramos
-    // como si durara 0s; simplemente no podemos confirmar la duración acá.
-    const durationMs = asset.duration ?? 0;
+    // expo-image-picker documenta `duration` en milisegundos, pero su
+    // implementación web lo saca directo de HTMLVideoElement.duration, que
+    // está en SEGUNDOS (ver ExponentImagePicker.web.ts). Sin esta
+    // normalización, un clip de 5s reportaba "durationMs: 5" -> se mostraba
+    // como "(0.0s)" y nunca activaba la validación de máximo 8 segundos.
+    const rawDuration = asset.duration;
+    const durationMs =
+      rawDuration != null && rawDuration > 0
+        ? Platform.OS === 'web'
+          ? Math.round(rawDuration * 1000)
+          : Math.round(rawDuration)
+        : null;
 
-    if (durationMs > MAX_DURATION_MS) {
+    if (durationMs !== null && durationMs > MAX_DURATION_MS) {
       notify('Muy largo', 'El clip tiene que durar máximo 8 segundos.');
       return;
     }
@@ -112,7 +120,10 @@ export default function UploadScreen() {
 
     setSubmitting(true);
     try {
-      const scanId = await uploadAndSubmitScan(video.uri, video.durationMs, params?.challengeToken);
+      // scans.duration_ms es NOT NULL en el schema (fuera de alcance acá) —
+      // cuando no pudimos determinar la duración mandamos 0 como antes.
+      const durationMs = video.durationMs ?? 0;
+      const scanId = await uploadAndSubmitScan(video.uri, durationMs, params?.challengeToken);
       navigation.navigate('Analyzing', { scanId });
     } catch (e) {
       console.warn('uploadAndSubmitScan failed', e);
@@ -162,7 +173,8 @@ export default function UploadScreen() {
         {video && (
           <View style={styles.videoReady}>
             <Text style={styles.videoReadyText}>
-              ✓ Video cargado{video.durationMs > 0 ? ` (${(video.durationMs / 1000).toFixed(1)}s)` : ''}
+              ✓ Video cargado
+              {video.durationMs !== null ? ` (${(video.durationMs / 1000).toFixed(1)}s)` : ''}
             </Text>
           </View>
         )}

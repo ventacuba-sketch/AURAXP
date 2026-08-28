@@ -7,6 +7,29 @@ import { supabase } from './supabaseClient';
 
 const BUCKET = 'scans';
 
+const MIME_EXTENSIONS: Record<string, string> = {
+  'video/mp4': 'mp4',
+  'video/quicktime': 'mov',
+  'video/webm': 'webm',
+  'video/x-matroska': 'mkv',
+  'video/3gpp': '3gp',
+};
+
+/**
+ * El uri de origen no es confiable para sacar la extensión: en web
+ * expo-image-picker entrega un blob:http://... sin extensión real, y
+ * partir por "." ahí puede devolver basura. Preferimos el content-type del
+ * blob y solo caemos al uri como último recurso.
+ */
+function guessExtension(videoUri: string, mimeType: string): string {
+  if (MIME_EXTENSIONS[mimeType]) return MIME_EXTENSIONS[mimeType];
+
+  const fromUri = videoUri.split('.').pop()?.split('?')[0];
+  if (fromUri && /^[a-zA-Z0-9]{2,4}$/.test(fromUri)) return fromUri.toLowerCase();
+
+  return 'mp4';
+}
+
 /** Shape of a `scans` row as it comes back from Supabase (snake_case). */
 interface ScanRow {
   id: string;
@@ -51,17 +74,20 @@ export async function uploadAndSubmitScan(
   if (!session) throw new Error('No autenticado');
   const userId = session.user.id;
 
-  const fingerprint = await computeVideoFingerprint(videoUri, durationMs);
-  const extension = videoUri.split('.').pop()?.split('?')[0] || 'mp4';
+  // Un solo fetch del video: antes se leía dos veces (una vía
+  // expo-file-system para el fingerprint, otra vía fetch para la subida).
+  // Funciona igual para file:// (nativo) y blob: (web).
+  const fileResponse = await fetch(videoUri);
+  const blob = await fileResponse.blob();
+
+  const fingerprint = await computeVideoFingerprint(blob, durationMs);
+  const extension = guessExtension(videoUri, blob.type);
   const path = `${userId}/${Crypto.randomUUID()}.${extension}`;
 
   const { data: signed, error: signErr } = await supabase.storage
     .from(BUCKET)
     .createSignedUploadUrl(path);
   if (signErr || !signed) throw signErr ?? new Error('No se pudo preparar la subida');
-
-  const fileResponse = await fetch(videoUri);
-  const blob = await fileResponse.blob();
 
   const { error: uploadErr } = await supabase.storage
     .from(BUCKET)
