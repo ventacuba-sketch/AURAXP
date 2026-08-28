@@ -128,11 +128,12 @@ export default function UploadScreen() {
     } catch (e) {
       console.warn('uploadAndSubmitScan failed', e);
       if (e instanceof VideoTooLargeError) {
-        const sizeMb = (e.sizeBytes / (1024 * 1024)).toFixed(1);
-        const maxMb = Math.round(e.maxBytes / (1024 * 1024));
+        // Mensaje de la versión de prueba (limitación temporal del plan
+        // Supabase actual) — no un límite permanente de AURAXP. Ver
+        // src/utils/uploadLimits.ts.
         notify(
           'Video muy pesado',
-          `Tu video pesa ${sizeMb} MB y el máximo es ${maxMb} MB. Prueba grabando en una calidad más baja (1080p en vez de 4K) o un clip más corto.`,
+          'Este video es demasiado pesado para la versión de prueba. Intenta grabarlo en menor resolución.',
         );
       } else {
         notify('No se pudo subir el video', 'Intenta de nuevo en unos segundos.');

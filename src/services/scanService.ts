@@ -1,20 +1,12 @@
 import * as Crypto from 'expo-crypto';
 
 import { ScanResult } from '../types';
+import { MAX_UPLOAD_BYTES } from '../utils/uploadLimits';
 import { computeVideoFingerprint } from '../utils/videoFingerprint';
 import { getSession } from './authService';
 import { supabase } from './supabaseClient';
 
 const BUCKET = 'scans';
-
-// Debe coincidir con el file_size_limit del bucket "scans" (ver
-// supabase/migrations/20260828010000_scans_bucket_size_limit.sql) — 60 MB
-// cubre con margen un clip de hasta 8s en los modos de grabación estándar
-// de un teléfono moderno (4K/60 o slow-motion 1080p), sin permitir modos
-// fuera de alcance para esta app (ProRes, 8K). Validar acá antes de subir
-// evita gastar una signed URL y le da al usuario un mensaje claro en vez
-// del error crudo de Storage.
-export const MAX_VIDEO_BYTES = 60 * 1024 * 1024;
 
 export class VideoTooLargeError extends Error {
   sizeBytes: number;
@@ -49,6 +41,23 @@ function guessExtension(videoUri: string, mimeType: string): string {
   if (fromUri && /^[a-zA-Z0-9]{2,4}$/.test(fromUri)) return fromUri.toLowerCase();
 
   return 'mp4';
+}
+
+/**
+ * Punto de entrada para la futura capa de compresión/downscale de video.
+ *
+ * TODO(producción): Gemini no necesita el video en su resolución original
+ * (4K/HDR) para evaluar Aura -- bajarlo a 720p/1080p antes de subirlo
+ * reduciría el tamaño típico muy por debajo de cualquier límite de plan de
+ * Supabase, resolviendo el problema en la raíz en vez de solo detectarlo
+ * con MAX_UPLOAD_BYTES. Requiere una librería de transcoding client-side
+ * (o un paso server-side) que todavía no está en el MVP -- agregarla acá
+ * atrasaría este fix, así que por ahora es un passthrough que no toca el
+ * video. Cuando se implemente, este es el único lugar que necesita cambiar:
+ * el resto de uploadAndSubmitScan ya trabaja sobre el Blob que devuelva.
+ */
+async function compressVideoIfNeeded(blob: Blob): Promise<Blob> {
+  return blob;
 }
 
 /** Shape of a `scans` row as it comes back from Supabase (snake_case). */
@@ -99,10 +108,11 @@ export async function uploadAndSubmitScan(
   // expo-file-system para el fingerprint, otra vía fetch para la subida).
   // Funciona igual para file:// (nativo) y blob: (web).
   const fileResponse = await fetch(videoUri);
-  const blob = await fileResponse.blob();
+  const rawBlob = await fileResponse.blob();
+  const blob = await compressVideoIfNeeded(rawBlob);
 
-  if (blob.size > MAX_VIDEO_BYTES) {
-    throw new VideoTooLargeError(blob.size, MAX_VIDEO_BYTES);
+  if (blob.size > MAX_UPLOAD_BYTES) {
+    throw new VideoTooLargeError(blob.size, MAX_UPLOAD_BYTES);
   }
 
   const fingerprint = await computeVideoFingerprint(blob, durationMs);
