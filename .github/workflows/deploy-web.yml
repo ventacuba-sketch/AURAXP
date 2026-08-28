@@ -1,0 +1,61 @@
+name: Deploy web
+
+# Single-environment deploy: every push to the branch we're currently
+# using to develop AURA VS builds the web export and publishes it to
+# auravs.app. No staging/beta environment yet, by design.
+on:
+  push:
+    branches:
+      - claude/auraxp-mvp-visual-experience
+
+jobs:
+  deploy:
+    name: Build and deploy web (auravs.app)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check
+        run: npx tsc --noEmit -p tsconfig.json
+
+      - name: Export web build
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+        run: npx expo export --platform web
+
+      - name: Add SPA fallback + caching rules (.htaccess)
+        run: cp web/.htaccess dist/.htaccess
+
+      - name: Deploy to auravs.app via FTPS
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          # dist/ is the export output (see step above) -- its *contents*
+          # get uploaded, not the dist/ folder itself, so index.html lands
+          # directly at the account's root.
+          local-dir: ./dist/
+          # The FTP account already points at auravs.app's public root
+          # (per instructions: no /deploy or extra subfolder).
+          server-dir: ./
+          # Left at the action's safe default: only uploads changed files,
+          # never deletes anything on the server. That means old,
+          # content-hashed JS bundles from previous deploys will
+          # accumulate in _expo/static/js/web/ over time -- harmless
+          # (nothing references them once index.html stops pointing at
+          # them) but worth knowing; flagged in the report rather than
+          # enabling deletion unilaterally.
+          dangerous-clean-slate: false
