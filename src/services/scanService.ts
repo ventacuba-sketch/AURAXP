@@ -8,15 +8,6 @@ import { supabase } from './supabaseClient';
 
 const BUCKET = 'scans';
 
-/**
- * Logging TEMPORAL para diagnosticar AURA REPLAY (ver conversación) --
- * mismo formato que el de las Edge Functions, para poder cruzar un scanId
- * entre logs de cliente y de servidor. Sacar una vez confirmado el fix.
- */
-function log(scanId: string, step: string, data?: Record<string, unknown>) {
-  console.log(JSON.stringify({ src: 'scanService', scanId, step, t: Date.now(), ...data }));
-}
-
 export class VideoTooLargeError extends Error {
   sizeBytes: number;
   maxBytes: number;
@@ -113,14 +104,9 @@ export function mapScanRowToScanResult(row: ScanRow): ScanResult {
 export async function getVideoPlaybackUrl(videoPath: string, scanId: string): Promise<string | null> {
   if (!supabase) return null;
 
-  log(scanId, 'getVideoPlaybackUrl:before', { videoPath });
   const { data, error } = await supabase.storage
     .from(BUCKET)
     .createSignedUrl(videoPath, VIDEO_SIGNED_URL_TTL_SECONDS);
-  log(scanId, 'getVideoPlaybackUrl:after', {
-    error: error ? String(error) : null,
-    hasUrl: Boolean(data?.signedUrl),
-  });
 
   if (error || !data?.signedUrl) return null;
   return data.signedUrl;

@@ -20,15 +20,6 @@ import { shareText } from '../utils/share';
 
 type ScanResultRoute = RouteProp<RootStackParamList, 'ScanResult'>;
 
-/**
- * Logging TEMPORAL para diagnosticar AURA REPLAY (ver conversación) --
- * mismo formato que el resto del pipeline, para cruzar por scanId. Sacar
- * una vez confirmado el fix.
- */
-function log(scanId: string, step: string, data?: Record<string, unknown>) {
-  console.log(JSON.stringify({ src: 'ScanResultScreen', scanId, step, t: Date.now(), ...data }));
-}
-
 export default function ScanResultScreen() {
   const { params } = useRoute<ScanResultRoute>();
   const { result, loading } = useScanResult(params?.scanId);
@@ -50,7 +41,6 @@ export default function ScanResultScreen() {
     setPlaying(false);
     setPlaybackError(null);
 
-    log(scanId, 'video:source', { videoPath: result?.videoPath ?? null });
     if (!result?.videoPath) return;
 
     let cancelled = false;
@@ -58,7 +48,6 @@ export default function ScanResultScreen() {
     getVideoPlaybackUrl(result.videoPath, scanId)
       .then((url) => {
         if (cancelled) return;
-        log(scanId, 'video:url_resolved', { hasUrl: Boolean(url) });
         setVideoUrl(url);
         if (!url) setPlaybackError('No se pudo cargar el video.');
       })
@@ -78,7 +67,6 @@ export default function ScanResultScreen() {
 
   useEffect(() => {
     const subscription = player.addListener('statusChange', ({ status, error }) => {
-      log(scanId, 'player:statusChange', { status, error: error ? String(error) : undefined });
       if (status === 'error') {
         setPlaybackError('No se pudo reproducir el video.');
       }
@@ -88,8 +76,6 @@ export default function ScanResultScreen() {
   }, [player]);
 
   function handlePlayPress() {
-    log(scanId, 'play:pressed', { videoPath: result?.videoPath ?? null, videoUrl });
-
     if (!result?.videoPath) {
       setPlaybackError('Este video ya no está disponible.');
       return;

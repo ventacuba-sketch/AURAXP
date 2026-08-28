@@ -13,16 +13,6 @@ const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const GEMINI_API_URL = `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent`;
 const GEMINI_FILES_UPLOAD_URL = 'https://generativelanguage.googleapis.com/upload/v1beta/files';
 
-/**
- * Logging TEMPORAL para diagnosticar dónde falla el pipeline de Gemini en
- * producción (ver conversación) — JSON de una línea por entrada para que
- * sea fácil de leer/grepear en los logs de Supabase. Sacar una vez que el
- * flujo esté confirmado funcionando de punta a punta.
- */
-function log(scanId: string, step: string, data?: Record<string, unknown>) {
-  console.log(JSON.stringify({ src: 'gemini', scanId, step, t: Date.now(), ...data }));
-}
-
 export const SYSTEM_PROMPT = `Sos el motor de análisis de AURAXP, una app social Gen Z. Tu trabajo es leer
 un clip de video corto (máximo 8 segundos) de CUALQUIER tipo de momento
 social — entrada, reacción, baile, deporte, caída, truco, interacción,
@@ -169,8 +159,6 @@ export async function analyzeVideo({
   mimeType,
   scanId,
 }: AnalyzeVideoParams): Promise<GeminiResult> {
-  log(scanId, 'analyzeVideo:start', { fileUri, mimeType });
-
   const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -194,24 +182,15 @@ export async function analyzeVideo({
 
   if (!response.ok) {
     const errText = await response.text();
-    log(scanId, 'analyzeVideo:error', { status: response.status, body: errText });
     throw new Error(`Gemini API error ${response.status}: ${errText}`);
   }
 
   const data = await response.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    log(scanId, 'analyzeVideo:no_content', { rawResponse: data });
-    throw new Error('Gemini no devolvió contenido');
-  }
+  if (!text) throw new Error('Gemini no devolvió contenido');
 
   const parsed = JSON.parse(text) as GeminiResult;
   validateGeminiResult(parsed);
-  log(scanId, 'analyzeVideo:done', {
-    hasClearAction: parsed.signals?.hasClearAction,
-    scores: parsed.scores,
-    moderationFlagged: parsed.moderation?.flagged,
-  });
   return parsed;
 }
 
@@ -241,8 +220,6 @@ async function uploadVideoToGeminiFiles({
   mimeType: string;
   scanId: string;
 }): Promise<UploadedGeminiFile> {
-  log(scanId, 'uploadVideoToGeminiFiles:start', { sizeBytes, mimeType });
-
   // Paso 1: iniciar la sesión de upload resumible — Gemini responde con la
   // URL real de subida en el header X-Goog-Upload-URL.
   const startResponse = await fetch(`${GEMINI_FILES_UPLOAD_URL}?key=${apiKey}`, {
@@ -257,25 +234,13 @@ async function uploadVideoToGeminiFiles({
     body: JSON.stringify({ file: { display_name: `auraxp-scan-${Date.now()}` } }),
   });
 
-  log(scanId, 'uploadVideoToGeminiFiles:start_response', {
-    status: startResponse.status,
-    ok: startResponse.ok,
-    uploadUrlHeader: startResponse.headers.get('x-goog-upload-url'),
-  });
-
   if (!startResponse.ok) {
     const errorBody = await startResponse.text();
-    log(scanId, 'uploadVideoToGeminiFiles:start_error', { status: startResponse.status, body: errorBody });
     throw new Error(`Gemini Files API (start) error ${startResponse.status}: ${errorBody}`);
   }
 
   const uploadUrl = startResponse.headers.get('x-goog-upload-url');
-  if (!uploadUrl) {
-    log(scanId, 'uploadVideoToGeminiFiles:no_upload_url', {
-      headers: Object.fromEntries(startResponse.headers.entries()),
-    });
-    throw new Error('Gemini Files API no devolvió upload URL');
-  }
+  if (!uploadUrl) throw new Error('Gemini Files API no devolvió upload URL');
 
   // Paso 2: subir los bytes — stream directo desde Supabase Storage hasta
   // Gemini, sin materializar el video completo en memoria en ningún punto.
@@ -290,29 +255,16 @@ async function uploadVideoToGeminiFiles({
     duplex: 'half',
   } as RequestInit);
 
-  log(scanId, 'uploadVideoToGeminiFiles:upload_response', {
-    status: uploadResponse.status,
-    ok: uploadResponse.ok,
-  });
-
   if (!uploadResponse.ok) {
     const errorBody = await uploadResponse.text();
-    log(scanId, 'uploadVideoToGeminiFiles:upload_error', { status: uploadResponse.status, body: errorBody });
     throw new Error(`Gemini Files API (upload) error ${uploadResponse.status}: ${errorBody}`);
   }
 
   const uploadData = await uploadResponse.json();
   // La mayoría de las respuestas de Google envuelven el recurso subido
   // bajo "file"; por las dudas, si algún día viniera sin envolver, lo
-  // tomamos igual -- pero logueamos el shape crudo siempre para confirmar.
+  // tomamos igual.
   const file = uploadData?.file ?? (uploadData?.name ? uploadData : null);
-  log(scanId, 'uploadVideoToGeminiFiles:file', {
-    rawResponse: uploadData,
-    uri: file?.uri,
-    name: file?.name,
-    state: file?.state,
-    mimeType: file?.mimeType,
-  });
 
   if (!file?.uri || !file?.name) {
     throw new Error(`Gemini Files API no devolvió el archivo subido: ${JSON.stringify(uploadData)}`);
@@ -331,33 +283,23 @@ async function uploadVideoToGeminiFiles({
 async function waitForGeminiFileActive(apiKey: string, name: string, scanId: string): Promise<void> {
   const maxAttempts = 20;
   const delayMs = 1000;
-  const startedAt = Date.now();
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const response = await fetch(`${GEMINI_API_BASE}/${name}?key=${apiKey}`);
     if (!response.ok) {
       const body = await response.text();
-      log(scanId, 'waitForGeminiFileActive:status_error', { attempt, status: response.status, body });
       throw new Error(`Gemini Files API (status) error ${response.status}: ${body}`);
     }
 
     const data = await response.json();
-    log(scanId, 'waitForGeminiFileActive:poll', {
-      attempt,
-      elapsedMs: Date.now() - startedAt,
-      state: data.state,
-    });
-
     if (data.state === 'ACTIVE') return;
     if (data.state === 'FAILED') {
-      log(scanId, 'waitForGeminiFileActive:failed', { error: data.error });
       throw new Error(`Gemini no pudo procesar el video: ${JSON.stringify(data.error ?? {})}`);
     }
 
     await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
-  log(scanId, 'waitForGeminiFileActive:timeout', { elapsedMs: Date.now() - startedAt });
   throw new Error('Timeout esperando a que Gemini termine de procesar el video');
 }
 
@@ -371,7 +313,6 @@ export async function prepareGeminiVideoFile(params: {
 }): Promise<UploadedGeminiFile> {
   const file = await uploadVideoToGeminiFiles(params);
   await waitForGeminiFileActive(params.apiKey, file.name, params.scanId);
-  log(params.scanId, 'prepareGeminiVideoFile:done', { uri: file.uri, name: file.name });
   return file;
 }
 
@@ -382,7 +323,6 @@ export async function prepareGeminiVideoFile(params: {
  */
 export async function deleteGeminiFile(apiKey: string, name: string, scanId: string): Promise<void> {
   const response = await fetch(`${GEMINI_API_BASE}/${name}?key=${apiKey}`, { method: 'DELETE' });
-  log(scanId, 'deleteGeminiFile', { name, status: response.status, ok: response.ok });
   if (!response.ok) {
     throw new Error(`Gemini Files API (delete) error ${response.status}: ${await response.text()}`);
   }
