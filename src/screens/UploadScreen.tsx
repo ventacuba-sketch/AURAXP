@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -32,26 +32,56 @@ export default function UploadScreen() {
   const [video, setVideo] = useState<PickedVideo | null>(null);
   const [source, setSource] = useState<'record' | 'upload' | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  // react-native-web's Alert.alert() is a documented no-op — it does
+  // nothing at all in a browser. notify() keeps the real native Alert
+  // on iOS/Android, and falls back to this inline banner on web so
+  // permission/duration/upload feedback is never silently dropped.
+  const [notice, setNotice] = useState<string | null>(null);
+
+  function notify(title: string, message: string) {
+    if (Platform.OS === 'web') {
+      setNotice(message);
+    } else {
+      Alert.alert(title, message);
+    }
+  }
 
   async function handlePicked(result: ImagePicker.ImagePickerResult, mode: 'record' | 'upload') {
     if (result.canceled || !result.assets?.[0]) return;
 
     const asset = result.assets[0];
+    // En web, expo-image-picker no siempre puede leer la duración del
+    // archivo (queda undefined/0) — no es un video de 0 segundos real,
+    // así que no lo tratamos como "demasiado largo" ni lo mostramos
+    // como si durara 0s; simplemente no podemos confirmar la duración acá.
     const durationMs = asset.duration ?? 0;
 
     if (durationMs > MAX_DURATION_MS) {
-      Alert.alert('Muy largo', 'El clip tiene que durar máximo 8 segundos.');
+      notify('Muy largo', 'El clip tiene que durar máximo 8 segundos.');
       return;
     }
 
+    setNotice(null);
     setVideo({ uri: asset.uri, durationMs });
     setSource(mode);
   }
 
   async function handleRecord() {
+    if (Platform.OS === 'web') {
+      // expo-image-picker no implementa una captura de cámara real en
+      // web (launchCameraAsync ahí termina abriendo el mismo selector
+      // de archivos que SUBIR VIDEO) — en vez de dejar que las dos
+      // acciones se confundan, avisamos claramente en vez de intentarlo.
+      notify(
+        'Grabar no está disponible acá',
+        'Grabar video no funciona de forma confiable en la vista web. Usa SUBIR VIDEO para elegir un archivo, o abre AURAXP en tu celular para grabar directo.',
+      );
+      return;
+    }
+
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert('Falta permiso', 'AURAXP necesita acceso a la cámara para grabar.');
+      notify('Falta permiso', 'AURAXP necesita acceso a la cámara para grabar.');
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
@@ -64,7 +94,7 @@ export default function UploadScreen() {
   async function handlePickFromLibrary() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert('Falta permiso', 'AURAXP necesita acceso a tus videos para subir uno.');
+      notify('Falta permiso', 'AURAXP necesita acceso a tus videos para subir uno.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'] });
@@ -86,7 +116,7 @@ export default function UploadScreen() {
       navigation.navigate('Analyzing', { scanId });
     } catch (e) {
       console.warn('uploadAndSubmitScan failed', e);
-      Alert.alert('No se pudo subir el video', 'Intentá de nuevo en unos segundos.');
+      notify('No se pudo subir el video', 'Intenta de nuevo en unos segundos.');
     } finally {
       setSubmitting(false);
     }
@@ -122,6 +152,20 @@ export default function UploadScreen() {
             </Text>
           </Pressable>
         </View>
+
+        {notice && (
+          <View style={styles.notice}>
+            <Text style={styles.noticeText}>{notice}</Text>
+          </View>
+        )}
+
+        {video && (
+          <View style={styles.videoReady}>
+            <Text style={styles.videoReadyText}>
+              ✓ Video cargado{video.durationMs > 0 ? ` (${(video.durationMs / 1000).toFixed(1)}s)` : ''}
+            </Text>
+          </View>
+        )}
 
         <View style={styles.guidelines}>
           {GUIDELINES.map((line) => (
@@ -222,6 +266,35 @@ const styles = StyleSheet.create({
   },
   uploadTextActive: {
     color: colors.accent,
+  },
+  notice: {
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.danger,
+    backgroundColor: colors.surfaceAlt,
+    maxWidth: '100%',
+  },
+  noticeText: {
+    ...typography.caption,
+    color: colors.danger,
+    textAlign: 'center',
+  },
+  videoReady: {
+    alignSelf: 'center',
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.success,
+  },
+  videoReadyText: {
+    ...typography.caption,
+    color: colors.success,
+    fontWeight: '700',
   },
   guidelines: {
     gap: spacing.xs,
