@@ -97,6 +97,11 @@ export interface ScanResult {
   timeline: TimelineEvent[];
   stats: AuraStats;
   createdAt: string;
+  /** Ruta del video en Supabase Storage (bucket "scans"), no una URL — el
+   * bucket es privado, así que hace falta mintear una signed URL para
+   * reproducirlo (ver getVideoPlaybackUrl en scanService.ts). null en modo
+   * mock o si el scan no tiene video asociado. */
+  videoPath: string | null;
 }
 
 /** A chain of friends who've passed a challenge along. */

@@ -62,6 +62,9 @@ export const mockScanResult: ScanResult = {
     cringeRisk: 18,
   },
   createdAt: new Date().toISOString(),
+  // Sin backend real no hay ningún video que reproducir -- el botón de
+  // play en AURA REPLAY queda deshabilitado en modo mock.
+  videoPath: null,
 };
 
 export const mockAuraChain: AuraChain = {
