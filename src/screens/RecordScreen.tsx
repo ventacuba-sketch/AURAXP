@@ -1,16 +1,32 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BackHandler, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BackHandler, Linking, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CameraView, useCameraPermissions, useMicrophonePermissions } from 'expo-camera';
 
 import { AuraScanner } from '../components/AuraScanner';
 import { PrimaryButton } from '../components/PrimaryButton';
+import { WebCameraCapture } from '../components/WebCameraCapture';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { RootStackParamList } from '../types';
 
 type RecordRoute = RouteProp<RootStackParamList, 'Record'>;
+
+/**
+ * Despachador por plataforma -- expo-camera no graba en web (confirmado en
+ * su propio código fuente: record()/stopRecording() ahí son no-ops), así
+ * que web usa un componente completamente aparte basado en Web APIs
+ * (getUserMedia + MediaRecorder). Nativo (iOS/Android) sigue exactamente
+ * igual que antes -- NativeCameraRecorder de acá abajo es el mismo código
+ * de siempre, solo renombrado; ni sus hooks ni su lógica se tocaron.
+ */
+export default function RecordScreen() {
+  if (Platform.OS === 'web') {
+    return <WebCameraCapture />;
+  }
+  return <NativeCameraRecorder />;
+}
 
 const MAX_DURATION_MS = 8000;
 // Respaldo por si el corte nativo de maxDuration se demora en resolver --
@@ -33,7 +49,7 @@ const STOP_BACKUP_BUFFER_MS = 300;
  *   (sin tocar) sigue corriendo sobre el video final, sin importar de
  *   dónde vino.
  */
-export default function RecordScreen() {
+function NativeCameraRecorder() {
   const navigation = useRootNavigation();
   const { params } = useRoute<RecordRoute>();
   const insets = useSafeAreaInsets();

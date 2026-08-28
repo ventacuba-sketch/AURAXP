@@ -97,18 +97,11 @@ export default function UploadScreen() {
   }, [params?.recordedUri]);
 
   function handleRecord() {
-    if (Platform.OS === 'web') {
-      // expo-camera no soporta grabación de video en web (confirmado en su
-      // código fuente: record()/stopRecording() son no-ops ahí) -- en vez
-      // de dejar que la cámara se muestre rota, avisamos claramente en vez
-      // de intentarlo, igual que antes.
-      notify(
-        'Grabar no está disponible acá',
-        'Grabar video no funciona de forma confiable en la vista web. Usa SUBIR VIDEO para elegir un archivo, o abre AURAXP en tu celular para grabar directo.',
-      );
-      return;
-    }
-
+    // RecordScreen decide internamente qué mostrar: cámara nativa
+    // (expo-camera) en iOS/Android, o WebCameraCapture (getUserMedia +
+    // MediaRecorder) en web -- y ahí, si el navegador no soporta grabar,
+    // WebCameraCapture es quien muestra el aviso de "usa SUBIR VIDEO", no
+    // esta pantalla. Ya no bloqueamos web acá.
     navigation.navigate('Record', { challengeToken: params?.challengeToken });
   }
 
