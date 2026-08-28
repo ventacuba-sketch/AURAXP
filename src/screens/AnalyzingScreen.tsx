@@ -89,7 +89,7 @@ export default function AnalyzingScreen() {
         setErrorMessage(
           scan.status === 'rejected'
             ? 'Este video no se pudo procesar (moderación o límite diario).'
-            : 'El análisis falló. Probá de nuevo.',
+            : 'El análisis falló. Intenta de nuevo.',
         );
       }
     }, POLL_INTERVAL_MS);

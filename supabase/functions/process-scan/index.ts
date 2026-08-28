@@ -26,14 +26,31 @@ const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY')!;
 
+/**
+ * Logging TEMPORAL para diagnosticar dónde falla el pipeline en
+ * producción (ver conversación) — JSON de una línea por entrada, mismo
+ * formato que el de _shared/gemini.ts, para poder seguir un scanId de
+ * punta a punta en los logs de Supabase. Sacar una vez confirmado el fix.
+ */
+function log(scanId: string, step: string, data?: Record<string, unknown>) {
+  console.log(JSON.stringify({ src: 'process-scan', scanId, step, t: Date.now(), ...data }));
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  // scanId puede no existir todavía si el body vino mal formado — se logea
+  // en cuanto se conoce, más abajo.
+  let scanIdForLogging = 'unknown';
+
   try {
     const authHeader = req.headers.get('Authorization') ?? '';
     const { scanId, challengeToken } = await req.json();
+    scanIdForLogging = scanId ?? 'unknown';
+
+    log(scanIdForLogging, 'start', { hasChallengeToken: Boolean(challengeToken) });
 
     if (!scanId) {
       return jsonResponse({ error: 'scanId requerido' }, 400);
@@ -135,8 +152,15 @@ Deno.serve(async (req: Request) => {
     // descargar nada, streameamos el video directo desde Storage a la
     // Files API de Gemini, y lo referenciamos por URI -- nunca se arma un
     // string base64 del video completo.
+    log(scanId, 'storage:info:before');
     const { data: videoInfo, error: infoErr } = await admin.storage.from('scans').info(scan.video_path);
+    log(scanId, 'storage:info:after', {
+      error: infoErr ? String(infoErr) : null,
+      size: videoInfo?.size,
+      contentType: videoInfo?.contentType,
+    });
     if (infoErr || !videoInfo) {
+      log(scanId, 'catch:video_info_failed', { error: infoErr ? String(infoErr) : 'sin data' });
       await admin
         .from('scans')
         .update({ status: 'failed', error_message: 'video_info_failed' })
@@ -144,12 +168,15 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: 'No se pudo leer el video' }, 500);
     }
 
+    log(scanId, 'storage:download:before');
     const { data: videoStream, error: streamErr } = await admin.storage
       .from('scans')
       .download(scan.video_path)
       .asStream();
+    log(scanId, 'storage:download:after', { error: streamErr ? String(streamErr) : null, hasStream: Boolean(videoStream) });
 
     if (streamErr || !videoStream) {
+      log(scanId, 'catch:download_failed', { error: streamErr ? String(streamErr) : 'sin stream' });
       await admin
         .from('scans')
         .update({ status: 'failed', error_message: 'download_failed' })
@@ -158,16 +185,24 @@ Deno.serve(async (req: Request) => {
     }
 
     const mimeType = videoInfo.contentType || 'video/mp4';
+    log(scanId, 'video:metadata', { sizeBytes: videoInfo.size ?? 0, mimeType });
 
     let videoFile;
     try {
+      log(scanId, 'prepareGeminiVideoFile:before');
       videoFile = await prepareGeminiVideoFile({
         apiKey: GEMINI_API_KEY,
         body: videoStream,
         sizeBytes: videoInfo.size ?? 0,
         mimeType,
+        scanId,
       });
+      log(scanId, 'prepareGeminiVideoFile:after', { uri: videoFile.uri, name: videoFile.name, mimeType: videoFile.mimeType });
     } catch (e) {
+      log(scanId, 'catch:video_upload_failed', {
+        error: e instanceof Error ? e.message : String(e),
+        stack: e instanceof Error ? e.stack : undefined,
+      });
       await admin
         .from('scans')
         .update({ status: 'failed', error_message: `video_upload_failed: ${String(e)}` })
@@ -178,14 +213,21 @@ Deno.serve(async (req: Request) => {
     let gemini;
     try {
       try {
-        gemini = await analyzeVideo({ apiKey: GEMINI_API_KEY, fileUri: videoFile.uri, mimeType: videoFile.mimeType });
+        gemini = await analyzeVideo({ apiKey: GEMINI_API_KEY, fileUri: videoFile.uri, mimeType: videoFile.mimeType, scanId });
       } catch (e) {
         // Un reintento simple ante un fallo de parseo/red -- el video ya
         // está subido a Gemini, así que reintentamos solo el análisis, no
         // el upload completo.
-        gemini = await analyzeVideo({ apiKey: GEMINI_API_KEY, fileUri: videoFile.uri, mimeType: videoFile.mimeType });
+        log(scanId, 'analyzeVideo:retry', {
+          error: e instanceof Error ? e.message : String(e),
+        });
+        gemini = await analyzeVideo({ apiKey: GEMINI_API_KEY, fileUri: videoFile.uri, mimeType: videoFile.mimeType, scanId });
       }
     } catch (e2) {
+      log(scanId, 'catch:analyze_failed', {
+        error: e2 instanceof Error ? e2.message : String(e2),
+        stack: e2 instanceof Error ? e2.stack : undefined,
+      });
       await admin
         .from('scans')
         .update({ status: 'failed', error_message: String(e2) })
@@ -195,10 +237,12 @@ Deno.serve(async (req: Request) => {
       // Best-effort: liberar el archivo en Gemini apenas terminamos con
       // él. Nunca debe bloquear ni fallar el scan -- Gemini lo expira
       // solo a las 48h de todos modos.
-      deleteGeminiFile(GEMINI_API_KEY, videoFile.name).catch((e) =>
+      deleteGeminiFile(GEMINI_API_KEY, videoFile.name, scanId).catch((e) =>
         console.warn('gemini file cleanup failed', e),
       );
     }
+
+    log(scanId, 'gemini:pipeline_done');
 
     // ── Moderación ───────────────────────────────────────────────────
     if (gemini.moderation.flagged) {
@@ -278,6 +322,13 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse({ ok: true });
   } catch (e) {
+    // Catch-all de última instancia -- cualquier throw no manejado más
+    // arriba (p. ej. un TypeError si algún método de storage-js no existe
+    // en la versión resuelta) cae acá. Logueado completo a propósito.
+    log(scanIdForLogging, 'catch:unhandled', {
+      error: e instanceof Error ? e.message : String(e),
+      stack: e instanceof Error ? e.stack : undefined,
+    });
     console.error(e);
     return jsonResponse({ error: 'Error interno' }, 500);
   }
