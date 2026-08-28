@@ -48,9 +48,16 @@ jobs:
           # get uploaded, not the dist/ folder itself, so index.html lands
           # directly at the account's root.
           local-dir: ./dist/
-          # The FTP account already points at auravs.app's public root
-          # (per instructions: no /deploy or extra subfolder).
-          server-dir: ./
+          # The FTP account's login root is /home2/auravs/public_html/auravs.app
+          # -- one level BELOW the actual document root of auravs.app
+          # (/home2/auravs/public_html). Confirmed from the first real
+          # deploy: with server-dir "./" the site landed at
+          # public_html/auravs.app/ and served blank at /auravs.app/
+          # instead of /. "../" uploads one level up from the FTP login
+          # root, landing directly in public_html -- so index.html ends
+          # up at the actual document root and https://auravs.app/ (no
+          # extra path segment) serves it.
+          server-dir: ../
           # Left at the action's safe default: only uploads changed files,
           # never deletes anything on the server. That means old,
           # content-hashed JS bundles from previous deploys will
