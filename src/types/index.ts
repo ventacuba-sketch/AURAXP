@@ -26,7 +26,15 @@ export type MainTabParamList = {
  */
 export type RootStackParamList = {
   MainTabs: undefined;
-  Upload: { challengeToken?: string } | undefined;
+  Upload:
+    | {
+        challengeToken?: string;
+        /** Vuelta desde Record con un video recién grabado (ver RecordScreen). */
+        recordedUri?: string;
+        recordedDurationMs?: number;
+      }
+    | undefined;
+  Record: { challengeToken?: string } | undefined;
   Analyzing: { scanId?: string } | undefined;
   ScanResult: { scanId?: string } | undefined;
   Challenge: { scanId?: string } | undefined;

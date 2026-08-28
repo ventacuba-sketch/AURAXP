@@ -14,6 +14,7 @@ import AnalyzingScreen from '../screens/AnalyzingScreen';
 import AuthScreen from '../screens/AuthScreen';
 import ChallengeLandingScreen from '../screens/ChallengeLandingScreen';
 import ChallengeScreen from '../screens/ChallengeScreen';
+import RecordScreen from '../screens/RecordScreen';
 import ScanResultScreen from '../screens/ScanResultScreen';
 import UploadScreen from '../screens/UploadScreen';
 import { isSupabaseConfigured } from '../services/supabaseClient';
@@ -85,6 +86,12 @@ export function RootNavigator() {
           <>
             <Stack.Screen name="MainTabs" component={MainTabNavigator} />
             <Stack.Screen name="Upload" component={UploadScreen} />
+            {/* Cámara en vivo -- bloqueamos el swipe-back nativo para que no
+                se pueda salir por accidente a mitad de una grabación; el
+                botón propio de la pantalla es la única salida mientras
+                graba. El cleanup (parar cámara, limpiar timers) corre igual
+                al desmontar sin importar cómo se salga. */}
+            <Stack.Screen name="Record" component={RecordScreen} options={{ gestureEnabled: false }} />
             {/* Transient auto-advancing state — block swiping back out of it. */}
             <Stack.Screen
               name="Analyzing"

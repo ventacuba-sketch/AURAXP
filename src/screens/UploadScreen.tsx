@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
@@ -74,12 +74,34 @@ export default function UploadScreen() {
     setSource(mode);
   }
 
-  async function handleRecord() {
+  // Video de vuelta de RecordScreen (nuestra propia cámara, no la del
+  // sistema) -- misma validación de duración que handlePicked, como
+  // tercera capa de seguridad detrás del auto-stop nativo y el respaldo
+  // por setTimeout que ya corren dentro de RecordScreen.
+  useEffect(() => {
+    if (!params?.recordedUri) return;
+
+    const durationMs = params.recordedDurationMs ?? null;
+    if (durationMs !== null && durationMs > MAX_DURATION_MS) {
+      notify('Muy largo', 'El clip tiene que durar máximo 8 segundos.');
+    } else {
+      setNotice(null);
+      setVideo({ uri: params.recordedUri, durationMs });
+      setSource('record');
+    }
+
+    // Se consume una sola vez -- evita que el mismo param dispare este
+    // efecto de nuevo si la pantalla se vuelve a renderizar por otro motivo.
+    navigation.setParams({ recordedUri: undefined, recordedDurationMs: undefined });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params?.recordedUri]);
+
+  function handleRecord() {
     if (Platform.OS === 'web') {
-      // expo-image-picker no implementa una captura de cámara real en
-      // web (launchCameraAsync ahí termina abriendo el mismo selector
-      // de archivos que SUBIR VIDEO) — en vez de dejar que las dos
-      // acciones se confundan, avisamos claramente en vez de intentarlo.
+      // expo-camera no soporta grabación de video en web (confirmado en su
+      // código fuente: record()/stopRecording() son no-ops ahí) -- en vez
+      // de dejar que la cámara se muestre rota, avisamos claramente en vez
+      // de intentarlo, igual que antes.
       notify(
         'Grabar no está disponible acá',
         'Grabar video no funciona de forma confiable en la vista web. Usa SUBIR VIDEO para elegir un archivo, o abre AURAXP en tu celular para grabar directo.',
@@ -87,16 +109,7 @@ export default function UploadScreen() {
       return;
     }
 
-    const permission = await ImagePicker.requestCameraPermissionsAsync();
-    if (!permission.granted) {
-      notify('Falta permiso', 'AURAXP necesita acceso a la cámara para grabar.');
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ['videos'],
-      videoMaxDuration: MAX_DURATION_MS / 1000,
-    });
-    handlePicked(result, 'record');
+    navigation.navigate('Record', { challengeToken: params?.challengeToken });
   }
 
   async function handlePickFromLibrary() {

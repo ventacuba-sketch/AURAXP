@@ -23,6 +23,15 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": ["expo-video"]
+    "plugins": [
+      "expo-video",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "AURAXP necesita acceso a la cámara para grabar tu momento.",
+          "microphonePermission": "AURAXP necesita acceso al micrófono para grabar el audio de tu video."
+        }
+      ]
+    ]
   }
 }
