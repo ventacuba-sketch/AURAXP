@@ -42,11 +42,13 @@ export async function fetchCurrentUser(): Promise<User> {
     id: profile.id,
     username: profile.username,
     avatarEmoji: profile.avatar_emoji,
+    bio: profile.bio ?? null,
     founderNumber: String(profile.founder_number).padStart(5, '0'),
     level: computeLevel(profile.xp),
     xp: profile.xp,
     xpToNextLevel: xpToNextLevel(profile.xp),
     streakDays: 0, // no hay tracking de racha real todavía — fuera de alcance
+    usernameUpdatedAt: profile.username_updated_at ?? null,
   };
 }
 

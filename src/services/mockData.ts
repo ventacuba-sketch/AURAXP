@@ -18,11 +18,13 @@ export const mockUser: User = {
   id: 'u_001',
   username: 'ventacuba',
   avatarEmoji: '🦋',
+  bio: null,
   founderNumber: '00428',
   level: 7,
   xp: 24680,
   xpToNextLevel: 30000,
   streakDays: 5,
+  usernameUpdatedAt: null,
 };
 
 export const mockLatestReplay: ReplayHighlight = {

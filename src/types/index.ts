@@ -47,11 +47,14 @@ export interface User {
   id: string;
   username: string;
   avatarEmoji: string;
+  bio: string | null;
   founderNumber: string; // e.g. "00428" -> shown as "FOUNDER #00428"
   level: number;
   xp: number;
   xpToNextLevel: number;
   streakDays: number;
+  /** null = todavía no cambió el username desde que existe esta columna -> puede hacerlo ya. */
+  usernameUpdatedAt: string | null;
 }
 
 /** A short, timestamped highlight surfaced on Home ("Latest Replay"). */

@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 interface AsyncState<T> {
   data: T | null;
   loading: boolean;
+  /** Re-runs `loader` and updates `data` -- e.g. after Editar Perfil saves. */
+  refetch: () => void;
 }
 
 /**
@@ -14,7 +16,7 @@ export function useAsyncData<T>(loader: () => Promise<T>): AsyncState<T> {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     let mounted = true;
     setLoading(true);
     loader().then((result) => {
@@ -26,9 +28,11 @@ export function useAsyncData<T>(loader: () => Promise<T>): AsyncState<T> {
     return () => {
       mounted = false;
     };
-    // Intentionally run once on mount — callers pass a stable loader reference.
+    // Intentionally stable across renders — callers pass a stable loader reference.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  return { data, loading };
+  useEffect(() => load(), [load]);
+
+  return { data, loading, refetch: load };
 }

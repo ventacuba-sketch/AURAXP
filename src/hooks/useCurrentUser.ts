@@ -7,6 +7,6 @@ import { useAsyncData } from './useAsyncData';
  * real API is wired in.
  */
 export function useCurrentUser() {
-  const { data: user, loading } = useAsyncData(fetchCurrentUser);
-  return { user, loading };
+  const { data: user, loading, refetch } = useAsyncData(fetchCurrentUser);
+  return { user, loading, refetch };
 }
