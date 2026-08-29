@@ -2,25 +2,25 @@
  * dlocal-webhook — punto de integración PREPARADO, NO ACTIVO todavía.
  *
  * ============================================================
- * POR QUÉ NO ACTIVA PRO TODAVÍA (leer antes de tocar este archivo)
+ * EL MECANISMO REAL DE ACTIVACIÓN HOY ES OTRO: sync-pro-subscriptions
  * ============================================================
- * El checkout de dLocal Go que usa la app hoy es un link ESTÁTICO y
- * genérico (mismo link para cualquier usuario:
- * https://checkout.dlocalgo.com/validate/subscription/<planId>), sin
- * ningún identificador de AURAXP viajando en la URL. Eso significa que,
- * aunque dLocal mande un webhook real acá, este código NO tiene manera
- * confiable de saber a qué fila de `profiles` corresponde ese pago -- ni
- * qué campo del payload usar para buscarlo (email? un "external_reference"
- * que dLocal Go permita configurar? un customer id que haya que loguear la
- * primera vez para poder correlacionar después?).
+ * El checkout de dLocal Go que usa la app es un link ESTÁTICO y genérico
+ * (mismo link para cualquier usuario), sin ningún identificador de AURAXP
+ * viajando en la URL -- confirmado leyendo el código fuente de la API de
+ * dLocal Go (ver _shared/dlocalGo.ts). Eso significa que un webhook acá,
+ * aunque llegue, tampoco tendría manera confiable de saber a qué fila de
+ * `profiles` corresponde -- salvo por el email del pagador, el mismo dato
+ * que ya usa sync-pro-subscriptions/index.ts (la Edge Function que SÍ
+ * está activa: lista las suscripciones vía la API REST de dLocal Go y
+ * cruza por `client_email`). Esta función queda preparada para el día que
+ * se confirme que dLocal Go realmente manda webhooks (no se pudo verificar
+ * desde este sandbox -- egress bloqueado a sus dominios de docs), pero
+ * mientras tanto NO es el camino a PRO: sync-pro-subscriptions lo es.
  *
- * Adivinar esa correlación sería exactamente la "verificación insegura"
- * que no hay que inventar -- podría activar PRO en la cuenta equivocada.
- * Por eso esta función, tal cual está, SOLO verifica un secret compartido
- * y loguea el payload crudo (visible en los logs de Supabase) -- no
- * escribe nada en `profiles`. Ver el bloque TODO más abajo para lo que
- * falta, y el mensaje final de la tarea que agregó esto para el resumen
- * exacto de qué información hace falta pedirle a dLocal.
+ * Tal cual está, esta función SOLO verifica un secret compartido y
+ * loguea el payload crudo (visible en los logs de Supabase) -- no escribe
+ * nada en `profiles`. Ver el bloque TODO más abajo para lo que falta si
+ * algún día se confirma el webhook real.
  *
  * ============================================================
  * SEGURIDAD MIENTRAS TANTO

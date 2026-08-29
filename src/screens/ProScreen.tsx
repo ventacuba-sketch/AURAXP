@@ -1,10 +1,10 @@
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { AppState, StyleSheet, Text, View } from 'react-native';
 
 import { Card } from '../components/Card';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
-import { openProCheckout, PRO_MONTHLY_PRICE_USD } from '../services/planService';
+import { openProCheckout, PRO_MONTHLY_PRICE_USD, syncOwnProStatus } from '../services/planService';
 import { colors, spacing, typography } from '../theme/colors';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 
@@ -16,15 +16,49 @@ const BENEFITS = [
 
 /**
  * Vende AURA VS PRO y abre el checkout externo (dLocal Go) -- ver
- * services/planService.ts. La suscripción NO se activa acá ni al volver
- * del checkout: solo se activa server-side cuando llega confirmación real
- * de pago (ver supabase/functions/dlocal-webhook, todavía sin terminar de
- * conectar -- falta un identificador de usuario en el checkout/webhook de
- * dLocal). Por eso no hay ningún botón "ya pagué" acá: el único camino a
- * PRO es ese webhook.
+ * services/planService.ts. La suscripción NUNCA se activa acá por acción
+ * del usuario -- no hay ningún botón "ya pagué". El único camino real es
+ * sync-pro-subscriptions (ver planService.syncOwnProStatus): esta
+ * pantalla lo dispara SOLA cuando la app vuelve a primer plano después de
+ * haber abierto el checkout (AppState -> 'active'), que es el momento en
+ * que alguien vuelve de haber pagado (o no) en la pestaña/app de dLocal.
  */
 export default function ProScreen() {
   const navigation = useRootNavigation();
+  const [checking, setChecking] = useState(false);
+  const [activated, setActivated] = useState(false);
+  const hasOpenedCheckoutRef = useRef(false);
+
+  // Verificación silenciosa al entrar -- cubre el caso de alguien que ya
+  // pagó antes y vuelve a esta pantalla más tarde (idempotente, no hace
+  // nada nuevo si ya está PRO).
+  useEffect(() => {
+    syncOwnProStatus().then((ok) => {
+      if (ok) setActivated(true);
+    });
+  }, []);
+
+  // Verificación visible al volver del checkout externo -- se arma SOLO
+  // después de tocar el CTA, así no dispara un "Verificando tu pago..."
+  // falso la primera vez que la pantalla gana foco por cualquier otro motivo.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' || !hasOpenedCheckoutRef.current) return;
+      hasOpenedCheckoutRef.current = false;
+      setChecking(true);
+      syncOwnProStatus()
+        .then((ok) => {
+          if (ok) setActivated(true);
+        })
+        .finally(() => setChecking(false));
+    });
+    return () => sub.remove();
+  }, []);
+
+  function handleCheckoutPress() {
+    hasOpenedCheckoutRef.current = true;
+    openProCheckout();
+  }
 
   return (
     // `scroll` no puede combinarse con alignItems/justifyContent en el
@@ -38,6 +72,8 @@ export default function ProScreen() {
         <Text style={styles.headline}>Lleva tu Aura al siguiente nivel</Text>
         <Text style={styles.price}>US$ {PRO_MONTHLY_PRICE_USD.toFixed(2)} / mes</Text>
 
+        {activated && <Text style={styles.activatedBanner}>🎉 ¡Ya eres PRO! Scans ilimitados activados.</Text>}
+
         <Card style={styles.card}>
           {BENEFITS.map((b) => (
             <View key={b.label} style={styles.benefitRow}>
@@ -48,12 +84,23 @@ export default function ProScreen() {
         </Card>
 
         <View style={styles.actions}>
-          <PrimaryButton
-            label={`PASAR A PRO — US$${PRO_MONTHLY_PRICE_USD.toFixed(2)}/MES`}
-            onPress={openProCheckout}
-          />
-          <Text style={styles.microcopy}>Suscripción mensual. Cancela cuando quieras.</Text>
-          <PrimaryButton label="VOLVER" variant="text" onPress={() => navigation.goBack()} />
+          {activated ? (
+            <PrimaryButton label="VOLVER" onPress={() => navigation.navigate('MainTabs')} />
+          ) : (
+            <>
+              <PrimaryButton
+                label={
+                  checking
+                    ? 'VERIFICANDO TU PAGO...'
+                    : `PASAR A PRO — US$${PRO_MONTHLY_PRICE_USD.toFixed(2)}/MES`
+                }
+                disabled={checking}
+                onPress={handleCheckoutPress}
+              />
+              <Text style={styles.microcopy}>Suscripción mensual. Cancela cuando quieras.</Text>
+              <PrimaryButton label="VOLVER" variant="text" disabled={checking} onPress={() => navigation.goBack()} />
+            </>
+          )}
         </View>
       </View>
     </ScreenContainer>
@@ -80,6 +127,11 @@ const styles = StyleSheet.create({
   price: {
     ...typography.display,
     color: colors.accent,
+  },
+  activatedBanner: {
+    ...typography.subtitle,
+    color: colors.accent,
+    textAlign: 'center',
   },
   card: {
     width: '100%',
