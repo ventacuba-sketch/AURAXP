@@ -12,7 +12,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { resolveChallengeIfApplicable } from '../_shared/challengeResolution.ts';
 import { corsHeaders } from '../_shared/cors.ts';
-import { isUnlimitedTestUser, PlanTier, resolveDailyCap } from '../_shared/dailyLimit.ts';
+import { isUnlimitedTester, PlanTier, resolveDailyCap } from '../_shared/dailyLimit.ts';
 import { analyzeVideo, deleteGeminiFile, GeminiUnavailableError, prepareGeminiVideoFile } from '../_shared/gemini.ts';
 import {
   computeAuraScore,
@@ -88,14 +88,14 @@ Deno.serve(async (req: Request) => {
     // muestra al usuario) ────────────────────────────────────────────────
     const { data: planRow } = await admin
       .from('profiles')
-      .select('plan, created_at')
+      .select('plan, created_at, is_unlimited_tester')
       .eq('id', user.id)
       .single();
 
     const { cap, isFairUseCap } = resolveDailyCap({
       plan: (planRow?.plan as PlanTier | undefined) ?? 'free',
       accountCreatedAt: planRow?.created_at ?? new Date().toISOString(),
-      unlimitedTestAccount: isUnlimitedTestUser(user.id),
+      unlimitedTestAccount: isUnlimitedTester(user.id, planRow?.is_unlimited_tester as boolean | undefined),
     });
 
     const { data: counter } = await admin

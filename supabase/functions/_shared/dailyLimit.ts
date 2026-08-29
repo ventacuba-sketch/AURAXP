@@ -19,8 +19,18 @@
  */
 
 // ── Cuentas de prueba exentas del límite diario ──────────────────────────
-// Un solo secret de proyecto (UNLIMITED_TEST_USER_IDS, comma-separated
-// user ids de auth.users), compartido entre todas las Edge Functions.
+// Dos señales posibles, cualquiera de las dos alcanza -- ninguna reemplaza
+// a la otra:
+// 1. UNLIMITED_TEST_USER_IDS: un secret de proyecto (comma-separated user
+//    ids de auth.users), compartido entre todas las Edge Functions. Hace
+//    falta copiar el id a mano una vez.
+// 2. profiles.is_unlimited_tester: una columna (ver migración
+//    ...pro_activation_lookup_ext.sql) que un UPDATE ... WHERE id = (SELECT
+//    id FROM auth.users WHERE email = ...) puede marcar sin que nadie
+//    tenga que copiar ningún id a mano -- exactamente para el caso de
+//    "activar a esta cuenta de prueba por email, sin tocar Dashboard".
+//    Mismo GRANT que plan/pro_* (sin UPDATE para `authenticated`): no es
+//    algo que un cliente pueda auto-otorgarse.
 export const UNLIMITED_TEST_USER_IDS = new Set(
   (Deno.env.get('UNLIMITED_TEST_USER_IDS') ?? '')
     .split(',')
@@ -30,6 +40,15 @@ export const UNLIMITED_TEST_USER_IDS = new Set(
 
 export function isUnlimitedTestUser(userId: string): boolean {
   return UNLIMITED_TEST_USER_IDS.has(userId);
+}
+
+/**
+ * Combina las dos señales de arriba -- la única función que process-scan y
+ * get-daily-scan-status deben llamar para decidir "cuenta de prueba
+ * ilimitada", así nunca se combinan distinto en cada lugar.
+ */
+export function isUnlimitedTester(userId: string, profileFlag: boolean | null | undefined): boolean {
+  return isUnlimitedTestUser(userId) || Boolean(profileFlag);
 }
 
 // ── Constantes del modelo comercial ──────────────────────────────────────

@@ -18,7 +18,7 @@
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
-import { isUnlimitedTestUser, PlanTier, resolveDailyCap } from '../_shared/dailyLimit.ts';
+import { isUnlimitedTester, PlanTier, resolveDailyCap } from '../_shared/dailyLimit.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -43,7 +43,7 @@ Deno.serve(async (req: Request) => {
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const [{ data: profile }, { data: counter }] = await Promise.all([
-      admin.from('profiles').select('plan, created_at').eq('id', user.id).single(),
+      admin.from('profiles').select('plan, created_at, is_unlimited_tester').eq('id', user.id).single(),
       admin
         .from('daily_scan_counts')
         .select('upload_count')
@@ -53,7 +53,7 @@ Deno.serve(async (req: Request) => {
     ]);
 
     const plan: PlanTier = (profile?.plan as PlanTier | undefined) ?? 'free';
-    const unlimited = isUnlimitedTestUser(user.id);
+    const unlimited = isUnlimitedTester(user.id, profile?.is_unlimited_tester as boolean | undefined);
     const { cap, isFairUseCap, inLaunchWindow, launchDaysLeft } = resolveDailyCap({
       plan,
       accountCreatedAt: profile?.created_at ?? new Date().toISOString(),
