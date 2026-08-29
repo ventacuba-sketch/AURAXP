@@ -114,6 +114,26 @@ export async function getVideoPlaybackUrl(videoPath: string, scanId: string): Pr
 }
 
 /**
+ * Igual que getVideoPlaybackUrl, pero para un replay que puede NO ser
+ * tuyo -- el del rival en un Challenge. Pasa por el Edge Function
+ * get-replay-url en vez de pedir la signed URL directo desde el cliente:
+ * bug real encontrado probando con dos cuentas (ver ese archivo) --
+ * el replay propio funcionaba pero el del rival no, con la única
+ * diferencia siendo una RLS policy de storage.objects con un JOIN de dos
+ * saltos (storage.objects -> scans -> challenges) en vez de una
+ * condición de una sola tabla. La autorización acá vive en código
+ * explícito server-side, no en esa cadena de policies -- mismas dos
+ * reglas (dueño del scan, o participante de un Challenge 'completed' que
+ * lo incluye), pero en un solo lugar auditable.
+ */
+export async function getChallengeReplayUrl(scanId: string): Promise<string | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase.functions.invoke('get-replay-url', { body: { scanId } });
+  if (error || !data?.url) return null;
+  return data.url as string;
+}
+
+/**
  * Sube el video (signed upload URL, carpeta = user_id — ver la policy de
  * Storage), inserta la fila de `scans` y dispara `process-scan`. Devuelve
  * el scanId para que Analyzing haga polling sobre él.

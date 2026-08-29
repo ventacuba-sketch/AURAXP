@@ -14,7 +14,7 @@ import {
   createChallenge,
   getChallenge,
 } from '../services/challengeService';
-import { getVideoPlaybackUrl } from '../services/scanService';
+import { getChallengeReplayUrl } from '../services/scanService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { Challenge, ChallengeParticipant, RootStackParamList } from '../types';
 import { formatSignedXP } from '../utils/format';
@@ -30,8 +30,11 @@ function shareUrl(token: string): string {
 }
 
 /** Mini reproductor inline -- toca para cargar la signed URL y reproducir,
- * mismo mecanismo que ScanResultScreen pero compacto para el layout VS. */
-function MiniReplay({ scanId, videoPath, label }: { scanId: string; videoPath: string; label: string }) {
+ * mismo mecanismo que ScanResultScreen pero compacto para el layout VS.
+ * Sirve para "MI REPLAY" y "REPLAY DEL RIVAL" por igual: get-replay-url
+ * decide del lado del servidor si estás autorizado a verlo, el
+ * componente no necesita saber cuál de los dos casos es. */
+function MiniReplay({ scanId, label }: { scanId: string; label: string }) {
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [errored, setErrored] = useState(false);
@@ -49,7 +52,7 @@ function MiniReplay({ scanId, videoPath, label }: { scanId: string; videoPath: s
       return;
     }
     setLoading(true);
-    const signed = await getVideoPlaybackUrl(videoPath, scanId);
+    const signed = await getChallengeReplayUrl(scanId);
     setLoading(false);
     if (!signed) {
       setErrored(true);
@@ -279,9 +282,9 @@ export default function ChallengeScreen() {
         </Card>
 
         <View style={styles.replayRow}>
-          {me.scanId && me.videoPath && <MiniReplay scanId={me.scanId} videoPath={me.videoPath} label="TUYO" />}
+          {me.scanId && me.videoPath && <MiniReplay scanId={me.scanId} label="TUYO" />}
           {rival.scanId && rival.videoPath && (
-            <MiniReplay scanId={rival.scanId} videoPath={rival.videoPath} label={rival.username.toUpperCase()} />
+            <MiniReplay scanId={rival.scanId} label={rival.username.toUpperCase()} />
           )}
         </View>
 
