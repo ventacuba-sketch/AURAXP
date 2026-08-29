@@ -31,6 +31,17 @@ export default function ScanResultScreen() {
   const [videoUrlLoading, setVideoUrlLoading] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
+
+  async function handleShare() {
+    if (!result) return;
+    const outcome = await shareText(
+      `Acabo de sacar ${formatSignedXP(result.auraScore)} AURA en AURA VS. Supéralo si puedes. 👀`,
+    );
+    if (outcome === 'copied') setShareNotice('Enlace copiado');
+    else if (outcome === 'unavailable') setShareNotice('No pudimos compartir. Copiá manualmente.');
+    else setShareNotice(null);
+  }
 
   // El bucket "scans" es privado -- no hay una URL fija que armar acá, hay
   // que mintear una signed URL con el JWT del dueño del video. Se pide en
@@ -154,18 +165,14 @@ export default function ScanResultScreen() {
         <StatMeter label="RIESGO CRINGE" value={result.stats.cringeRisk} tone="danger" />
       </View>
 
+      {shareNotice && <Text style={styles.shareNotice}>{shareNotice}</Text>}
+
       <View style={styles.actions}>
         <PrimaryButton
           label="DESAFIAR A UN AMIGO"
           onPress={() => navigation.navigate('Challenge', { scanId: result.id })}
         />
-        <PrimaryButton
-          label="COMPARTIR RESULTADO"
-          variant="ghost"
-          onPress={() =>
-            shareText(`Acabo de sacar ${formatSignedXP(result.auraScore)} AURA en AURAXP. Supéralo si puedes. 👀`)
-          }
-        />
+        <PrimaryButton label="COMPARTIR RESULTADO" variant="ghost" onPress={handleShare} />
         <PrimaryButton label="ESCANEAR DE NUEVO" variant="text" onPress={() => navigation.navigate('Upload')} />
       </View>
     </ScreenContainer>
@@ -236,6 +243,12 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: 'center',
     marginBottom: spacing.lg,
+  },
+  shareNotice: {
+    ...typography.caption,
+    color: colors.success,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
   },
   sectionLabel: {
     ...typography.eyebrow,

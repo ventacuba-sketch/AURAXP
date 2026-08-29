@@ -182,6 +182,16 @@ const XP_TIER_BONUS: Record<Tier, number> = {
 export const DAILY_UPLOAD_CAP = 10;
 export const DAILY_XP_SCAN_CAP = 5;
 
+// ── XP de Challenge (independiente del XP de scan normal) ──────────────
+// Deliberadamente chico frente a XP_BASE_PER_SCAN (50): cada participante
+// de un Challenge ya cobró el XP de su propio scan por separado -- esto es
+// un bonus adicional por competir, no un segundo pago del mismo scan. Los
+// tres montos están pensados para no desbalancear la curva de niveles
+// existente (xpForLevel de abajo, sin tocar).
+export const CHALLENGE_PARTICIPATION_XP = 15;
+export const CHALLENGE_WINNER_BONUS_XP = 40;
+export const CHALLENGE_TIE_BONUS_XP = 20;
+
 interface XpInput {
   tier: Tier;
   /** Contenido sin acción reconocible o rechazado por moderación → 0 XP, no consume el cupo diario. */

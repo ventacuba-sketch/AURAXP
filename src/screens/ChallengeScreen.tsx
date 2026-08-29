@@ -1,138 +1,457 @@
-import React, { Fragment, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { RouteProp, useRoute } from '@react-navigation/native';
+import { useVideoPlayer, VideoView } from 'expo-video';
 
+import { Badge } from '../components/Badge';
 import { Card } from '../components/Card';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
-import { useAsyncData } from '../hooks/useAsyncData';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useRootNavigation } from '../hooks/useRootNavigation';
-import { useScanResult } from '../hooks/useScanResult';
-import { fetchAuraChain, fetchFriendChallenge } from '../services/api';
-import { createChallenge } from '../services/challengeService';
-import { mockUser } from '../services/mockData';
-import { isSupabaseConfigured } from '../services/supabaseClient';
+import {
+  cancelChallenge,
+  createChallenge,
+  getChallenge,
+} from '../services/challengeService';
+import { getVideoPlaybackUrl } from '../services/scanService';
 import { colors, radius, spacing, typography } from '../theme/colors';
-import { RootStackParamList } from '../types';
+import { Challenge, ChallengeParticipant, RootStackParamList } from '../types';
 import { formatSignedXP } from '../utils/format';
-import { shareText } from '../utils/share';
+import { copyLink, shareText } from '../utils/share';
 
-// Placeholder hasta que la app esté deployada — reemplazar por el origen
-// web real (o el de EAS Hosting) cuando exista.
-const WEB_ORIGIN = 'https://auraxp.app';
+const WEB_ORIGIN = 'https://auravs.app';
+const POLL_INTERVAL_MS = 3000;
 
 type ChallengeRoute = RouteProp<RootStackParamList, 'Challenge'>;
 
-export default function ChallengeScreen() {
-  const { params } = useRoute<ChallengeRoute>();
-  const { result: scanResult } = useScanResult(params?.scanId);
-  const { user } = useCurrentUser();
-  const { data: friendChallenge } = useAsyncData(fetchFriendChallenge);
-  const { data: chain } = useAsyncData(fetchAuraChain);
-  const navigation = useRootNavigation();
-  const [sharing, setSharing] = useState(false);
+function shareUrl(token: string): string {
+  return `${WEB_ORIGIN}/c/${token}`;
+}
 
-  const yourScore = scanResult?.auraScore ?? 0;
-  const username = user?.username ?? mockUser.username;
-  const friendScore = friendChallenge?.friendScore ?? 0;
-  const friendName = friendChallenge?.friendName ?? '...';
-  const chainNames = chain?.names ?? [];
+/** Mini reproductor inline -- toca para cargar la signed URL y reproducir,
+ * mismo mecanismo que ScanResultScreen pero compacto para el layout VS. */
+function MiniReplay({ scanId, videoPath, label }: { scanId: string; videoPath: string; label: string }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [errored, setErrored] = useState(false);
+  const player = useVideoPlayer(url, (p) => {
+    p.loop = false;
+  });
 
-  async function handleShareChallenge() {
-    if (isSupabaseConfigured && scanResult) {
-      setSharing(true);
-      try {
-        const token = await createChallenge(scanResult.id);
-        await shareText(
-          `${username} te desafió en AURAXP a superar ${formatSignedXP(yourScore)} AURA. ${WEB_ORIGIN}/c/${token}`,
-        );
-      } catch (e) {
-        console.warn('No se pudo crear el challenge', e);
-      } finally {
-        setSharing(false);
-      }
-    } else {
-      await shareText(
-        `${username} te desafió en AURAXP. Supera sus ${formatSignedXP(yourScore)} AURA. 🔥`,
-      );
+  useEffect(() => {
+    if (url) player.play();
+  }, [url, player]);
+
+  async function handlePress() {
+    if (url) {
+      player.play();
+      return;
     }
+    setLoading(true);
+    const signed = await getVideoPlaybackUrl(videoPath, scanId);
+    setLoading(false);
+    if (!signed) {
+      setErrored(true);
+      return;
+    }
+    setUrl(signed);
+  }
+
+  if (url) {
+    return <VideoView style={styles.miniVideo} player={player} contentFit="cover" nativeControls />;
   }
 
   return (
-    <ScreenContainer scroll>
-      <Text style={styles.headline}>¿PUEDES SUPERAR MI AURA?</Text>
-
-      <View style={styles.versusRow}>
-        <View style={styles.player}>
-          <Text style={styles.playerName}>TÚ</Text>
-          <Text style={[styles.playerScore, styles.youColor]}>{formatSignedXP(yourScore)}</Text>
-        </View>
-
-        <View style={styles.vsBadge}>
-          <Text style={styles.vsText}>VS</Text>
-        </View>
-
-        <View style={styles.player}>
-          <Text style={styles.playerName}>{friendName.toUpperCase()}</Text>
-          <Text style={[styles.playerScore, styles.friendColor]}>{formatSignedXP(friendScore)}</Text>
-        </View>
-      </View>
-
-      <Text style={styles.copy}>Sube tu versión e intenta superar este puntaje.</Text>
-
-      {chainNames.length > 0 && (
-        <Card style={styles.chainCard}>
-          <Text style={styles.chainEyebrow}>AURA CHAIN</Text>
-          <Text style={styles.chainCount}>x{chainNames.length}</Text>
-
-          <View style={styles.chainAvatarRow}>
-            {chainNames.map((name, index) => (
-              <Fragment key={name}>
-                <View style={[styles.chainAvatar, index === 0 && styles.chainAvatarYou]}>
-                  <Text style={[styles.chainInitial, index === 0 && styles.chainInitialYou]}>
-                    {name.charAt(0).toUpperCase()}
-                  </Text>
-                </View>
-                {index < chainNames.length - 1 && <Text style={styles.chainArrow}>›</Text>}
-              </Fragment>
-            ))}
-          </View>
-
-          <Text style={styles.chainNames}>{chainNames.join(' · ')}</Text>
-        </Card>
+    <Pressable onPress={handlePress} style={styles.miniReplayButton} disabled={loading}>
+      {loading ? (
+        <ActivityIndicator color={colors.textPrimary} size="small" />
+      ) : (
+        <Text style={styles.miniReplayText}>{errored ? 'Sin video' : `▶ REPLAY ${label}`}</Text>
       )}
+    </Pressable>
+  );
+}
+
+export default function ChallengeScreen() {
+  const { params } = useRoute<ChallengeRoute>();
+  const navigation = useRootNavigation();
+  const { user } = useCurrentUser();
+
+  const [token, setToken] = useState<string | null>(params?.challengeToken ?? null);
+  const [challenge, setChallenge] = useState<Challenge | null>(null);
+  // Arranca en `false` cuando todavía no hay token (modo "crear desde
+  // scanId"): `loading` solo lo gobierna refresh(), que no corre hasta que
+  // exista un token -- si empezara en `true` acá, un fallo de
+  // createChallenge (sin llegar a setear token nunca) dejaría el spinner
+  // de carga trabado para siempre, tapando la pantalla de error real.
+  const [loading, setLoading] = useState(Boolean(params?.challengeToken));
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const hasCreatedRef = useRef(false);
+
+  // Crea el Challenge una sola vez si llegamos con scanId (creador nuevo)
+  // -- el guard evita crear dos veces si el efecto corre de nuevo.
+  useEffect(() => {
+    if (token || !params?.scanId || hasCreatedRef.current) return;
+    hasCreatedRef.current = true;
+    setCreating(true);
+    createChallenge(params.scanId)
+      .then((newToken) => {
+        setToken(newToken);
+        navigation.setParams({ challengeToken: newToken, scanId: undefined });
+      })
+      .catch((e) => {
+        console.warn('createChallenge failed', e);
+        setCreateError('No pudimos crear el desafío. Intenta de nuevo.');
+      })
+      .finally(() => setCreating(false));
+  }, [token, params?.scanId, navigation]);
+
+  const refresh = useCallback(() => {
+    if (!token) return;
+    getChallenge(token).then((result) => {
+      setChallenge(result);
+      setLoading(false);
+    });
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    setLoading(true);
+    refresh();
+  }, [token, refresh]);
+
+  // Polling mientras el duelo sigue abierto -- se detiene solo al llegar a
+  // un estado terminal (completed/cancelled/expired).
+  useEffect(() => {
+    if (!token) return;
+    if (challenge && !['pending', 'accepted'].includes(challenge.status)) return;
+
+    const interval = setInterval(refresh, POLL_INTERVAL_MS);
+    return () => clearInterval(interval);
+  }, [token, challenge, refresh]);
+
+  async function handleShareInvite() {
+    if (!token || !challenge) return;
+    setSharing(true);
+    try {
+      const result = await shareText(
+        `${challenge.creator.username} te desafía en AURA VS ⚔️ ¿Tienes más Aura?`,
+        shareUrl(token),
+      );
+      if (result === 'copied') setNotice('Enlace copiado');
+      else if (result === 'unavailable') setNotice('No pudimos compartir. Copiá el link manualmente.');
+    } finally {
+      setSharing(false);
+    }
+  }
+
+  async function handleCopyLink() {
+    if (!token) return;
+    const ok = await copyLink(shareUrl(token));
+    setNotice(ok ? 'Enlace copiado' : 'No pudimos copiar el enlace.');
+  }
+
+  async function handleCancel() {
+    if (!challenge) return;
+    setCancelling(true);
+    const ok = await cancelChallenge(challenge.id);
+    setCancelling(false);
+    if (ok) {
+      navigation.navigate('MainTabs');
+    } else {
+      setNotice('No se pudo cancelar (¿ya lo aceptaron?).');
+      refresh();
+    }
+  }
+
+  async function handleRematch() {
+    if (!challenge || !user) return;
+    const myScanId = challenge.creator.userId === user.id ? challenge.creator.scanId : challenge.opponent?.scanId;
+    if (!myScanId) return;
+    try {
+      const newToken = await createChallenge(myScanId);
+      navigation.replace('Challenge', { challengeToken: newToken });
+    } catch (e) {
+      console.warn('rematch createChallenge failed', e);
+      setNotice('No pudimos crear la revancha.');
+    }
+  }
+
+  async function handleShareResult() {
+    if (!challenge || !user || !token) return;
+    const iAmCreator = challenge.creator.userId === user.id;
+    const me = iAmCreator ? challenge.creator : challenge.opponent;
+    const rival = iAmCreator ? challenge.opponent : challenge.creator;
+    if (!me || !rival) return;
+
+    const iWon = challenge.winnerUserId === user.id;
+    const text = challenge.isTie
+      ? `Empaté con @${rival.username} en AURA VS ⚔️ ${formatSignedXP(me.auraScore ?? 0)} vs ${formatSignedXP(rival.auraScore ?? 0)}.`
+      : iWon
+        ? `Le gané a @${rival.username} en AURA VS ⚔️ ¿Tienes más Aura que yo?`
+        : `@${rival.username} me ganó en AURA VS ⚔️ ${formatSignedXP(rival.auraScore ?? 0)} vs mis ${formatSignedXP(me.auraScore ?? 0)}. ¿Puedes vengarme?`;
+
+    const result = await shareText(text, shareUrl(token));
+    if (result === 'copied') setNotice('Enlace copiado');
+  }
+
+  if (creating || (loading && !challenge)) {
+    return (
+      <ScreenContainer style={styles.center}>
+        <ActivityIndicator color={colors.accent} size="large" />
+      </ScreenContainer>
+    );
+  }
+
+  if (createError) {
+    return (
+      <ScreenContainer style={styles.center}>
+        <Text style={styles.notFound}>{createError}</Text>
+        <PrimaryButton label="VOLVER" onPress={() => navigation.navigate('MainTabs')} />
+      </ScreenContainer>
+    );
+  }
+
+  if (!challenge) {
+    return (
+      <ScreenContainer style={styles.center}>
+        <Text style={styles.notFound}>Este desafío ya no está disponible.</Text>
+        <PrimaryButton label="VOLVER" onPress={() => navigation.navigate('MainTabs')} />
+      </ScreenContainer>
+    );
+  }
+
+  const iAmCreator = user ? challenge.creator.userId === user.id : true;
+  const me = iAmCreator ? challenge.creator : challenge.opponent;
+  const rival = iAmCreator ? challenge.opponent : challenge.creator;
+
+  // ── Estados terminales sin duelo (cancelado/expirado) ────────────────
+  if (challenge.status === 'cancelled' || challenge.status === 'expired') {
+    return (
+      <ScreenContainer style={styles.center}>
+        <Text style={styles.headline}>
+          {challenge.status === 'cancelled' ? 'Desafío cancelado' : 'Desafío expirado'}
+        </Text>
+        <PrimaryButton label="VOLVER" onPress={() => navigation.navigate('MainTabs')} />
+      </ScreenContainer>
+    );
+  }
+
+  // ── Resultado (completed) ─────────────────────────────────────────────
+  if (challenge.status === 'completed' && me && rival) {
+    const iWon = challenge.winnerUserId != null && user?.id === challenge.winnerUserId;
+    const myXp = iAmCreator ? challenge.creatorXpAwarded : challenge.opponentXpAwarded;
+
+    return (
+      <ScreenContainer scroll>
+        <Text style={styles.headline}>@{me.username} VS @{rival.username}</Text>
+
+        <View style={styles.versusRow}>
+          <ParticipantColumn participant={me} isMe highlight={iWon} />
+          <View style={styles.vsBadge}>
+            <Text style={styles.vsText}>VS</Text>
+          </View>
+          <ParticipantColumn participant={rival} isMe={false} highlight={!challenge.isTie && !iWon} />
+        </View>
+
+        <Text style={styles.resultLine}>
+          {challenge.isTie ? '🤝 EMPATE' : iWon ? '🏆 GANASTE' : `🏆 GANÓ @${rival.username}`}
+        </Text>
+
+        {myXp != null && myXp > 0 && <Text style={styles.xpLine}>+{myXp} XP de este desafío</Text>}
+
+        <Card style={styles.statsCard}>
+          <Text style={styles.statsTitle}>DIFERENCIAS</Text>
+          {(['confidence', 'style', 'timing', 'cringeRisk'] as const).map((key) => (
+            <View key={key} style={styles.statRow}>
+              <Text style={styles.statLabel}>{STAT_LABELS[key]}</Text>
+              <Text style={styles.statValue}>
+                {me.stats?.[key] ?? '–'} vs {rival.stats?.[key] ?? '–'}
+              </Text>
+            </View>
+          ))}
+        </Card>
+
+        <View style={styles.replayRow}>
+          {me.scanId && me.videoPath && <MiniReplay scanId={me.scanId} videoPath={me.videoPath} label="TUYO" />}
+          {rival.scanId && rival.videoPath && (
+            <MiniReplay scanId={rival.scanId} videoPath={rival.videoPath} label={rival.username.toUpperCase()} />
+          )}
+        </View>
+
+        {notice && <Text style={styles.noticeText}>{notice}</Text>}
+
+        <View style={styles.actions}>
+          <PrimaryButton label="COMPARTIR RESULTADO" onPress={handleShareResult} />
+          <PrimaryButton label="NUEVA REVANCHA" variant="ghost" onPress={handleRematch} />
+          <PrimaryButton label="VOLVER" variant="text" onPress={() => navigation.navigate('MainTabs')} />
+        </View>
+      </ScreenContainer>
+    );
+  }
+
+  // ── Aceptado: distintas vistas según en qué punto está mi propio scan ──
+  if (challenge.status === 'accepted') {
+    // El creador (A) ya tiene su scan por definición -- solo el oponente
+    // (B) puede estar en "todavía no escaneé" / "falló, reintentar".
+    if (!iAmCreator && rival) {
+      if (!me?.scanId) {
+        return (
+          <ScreenContainer style={styles.center}>
+            <Text style={styles.avatar}>{rival.avatarEmoji}</Text>
+            <Text style={styles.headline}>Aceptaste el desafío de @{rival.username}</Text>
+            <Text style={styles.copy}>Ahora te toca a vos. Grabá o subí tu Scan.</Text>
+            <PrimaryButton
+              label="HACER MI SCAN"
+              onPress={() => navigation.navigate('Upload', { challengeToken: token ?? undefined })}
+            />
+          </ScreenContainer>
+        );
+      }
+
+      if (me.scanStatus === 'failed' || me.scanStatus === 'rejected') {
+        return (
+          <ScreenContainer style={styles.center}>
+            <Text style={styles.headline}>Tu Scan no se pudo procesar</Text>
+            <Text style={styles.copy}>El desafío sigue abierto -- podés intentarlo de nuevo.</Text>
+            <PrimaryButton
+              label="REINTENTAR MI SCAN"
+              onPress={() => navigation.navigate('Upload', { challengeToken: token ?? undefined })}
+            />
+          </ScreenContainer>
+        );
+      }
+    }
+
+    return (
+      <ScreenContainer style={styles.center}>
+        <ActivityIndicator color={colors.accent} size="large" />
+        <Text style={styles.headline}>
+          {iAmCreator ? `@${rival?.username} está haciendo su Scan…` : 'Analizando tu Scan…'}
+        </Text>
+        <Text style={styles.copy}>Esto puede tardar unos segundos.</Text>
+      </ScreenContainer>
+    );
+  }
+
+  // ── Pending: soy el creador esperando rival ──────────────────────────
+  return (
+    <ScreenContainer style={styles.center}>
+      <Text style={styles.headline}>Desafío creado ⚔️</Text>
+      <Text style={styles.copy}>Esperando rival…</Text>
+
+      <Card style={styles.waitingCard}>
+        <Text style={styles.avatar}>{challenge.creator.avatarEmoji}</Text>
+        <Text style={styles.waitingUsername}>@{challenge.creator.username}</Text>
+        {challenge.creator.auraScore != null && (
+          <Badge label={`${formatSignedXP(challenge.creator.auraScore)} AURA`} tone="accent" style={styles.badge} />
+        )}
+      </Card>
+
+      {notice && <Text style={styles.noticeText}>{notice}</Text>}
 
       <View style={styles.actions}>
-        <PrimaryButton label="ACEPTAR CHALLENGE" onPress={() => navigation.navigate('Upload')} />
+        <PrimaryButton label={sharing ? 'COMPARTIENDO...' : 'COMPARTIR'} disabled={sharing} onPress={handleShareInvite} />
+        <PrimaryButton label="COPIAR LINK" variant="ghost" onPress={handleCopyLink} />
         <PrimaryButton
-          label="COMPARTIR CHALLENGE"
-          variant="ghost"
-          disabled={sharing}
-          onPress={handleShareChallenge}
+          label={cancelling ? 'CANCELANDO...' : 'CANCELAR DESAFÍO'}
+          variant="text"
+          disabled={cancelling}
+          onPress={handleCancel}
         />
       </View>
     </ScreenContainer>
   );
 }
 
+const STAT_LABELS: Record<'confidence' | 'style' | 'timing' | 'cringeRisk', string> = {
+  confidence: 'CONFIANZA',
+  style: 'ESTILO',
+  timing: 'TIMING',
+  cringeRisk: 'RIESGO CRINGE',
+};
+
+function ParticipantColumn({
+  participant,
+  isMe,
+  highlight,
+}: {
+  participant: ChallengeParticipant;
+  isMe: boolean;
+  highlight: boolean;
+}) {
+  return (
+    <View style={styles.player}>
+      <Text style={styles.playerAvatar}>{participant.avatarEmoji}</Text>
+      <Text style={styles.playerName}>
+        {highlight ? '🏆 ' : ''}
+        {isMe ? 'TÚ' : `@${participant.username}`}
+      </Text>
+      <Text style={[styles.playerScore, isMe ? styles.youColor : styles.friendColor]}>
+        {participant.auraScore != null ? formatSignedXP(participant.auraScore) : '···'}
+      </Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  center: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.md,
+  },
   headline: {
     ...typography.hero,
     color: colors.textPrimary,
     marginTop: spacing.lg,
-    marginBottom: spacing.xl,
     textAlign: 'center',
+  },
+  copy: {
+    ...typography.body,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  notFound: {
+    ...typography.body,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  avatar: {
+    fontSize: 48,
+  },
+  waitingCard: {
+    alignItems: 'center',
+    padding: spacing.lg,
+    width: '100%',
+  },
+  waitingUsername: {
+    ...typography.subtitle,
+    color: colors.textPrimary,
+    marginTop: spacing.xs,
+  },
+  badge: {
+    marginTop: spacing.sm,
   },
   versusRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: spacing.lg,
+    marginTop: spacing.lg,
+    marginBottom: spacing.md,
   },
   player: {
     flex: 1,
     alignItems: 'center',
+  },
+  playerAvatar: {
+    fontSize: 32,
+    marginBottom: spacing.xs,
   },
   playerName: {
     ...typography.eyebrow,
@@ -149,8 +468,8 @@ const styles = StyleSheet.create({
     color: colors.secondary,
   },
   vsBadge: {
-    width: 48,
-    height: 48,
+    width: 40,
+    height: 40,
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.borderStrong,
@@ -163,67 +482,79 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontWeight: '800',
   },
-  copy: {
-    ...typography.body,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginBottom: spacing.xl,
-  },
-  chainCard: {
-    alignItems: 'center',
-    marginBottom: spacing.xl,
-    paddingVertical: spacing.lg,
-    borderWidth: 2,
-    borderColor: colors.secondary,
-    backgroundColor: colors.surfaceAlt,
-  },
-  chainEyebrow: {
-    ...typography.eyebrow,
-    color: colors.secondary,
-  },
-  chainCount: {
-    ...typography.hero,
+  resultLine: {
+    ...typography.title,
     color: colors.textPrimary,
-    marginTop: 2,
-    marginBottom: spacing.md,
-  },
-  chainAvatarRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    textAlign: 'center',
     marginBottom: spacing.sm,
   },
-  chainAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.pill,
-    borderWidth: 2,
-    borderColor: colors.secondary,
-    backgroundColor: colors.surface,
+  xpLine: {
+    ...typography.caption,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginBottom: spacing.lg,
+  },
+  statsCard: {
+    marginBottom: spacing.lg,
+    padding: spacing.md,
+  },
+  statsTitle: {
+    ...typography.eyebrow,
+    color: colors.textMuted,
+    marginBottom: spacing.sm,
+  },
+  statRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.xs,
+  },
+  statLabel: {
+    ...typography.caption,
+    color: colors.textSecondary,
+  },
+  statValue: {
+    ...typography.caption,
+    color: colors.textPrimary,
+    fontWeight: '700',
+  },
+  replayRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+    width: '100%',
+  },
+  miniReplayButton: {
+    flex: 1,
+    minWidth: 120,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  chainAvatarYou: {
-    borderColor: colors.accent,
-  },
-  chainInitial: {
-    ...typography.subtitle,
-    color: colors.secondary,
-  },
-  chainInitialYou: {
-    color: colors.accent,
-  },
-  chainArrow: {
-    ...typography.title,
-    color: colors.textMuted,
-    marginHorizontal: 2,
-  },
-  chainNames: {
+  miniReplayText: {
     ...typography.caption,
-    color: colors.textSecondary,
+    color: colors.textPrimary,
+    fontWeight: '700',
+  },
+  miniVideo: {
+    flex: 1,
+    minWidth: 120,
+    aspectRatio: 9 / 12,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceAlt,
+  },
+  noticeText: {
+    ...typography.caption,
+    color: colors.success,
     textAlign: 'center',
   },
   actions: {
     gap: spacing.sm,
+    width: '100%',
+    marginTop: spacing.md,
     marginBottom: spacing.lg,
   },
 });

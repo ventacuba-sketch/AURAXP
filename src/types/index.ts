@@ -35,9 +35,14 @@ export type RootStackParamList = {
       }
     | undefined;
   Record: { challengeToken?: string } | undefined;
-  Analyzing: { scanId?: string } | undefined;
+  /** `challengeToken` viaja hasta acá para que Analyzing sepa, al terminar,
+   * si tiene que resolver un Challenge en vez de ir al Aura Replay normal. */
+  Analyzing: { scanId?: string; challengeToken?: string } | undefined;
   ScanResult: { scanId?: string } | undefined;
-  Challenge: { scanId?: string } | undefined;
+  /** Exactamente uno de los dos: `scanId` (creando un Challenge nuevo desde
+   * tu propio scan) o `challengeToken` (viendo/esperando uno ya existente,
+   * como oponente que ya aceptó o como creador que vuelve a chequear). */
+  Challenge: { scanId?: string; challengeToken?: string } | undefined;
   ChallengeLanding: { token: string };
   /** Solo registrada en el navigator cuando no hay sesión — ver RootNavigator. */
   Auth: undefined;
@@ -120,10 +125,44 @@ export interface AuraChain {
   names: string[]; // ["You", "Carlos", "Ana", "Leo"]
 }
 
+export type ChallengeStatus = 'pending' | 'accepted' | 'completed' | 'cancelled' | 'expired';
+
 /** Public preview of a shared challenge — served by get-challenge-preview, no auth needed. */
 export interface ChallengePreview {
   fromUsername: string;
   fromAvatarEmoji: string;
   auraScore: number;
   verdictTag: string;
+  status: ChallengeStatus;
+}
+
+/** One side of a real 1v1 Challenge — creator or opponent. */
+export interface ChallengeParticipant {
+  userId: string;
+  username: string;
+  avatarEmoji: string;
+  /** null hasta que el scan de este participante exista y esté `done`. */
+  auraScore: number | null;
+  stats: AuraStats | null;
+  verdictTag: string | null;
+  videoPath: string | null;
+  scanId: string | null;
+  scanStatus: 'pending' | 'processing' | 'done' | 'failed' | 'rejected' | null;
+}
+
+/** Vista completa y autenticada de un Challenge — para el creador esperando
+ * rival, el oponente ya aceptado, o cualquiera de los dos viendo el
+ * resultado. Servida directo desde `challenges` vía RLS (challengeService). */
+export interface Challenge {
+  id: string;
+  shareToken: string;
+  status: ChallengeStatus;
+  creator: ChallengeParticipant;
+  /** null mientras nadie aceptó todavía. */
+  opponent: ChallengeParticipant | null;
+  winnerUserId: string | null;
+  isTie: boolean;
+  creatorXpAwarded: number | null;
+  opponentXpAwarded: number | null;
+  expiresAt: string;
 }

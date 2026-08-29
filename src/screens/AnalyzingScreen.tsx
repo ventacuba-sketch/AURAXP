@@ -38,6 +38,7 @@ export default function AnalyzingScreen() {
   const navigation = useRootNavigation();
   const { params } = useRoute<AnalyzingRoute>();
   const scanId = params?.scanId;
+  const challengeToken = params?.challengeToken;
   const useRealBackend = Boolean(scanId && isSupabaseConfigured);
 
   const [labelIndex, setLabelIndex] = useState(0);
@@ -101,7 +102,16 @@ export default function AnalyzingScreen() {
       unsubscribeRealtime();
       setProgress(1);
       setTimeout(() => {
-        if (!cancelled) navigation.replace('ScanResult', { scanId });
+        if (cancelled) return;
+        // Este scan era el del oponente de un Challenge -- process-scan ya
+        // resolvió el duelo server-side en el mismo request que lo marcó
+        // 'done' (ver _shared/challengeResolution.ts). Ir directo al
+        // versus en vez de al Aura Replay individual.
+        if (challengeToken) {
+          navigation.replace('Challenge', { challengeToken });
+        } else {
+          navigation.replace('ScanResult', { scanId });
+        }
       }, 300);
     };
 
@@ -165,7 +175,7 @@ export default function AnalyzingScreen() {
       if (pollTimer) clearInterval(pollTimer);
       unsubscribeRealtime();
     };
-  }, [useRealBackend, scanId, navigation]);
+  }, [useRealBackend, scanId, challengeToken, navigation]);
 
   if (errorMessage) {
     return (

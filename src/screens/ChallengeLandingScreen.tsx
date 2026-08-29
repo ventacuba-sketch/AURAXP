@@ -7,27 +7,41 @@ import { Card } from '../components/Card';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useAuth } from '../hooks/useAuth';
+import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useRootNavigation } from '../hooks/useRootNavigation';
-import { fetchChallengePreview } from '../services/challengeService';
+import { acceptChallenge, fetchChallengePreview } from '../services/challengeService';
+import { setPendingChallengeToken } from '../services/pendingChallenge';
 import { colors, spacing, typography } from '../theme/colors';
 import { ChallengePreview, RootStackParamList } from '../types';
 import { formatSignedXP } from '../utils/format';
 
 type LandingRoute = RouteProp<RootStackParamList, 'ChallengeLanding'>;
 
+const STATUS_COPY: Partial<Record<ChallengePreview['status'], string>> = {
+  accepted: 'Este desafío ya fue aceptado por otra persona.',
+  completed: 'Este desafío ya terminó.',
+  cancelled: 'Este desafío fue cancelado.',
+  expired: 'Este desafío ya expiró.',
+};
+
 /**
  * Landing pública del Challenge — alcanzable por deep link (con la app
- * instalada) o por URL web (Expo Web, sin instalar nada). No requiere
- * sesión: si el visitante no tiene cuenta, "ACEPTAR CHALLENGE" lo manda
- * a registrarse ahí mismo — nada de infraestructura de landing aparte.
+ * instalada) o por URL web (https://auravs.app/c/:token), sin sesión.
+ * Si el visitante no tiene cuenta, ACEPTAR lo manda a Auth guardando el
+ * token pendiente primero (ver services/pendingChallenge.ts) -- RootNavigator
+ * lo retoma solo apenas hay sesión, así el token nunca se pierde en el
+ * camino por Auth.
  */
 export default function ChallengeLandingScreen() {
   const { params } = useRoute<LandingRoute>();
   const navigation = useRootNavigation();
   const { session } = useAuth();
+  const { user } = useCurrentUser();
   const [preview, setPreview] = useState<ChallengePreview | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [accepting, setAccepting] = useState(false);
+  const [acceptError, setAcceptError] = useState<string | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -42,11 +56,40 @@ export default function ChallengeLandingScreen() {
     };
   }, [params.token]);
 
-  function handleAccept() {
-    if (session) {
-      navigation.navigate('Upload', { challengeToken: params.token });
-    } else {
+  const isOwnChallenge = Boolean(session && user && preview && user.username === preview.fromUsername);
+
+  async function handleAccept() {
+    if (!session) {
+      await setPendingChallengeToken(params.token);
       navigation.navigate('Auth');
+      return;
+    }
+
+    setAccepting(true);
+    setAcceptError(null);
+    const result = await acceptChallenge(params.token);
+    setAccepting(false);
+
+    if (result.ok) {
+      navigation.navigate('Challenge', { challengeToken: params.token });
+      return;
+    }
+
+    switch (result.errorCode) {
+      case 'cannot_accept_own':
+        setAcceptError('No podés aceptar tu propio desafío.');
+        break;
+      case 'already_taken':
+        setAcceptError('Alguien más ya aceptó este desafío.');
+        break;
+      case 'expired':
+        setAcceptError('Este desafío ya expiró.');
+        break;
+      case 'not_found':
+        setAcceptError('Este desafío ya no existe.');
+        break;
+      default:
+        setAcceptError('No pudimos aceptar el desafío. Intenta de nuevo.');
     }
   }
 
@@ -61,25 +104,41 @@ export default function ChallengeLandingScreen() {
   if (notFound || !preview) {
     return (
       <ScreenContainer style={styles.center}>
-        <Text style={styles.wordmark}>AURAXP</Text>
-        <Text style={styles.notFound}>Este challenge ya no está disponible.</Text>
+        <Text style={styles.wordmark}>AURA VS</Text>
+        <Text style={styles.notFound}>Este desafío ya no está disponible.</Text>
       </ScreenContainer>
     );
   }
 
+  // Link muerto/tomado: mostrar el motivo en vez de un botón que va a fallar.
+  const deadReason = STATUS_COPY[preview.status];
+
   return (
     <ScreenContainer style={styles.center}>
-      <Text style={styles.wordmark}>AURAXP</Text>
+      <Text style={styles.wordmark}>AURA VS</Text>
 
       <Card style={styles.card}>
         <Text style={styles.avatar}>{preview.fromAvatarEmoji}</Text>
-        <Text style={styles.challenger}>{preview.fromUsername} te desafió</Text>
+        <Text style={styles.challenger}>@{preview.fromUsername} te desafía ⚔️</Text>
         <Badge label={preview.verdictTag} tone="accent" style={styles.badge} />
         <Text style={styles.score}>{formatSignedXP(preview.auraScore)} AURA</Text>
-        <Text style={styles.question}>¿Puedes superarlo?</Text>
+        <Text style={styles.question}>¿Tienes más Aura?</Text>
       </Card>
 
-      <PrimaryButton label="ACEPTAR CHALLENGE" onPress={handleAccept} />
+      {deadReason ? (
+        <Text style={styles.deadReason}>{deadReason}</Text>
+      ) : isOwnChallenge ? (
+        <Text style={styles.deadReason}>Este es tu propio desafío -- compartilo para que alguien lo acepte.</Text>
+      ) : (
+        <>
+          {acceptError && <Text style={styles.errorText}>{acceptError}</Text>}
+          <PrimaryButton
+            label={accepting ? 'ACEPTANDO...' : 'ACEPTAR DESAFÍO'}
+            disabled={accepting}
+            onPress={handleAccept}
+          />
+        </>
+      )}
     </ScreenContainer>
   );
 }
@@ -109,6 +168,7 @@ const styles = StyleSheet.create({
     ...typography.subtitle,
     color: colors.textPrimary,
     marginBottom: spacing.md,
+    textAlign: 'center',
   },
   badge: {
     alignSelf: 'center',
@@ -126,5 +186,16 @@ const styles = StyleSheet.create({
   notFound: {
     ...typography.body,
     color: colors.textSecondary,
+  },
+  deadReason: {
+    ...typography.body,
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingHorizontal: spacing.lg,
+  },
+  errorText: {
+    ...typography.caption,
+    color: colors.danger,
+    textAlign: 'center',
   },
 });

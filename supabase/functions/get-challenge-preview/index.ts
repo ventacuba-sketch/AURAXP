@@ -34,11 +34,25 @@ Deno.serve(async (req: Request) => {
 
     const { data: challenge } = await admin
       .from('challenges')
-      .select('source_scan_id, from_user_id')
+      .select('source_scan_id, from_user_id, status, expires_at')
       .eq('share_token', shareToken)
       .single();
 
     if (!challenge) return jsonResponse({ error: 'Challenge no encontrado' }, 404);
+
+    // Lazy expiration: si nadie lo aceptó y ya pasó expires_at, se reporta
+    // como expirado acá mismo (sin depender de un cron) -- best-effort,
+    // escribirlo en la fila es solo higiene, no afecta la respuesta.
+    let status = challenge.status as string;
+    if (status === 'pending' && challenge.expires_at && new Date(challenge.expires_at) < new Date()) {
+      status = 'expired';
+      admin
+        .from('challenges')
+        .update({ status: 'expired' })
+        .eq('share_token', shareToken)
+        .eq('status', 'pending')
+        .then(() => {}, () => {});
+    }
 
     const [{ data: scan }, { data: profile }] = await Promise.all([
       admin
@@ -60,6 +74,7 @@ Deno.serve(async (req: Request) => {
       fromAvatarEmoji: profile.avatar_emoji,
       auraScore: scan.aura_score,
       verdictTag: scan.verdict_tag,
+      status,
     });
   } catch (e) {
     console.error(e);

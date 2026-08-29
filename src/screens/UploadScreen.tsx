@@ -130,7 +130,7 @@ export default function UploadScreen() {
       // cuando no pudimos determinar la duración mandamos 0 como antes.
       const durationMs = video.durationMs ?? 0;
       const scanId = await uploadAndSubmitScan(video.uri, durationMs, params?.challengeToken);
-      navigation.navigate('Analyzing', { scanId });
+      navigation.navigate('Analyzing', { scanId, challengeToken: params?.challengeToken });
     } catch (e) {
       console.warn('uploadAndSubmitScan failed', e);
       if (e instanceof VideoTooLargeError) {

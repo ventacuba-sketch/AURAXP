@@ -1,15 +1,18 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import {
   DarkTheme,
   LinkingOptions,
   NavigationContainer,
+  NavigationContainerRef,
   Theme,
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { MainTabNavigator } from './MainTabNavigator';
 import { useAuth } from '../hooks/useAuth';
+import { acceptChallenge } from '../services/challengeService';
+import { consumePendingChallengeToken } from '../services/pendingChallenge';
 import AnalyzingScreen from '../screens/AnalyzingScreen';
 import AuthScreen from '../screens/AuthScreen';
 import ChallengeLandingScreen from '../screens/ChallengeLandingScreen';
@@ -38,7 +41,7 @@ const navigationTheme: Theme = {
 // Solo ChallengeLanding (y Auth) tienen un path real — es lo único que
 // necesita abrirse desde fuera de la app (link compartido / navegador).
 const linking: LinkingOptions<RootStackParamList> = {
-  prefixes: ['auraxp://', 'https://auraxp.app'],
+  prefixes: ['auraxp://', 'https://auravs.app'],
   config: {
     screens: {
       ChallengeLanding: 'c/:token',
@@ -65,6 +68,34 @@ const linking: LinkingOptions<RootStackParamList> = {
 export function RootNavigator() {
   const { session, loading } = useAuth();
   const authed = !isSupabaseConfigured || Boolean(session);
+  const navigationRef = useRef<NavigationContainerRef<RootStackParamList>>(null);
+  const resumedRef = useRef(false);
+
+  // Retoma un Challenge pendiente después de pasar por Auth -- ver
+  // ChallengeLandingScreen.handleAccept() y services/pendingChallenge.ts.
+  // El swap de `authed` reemplaza TODO el árbol de screens (ver el
+  // ternario más abajo), así que cualquier param de la ruta anterior ya
+  // se perdió; esto vuelve a intentar la aceptación real desde cero con
+  // el token guardado, no confía en que la navegación lo haya conservado.
+  useEffect(() => {
+    if (!authed || resumedRef.current) return;
+    resumedRef.current = true;
+
+    consumePendingChallengeToken().then((token) => {
+      if (!token) return;
+      acceptChallenge(token).then((result) => {
+        const nav = navigationRef.current;
+        if (!nav?.isReady()) return;
+        if (result.ok) {
+          nav.navigate('Challenge', { challengeToken: token });
+        } else {
+          // Ya expiró/lo tomaron/etc mientras el usuario se registraba --
+          // la landing misma sabe mostrar el motivo correcto.
+          nav.navigate('ChallengeLanding', { token });
+        }
+      });
+    });
+  }, [authed]);
 
   if (isSupabaseConfigured && loading) {
     return (
@@ -75,7 +106,7 @@ export function RootNavigator() {
   }
 
   return (
-    <NavigationContainer theme={navigationTheme} linking={linking}>
+    <NavigationContainer ref={navigationRef} theme={navigationTheme} linking={linking}>
       <Stack.Navigator
         screenOptions={{
           headerShown: false,

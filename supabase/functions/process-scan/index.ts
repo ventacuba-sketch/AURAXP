@@ -10,6 +10,7 @@
  * functions deploy` contra un proyecto real.
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { resolveChallengeIfApplicable } from '../_shared/challengeResolution.ts';
 import { corsHeaders } from '../_shared/cors.ts';
 import { analyzeVideo, deleteGeminiFile, GeminiUnavailableError, prepareGeminiVideoFile } from '../_shared/gemini.ts';
 import {
@@ -288,12 +289,22 @@ Deno.serve(async (req: Request) => {
         .eq('id', user.id);
     }
 
-    // ── Vincular al challenge si venía de un link ───────────────────────
+    // ── Resolver el Challenge, si este scan es el del oponente ──────────
+    // Best-effort a propósito: el scan de este usuario ya se guardó como
+    // 'done' arriba -- pase lo que pase acá, eso no se revierte. Si algo
+    // falla, el Challenge simplemente queda 'accepted' sin resolver y el
+    // usuario puede reintentar subiendo de nuevo (mismo challengeToken).
     if (challengeToken) {
-      await admin
-        .from('challenges')
-        .update({ target_scan_id: scanId })
-        .eq('share_token', challengeToken);
+      try {
+        await resolveChallengeIfApplicable({
+          admin,
+          challengeToken,
+          opponentScanOwnerId: user.id,
+          opponentScanId: scanId,
+        });
+      } catch (e) {
+        console.error('resolveChallengeIfApplicable failed', e);
+      }
     }
 
     return jsonResponse({ ok: true });
