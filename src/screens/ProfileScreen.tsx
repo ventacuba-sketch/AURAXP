@@ -99,7 +99,7 @@ export default function ProfileScreen() {
           style={[styles.input, styles.bioInput]}
           value={bio}
           onChangeText={setBio}
-          placeholder="Contá algo sobre vos"
+          placeholder="Cuéntanos algo sobre ti"
           placeholderTextColor={colors.textMuted}
           multiline
           maxLength={160}

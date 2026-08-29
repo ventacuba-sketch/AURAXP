@@ -60,7 +60,7 @@ export default function AnalyzingScreen() {
   const [labelIndex, setLabelIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [almostReady, setAlmostReady] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [failure, setFailure] = useState<{ message: string; showProCta: boolean } | null>(null);
   // Guard contra navegación duplicada: polling y Realtime pueden detectar
   // `done` casi al mismo tiempo -- solo la primera fuente que llega navega.
   const hasNavigatedRef = useRef(false);
@@ -187,18 +187,27 @@ export default function AnalyzingScreen() {
       unsubscribeRealtime();
 
       let message: string;
+      // Solo el tope FREE (comercial, "sube a PRO y seguí") ofrece el CTA --
+      // el tope de fair-use de un PRO ('fair_use_limit') es un caso de
+      // excepción/protección de servicio, nunca se le vende PRO a alguien
+      // que ya es PRO, y el mensaje no revela ningún número (ver
+      // _shared/dailyLimit.ts).
+      let showProCta = false;
       if (errorCode === 'gemini_unavailable') {
         message = 'La IA está temporalmente ocupada. Intenta de nuevo en unos minutos.';
       } else if (errorCode === 'daily_upload_limit') {
-        message = 'Alcanzaste tu límite diario de Scans. Vuelve a intentarlo mañana.';
+        message = 'Alcanzaste tus Scans gratuitos de hoy. Vuelve mañana o pasa a PRO para seguir ahora.';
+        showProCta = true;
+      } else if (errorCode === 'fair_use_limit') {
+        message = 'Estamos protegiendo el servicio por actividad inusual en tu cuenta. Intenta de nuevo más tarde.';
       } else if (reason === 'rejected' && moderationFlagged) {
-        message = 'Este video no cumple con nuestras normas de contenido. Probá con otro.';
+        message = 'Este video no cumple con nuestras normas de contenido. Prueba con otro.';
       } else if (reason === 'rejected') {
         message = 'Este video no se pudo procesar. Intenta de nuevo.';
       } else {
         message = 'El análisis falló. Intenta de nuevo.';
       }
-      setErrorMessage(message);
+      setFailure({ message, showProCta });
     };
 
     const handleResult = (result: ScanStatusCheck) => {
@@ -220,7 +229,7 @@ export default function AnalyzingScreen() {
           if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
             if (pollTimer) clearInterval(pollTimer);
             unsubscribeRealtime();
-            setErrorMessage('No pudimos confirmar el resultado. Revisa tu conexión e intenta de nuevo.');
+            setFailure({ message: 'No pudimos confirmar el resultado. Revisa tu conexión e intenta de nuevo.', showProCta: false });
           }
           return;
       }
@@ -250,11 +259,18 @@ export default function AnalyzingScreen() {
     };
   }, [useRealBackend, scanId, challengeToken, navigation]);
 
-  if (errorMessage) {
+  if (failure) {
     return (
       <ScreenContainer style={styles.center}>
-        <Text style={styles.errorText}>{errorMessage}</Text>
-        <PrimaryButton label="VOLVER" onPress={() => navigation.navigate('Upload')} />
+        <Text style={styles.errorText}>{failure.message}</Text>
+        {failure.showProCta && (
+          <PrimaryButton label="PASAR A PRO" onPress={() => navigation.navigate('Pro')} />
+        )}
+        <PrimaryButton
+          label="VOLVER"
+          variant={failure.showProCta ? 'ghost' : 'primary'}
+          onPress={() => navigation.navigate('Upload')}
+        />
       </ScreenContainer>
     );
   }

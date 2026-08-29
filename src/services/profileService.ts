@@ -17,7 +17,7 @@ function mapProfileUpdateError(message: string): string {
   if (message.includes('username solo se puede cambiar')) {
     // Mismo texto que lanza el trigger -- ya está en español y es claro,
     // pero lo homogeneizamos con el resto de mensajes de error de la app.
-    return 'Ya cambiaste tu username hace poco. Probá de nuevo más adelante.';
+    return 'Ya cambiaste tu username hace poco. Prueba de nuevo más adelante.';
   }
   if (message.includes('duplicate key') && message.includes('username')) {
     return 'Ese username ya está en uso.';

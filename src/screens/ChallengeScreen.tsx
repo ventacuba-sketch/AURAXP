@@ -145,7 +145,7 @@ export default function ChallengeScreen() {
         shareUrl(token),
       );
       if (result === 'copied') setNotice('Enlace copiado');
-      else if (result === 'unavailable') setNotice('No pudimos compartir. Copiá el link manualmente.');
+      else if (result === 'unavailable') setNotice('No pudimos compartir. Copia el link manualmente.');
     } finally {
       setSharing(false);
     }
@@ -306,7 +306,7 @@ export default function ChallengeScreen() {
           <ScreenContainer style={styles.center}>
             <Text style={styles.avatar}>{rival.avatarEmoji}</Text>
             <Text style={styles.headline}>Aceptaste el desafío de @{rival.username}</Text>
-            <Text style={styles.copy}>Ahora te toca a vos. Grabá o subí tu Scan.</Text>
+            <Text style={styles.copy}>Ahora te toca a ti. Graba o sube tu Scan.</Text>
             <PrimaryButton
               label="HACER MI SCAN"
               onPress={() => navigation.navigate('Upload', { challengeToken: token ?? undefined })}
@@ -319,7 +319,7 @@ export default function ChallengeScreen() {
         return (
           <ScreenContainer style={styles.center}>
             <Text style={styles.headline}>Tu Scan no se pudo procesar</Text>
-            <Text style={styles.copy}>El desafío sigue abierto -- podés intentarlo de nuevo.</Text>
+            <Text style={styles.copy}>El desafío sigue abierto -- puedes intentarlo de nuevo.</Text>
             <PrimaryButton
               label="REINTENTAR MI SCAN"
               onPress={() => navigation.navigate('Upload', { challengeToken: token ?? undefined })}

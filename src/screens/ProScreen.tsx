@@ -4,50 +4,68 @@ import { StyleSheet, Text, View } from 'react-native';
 import { Card } from '../components/Card';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
-import { useRootNavigation } from '../hooks/useRootNavigation';
+import { openProCheckout, PRO_MONTHLY_PRICE_USD } from '../services/planService';
 import { colors, spacing, typography } from '../theme/colors';
+import { useRootNavigation } from '../hooks/useRootNavigation';
 
 const BENEFITS = [
-  { emoji: '⚡', label: 'Más Scans diarios' },
+  { emoji: '⚡', label: 'Scans ilimitados' },
   { emoji: '📊', label: 'Estadísticas avanzadas' },
   { emoji: '✨', label: 'Perks y cosméticos exclusivos' },
 ];
 
 /**
- * Placeholder de beneficios PRO -- el único punto de entrada hoy es el CTA
- * "PASAR A PRO" de DailyScanCounter, cuando se acerca o llega al límite
- * diario. Sin checkout todavía: el botón de abajo no cobra nada, solo
- * vuelve. Cuando exista un flujo de pago real, este es el único archivo
- * que necesita cambiar.
+ * Vende AURA VS PRO y abre el checkout externo (dLocal Go) -- ver
+ * services/planService.ts. La suscripción NO se activa acá ni al volver
+ * del checkout: solo se activa server-side cuando llega confirmación real
+ * de pago (ver supabase/functions/dlocal-webhook, todavía sin terminar de
+ * conectar -- falta un identificador de usuario en el checkout/webhook de
+ * dLocal). Por eso no hay ningún botón "ya pagué" acá: el único camino a
+ * PRO es ese webhook.
  */
 export default function ProScreen() {
   const navigation = useRootNavigation();
 
   return (
-    <ScreenContainer style={styles.center}>
-      <Text style={styles.eyebrow}>AURA VS PRO</Text>
-      <Text style={styles.headline}>Llevá tu Aura al siguiente nivel</Text>
+    // `scroll` no puede combinarse con alignItems/justifyContent en el
+    // `style` de ScreenContainer -- eso va sobre el ScrollView mismo, y
+    // react-native-web exige que el layout de los hijos viva en
+    // contentContainerStyle, no ahí (ver ScreenContainer.tsx). El centrado
+    // horizontal se hace acá adentro, en un View propio.
+    <ScreenContainer scroll style={styles.screen}>
+      <View style={styles.center}>
+        <Text style={styles.eyebrow}>AURA VS PRO</Text>
+        <Text style={styles.headline}>Lleva tu Aura al siguiente nivel</Text>
+        <Text style={styles.price}>US$ {PRO_MONTHLY_PRICE_USD.toFixed(2)} / mes</Text>
 
-      <Card style={styles.card}>
-        {BENEFITS.map((b) => (
-          <View key={b.label} style={styles.benefitRow}>
-            <Text style={styles.benefitEmoji}>{b.emoji}</Text>
-            <Text style={styles.benefitLabel}>{b.label}</Text>
-          </View>
-        ))}
-      </Card>
+        <Card style={styles.card}>
+          {BENEFITS.map((b) => (
+            <View key={b.label} style={styles.benefitRow}>
+              <Text style={styles.benefitEmoji}>{b.emoji}</Text>
+              <Text style={styles.benefitLabel}>{b.label}</Text>
+            </View>
+          ))}
+        </Card>
 
-      <Text style={styles.comingSoon}>Los pagos todavía no están disponibles -- muy pronto.</Text>
-
-      <PrimaryButton label="VOLVER" variant="ghost" onPress={() => navigation.goBack()} />
+        <View style={styles.actions}>
+          <PrimaryButton
+            label={`PASAR A PRO — US$${PRO_MONTHLY_PRICE_USD.toFixed(2)}/MES`}
+            onPress={openProCheckout}
+          />
+          <Text style={styles.microcopy}>Suscripción mensual. Cancela cuando quieras.</Text>
+          <PrimaryButton label="VOLVER" variant="text" onPress={() => navigation.goBack()} />
+        </View>
+      </View>
     </ScreenContainer>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    paddingTop: spacing.xl,
+  },
   center: {
     alignItems: 'center',
-    justifyContent: 'center',
     gap: spacing.lg,
   },
   eyebrow: {
@@ -58,6 +76,10 @@ const styles = StyleSheet.create({
     ...typography.hero,
     color: colors.textPrimary,
     textAlign: 'center',
+  },
+  price: {
+    ...typography.display,
+    color: colors.accent,
   },
   card: {
     width: '100%',
@@ -76,7 +98,13 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     flexShrink: 1,
   },
-  comingSoon: {
+  actions: {
+    width: '100%',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.xl,
+  },
+  microcopy: {
     ...typography.caption,
     color: colors.textMuted,
     textAlign: 'center',

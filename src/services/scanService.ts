@@ -231,22 +231,31 @@ export function subscribeToScan(scanId: string, onUpdate: (scan: ScanRow) => voi
 
 /** Shape returned by the get-daily-scan-status Edge Function. */
 export interface DailyScanStatus {
+  plan: 'free' | 'pro';
   count: number;
-  cap: number;
+  /** null para PRO (fair-use interno, nunca se revela) y para una cuenta
+   * de prueba ilimitada -- el caller decide qué mostrar usando `plan` /
+   * `unlimited`, no un número en esos dos casos. Presente (5 o 3) para FREE. */
+  cap: number | null;
   /** true si esta cuenta está en UNLIMITED_TEST_USER_IDS (ver process-scan) --
-   * el límite diario no se le aplica. Nunca se mezcla con `count`/`cap`: el
-   * caller debe mostrar uno u otro, no ambos a la vez. */
+   * el límite diario no se le aplica, sea cual sea `plan`. Nunca se mezcla
+   * con `count`/`cap`: el caller debe mostrar uno u otro, no ambos a la vez. */
   unlimited: boolean;
+  /** true durante los primeros 15 días de la cuenta (solo aplica a FREE). */
+  inLaunchWindow: boolean;
+  /** Días de bienvenida restantes; 0 si no aplica. */
+  launchDaysLeft: number;
 }
 
 /**
- * Cuántos Scans lleva hoy el usuario actual, contra el límite real --
- * SIEMPRE desde el backend (daily_scan_counts vía el Edge Function
- * get-daily-scan-status), nunca estimado acá. `daily_scan_counts` tiene
- * RLS sin policies para el cliente a propósito (ver init_schema.sql), así
- * que no hay forma de leerla directo con `supabase.from(...)` -- este
- * Edge Function es la única puerta, y devuelve nada más que el conteo de
- * quien llama.
+ * Cuántos Scans lleva hoy el usuario actual, contra el límite real (y qué
+ * plan tiene) -- SIEMPRE desde el backend (daily_scan_counts + profiles.plan
+ * vía el Edge Function get-daily-scan-status), nunca estimado acá.
+ * `daily_scan_counts` tiene RLS sin policies para el cliente a propósito
+ * (ver init_schema.sql), así que no hay forma de leerla directo con
+ * `supabase.from(...)` -- este Edge Function es la única puerta, y usa la
+ * misma resolveDailyCap() que process-scan para decidir el límite (ver
+ * _shared/dailyLimit.ts) -- nunca lo recalcula distinto.
  */
 export async function fetchDailyScanStatus(): Promise<DailyScanStatus | null> {
   if (!supabase) return null;

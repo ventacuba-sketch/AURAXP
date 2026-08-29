@@ -77,7 +77,7 @@ export default function ChallengeLandingScreen() {
 
     switch (result.errorCode) {
       case 'cannot_accept_own':
-        setAcceptError('No podés aceptar tu propio desafío.');
+        setAcceptError('No puedes aceptar tu propio desafío.');
         break;
       case 'already_taken':
         setAcceptError('Alguien más ya aceptó este desafío.');

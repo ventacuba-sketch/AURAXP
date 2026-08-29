@@ -179,7 +179,9 @@ const XP_TIER_BONUS: Record<Tier, number> = {
   MITICO: 200,
 };
 
-export const DAILY_UPLOAD_CAP = 10;
+// El límite diario de Scans ya no es un número fijo -- depende del plan
+// (FREE/PRO) y de la edad de la cuenta. Ver _shared/dailyLimit.ts
+// (resolveDailyCap), la única fuente de verdad para eso.
 export const DAILY_XP_SCAN_CAP = 5;
 
 // ── XP de Challenge (independiente del XP de scan normal) ──────────────

@@ -39,7 +39,7 @@ export default function ScanResultScreen() {
       `Acabo de sacar ${formatSignedXP(result.auraScore)} AURA en AURA VS. Supéralo si puedes. 👀`,
     );
     if (outcome === 'copied') setShareNotice('Enlace copiado');
-    else if (outcome === 'unavailable') setShareNotice('No pudimos compartir. Copiá manualmente.');
+    else if (outcome === 'unavailable') setShareNotice('No pudimos compartir. Copia manualmente.');
     else setShareNotice(null);
   }
 

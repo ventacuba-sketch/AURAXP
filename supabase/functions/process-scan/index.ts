@@ -12,13 +12,12 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { resolveChallengeIfApplicable } from '../_shared/challengeResolution.ts';
 import { corsHeaders } from '../_shared/cors.ts';
-import { isUnlimitedTestUser } from '../_shared/dailyLimit.ts';
+import { isUnlimitedTestUser, PlanTier, resolveDailyCap } from '../_shared/dailyLimit.ts';
 import { analyzeVideo, deleteGeminiFile, GeminiUnavailableError, prepareGeminiVideoFile } from '../_shared/gemini.ts';
 import {
   computeAuraScore,
   computeLevel,
   computeXpGained,
-  DAILY_UPLOAD_CAP,
   DAILY_XP_SCAN_CAP,
   noActionResult,
 } from '../_shared/scoring.ts';
@@ -84,7 +83,21 @@ Deno.serve(async (req: Request) => {
 
     const today = new Date().toISOString().slice(0, 10);
 
-    // ── Rate limit de subidas/día ──────────────────────────────────────
+    // ── Rate limit de subidas/día -- plan-aware (ver _shared/dailyLimit.ts,
+    // la misma función que usa get-daily-scan-status para lo que le
+    // muestra al usuario) ────────────────────────────────────────────────
+    const { data: planRow } = await admin
+      .from('profiles')
+      .select('plan, created_at')
+      .eq('id', user.id)
+      .single();
+
+    const { cap, isFairUseCap } = resolveDailyCap({
+      plan: (planRow?.plan as PlanTier | undefined) ?? 'free',
+      accountCreatedAt: planRow?.created_at ?? new Date().toISOString(),
+      unlimitedTestAccount: isUnlimitedTestUser(user.id),
+    });
+
     const { data: counter } = await admin
       .from('daily_scan_counts')
       .select('*')
@@ -98,10 +111,15 @@ Deno.serve(async (req: Request) => {
       { onConflict: 'user_id,day' },
     );
 
-    if (uploadCount > DAILY_UPLOAD_CAP && !isUnlimitedTestUser(user.id)) {
+    if (uploadCount > cap) {
+      // Mismo código para FREE que antes ('daily_upload_limit' -- AnalyzingScreen
+      // ya lo traduce a un mensaje claro con CTA a PRO). Un PRO que golpea el
+      // techo de fair-use interno (caso excepcional) recibe un código distinto
+      // a propósito: el mensaje que ve tiene que ser neutro de protección de
+      // servicio, nunca "tu plan en realidad era de 100 Scans".
       await admin
         .from('scans')
-        .update({ status: 'rejected', error_message: 'daily_upload_limit' })
+        .update({ status: 'rejected', error_message: isFairUseCap ? 'fair_use_limit' : 'daily_upload_limit' })
         .eq('id', scanId);
       return jsonResponse({ error: 'Límite diario alcanzado' }, 429);
     }
