@@ -174,18 +174,31 @@ export default function AnalyzingScreen() {
       }, PROGRESS_STEP_MS);
     };
 
-    const finishFailure = (reason: 'failed' | 'rejected', errorCode?: string | null) => {
+    // Cada causa de falla tiene su propio texto -- nunca un mensaje
+    // genérico que mezcle "moderación o límite diario" como antes, que
+    // dejaba al usuario sin saber cuál de las dos pasó en realidad.
+    // errorCode se revisa primero (son señales inequívocas del backend);
+    // moderationFlagged solo importa para un 'rejected' sin uno de esos
+    // códigos puntuales.
+    const finishFailure = (reason: 'failed' | 'rejected', errorCode?: string | null, moderationFlagged?: boolean) => {
       if (hasNavigatedRef.current || cancelled) return;
       hasNavigatedRef.current = true;
       if (pollTimer) clearInterval(pollTimer);
       unsubscribeRealtime();
-      setErrorMessage(
-        reason === 'rejected'
-          ? 'Este video no se pudo procesar (moderación o límite diario).'
-          : errorCode === 'gemini_unavailable'
-            ? 'La IA está temporalmente ocupada. Intenta de nuevo en unos minutos.'
-            : 'El análisis falló. Intenta de nuevo.',
-      );
+
+      let message: string;
+      if (errorCode === 'gemini_unavailable') {
+        message = 'La IA está temporalmente ocupada. Intenta de nuevo en unos minutos.';
+      } else if (errorCode === 'daily_upload_limit') {
+        message = 'Alcanzaste tu límite diario de Scans. Vuelve a intentarlo mañana.';
+      } else if (reason === 'rejected' && moderationFlagged) {
+        message = 'Este video no cumple con nuestras normas de contenido. Probá con otro.';
+      } else if (reason === 'rejected') {
+        message = 'Este video no se pudo procesar. Intenta de nuevo.';
+      } else {
+        message = 'El análisis falló. Intenta de nuevo.';
+      }
+      setErrorMessage(message);
     };
 
     const handleResult = (result: ScanStatusCheck) => {
@@ -200,7 +213,7 @@ export default function AnalyzingScreen() {
           return;
         case 'failed':
         case 'rejected':
-          finishFailure(result.kind, result.scan.error_message);
+          finishFailure(result.kind, result.scan.error_message, result.scan.moderation_flagged);
           return;
         case 'error':
           consecutiveErrors += 1;
@@ -219,7 +232,7 @@ export default function AnalyzingScreen() {
     const unsubscribeRealtime = subscribeToScan(scanId, (scan) => {
       if (scan.status === 'done') finishSuccess();
       else if (scan.status === 'failed') finishFailure('failed', scan.error_message);
-      else if (scan.status === 'rejected') finishFailure('rejected', scan.error_message);
+      else if (scan.status === 'rejected') finishFailure('rejected', scan.error_message, scan.moderation_flagged);
     });
 
     const poll = () => {

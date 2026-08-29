@@ -76,6 +76,7 @@ interface ScanRow {
   beats: { time: string; delta: number; label: string }[] | null;
   stats: { confidence: number; style: number; timing: number; cringeRisk: number } | null;
   error_message: string | null;
+  moderation_flagged: boolean;
   created_at: string;
   video_path: string | null;
 }
