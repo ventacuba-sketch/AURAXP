@@ -11,7 +11,7 @@
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
-import { analyzeVideo, deleteGeminiFile, prepareGeminiVideoFile } from '../_shared/gemini.ts';
+import { analyzeVideo, deleteGeminiFile, GeminiUnavailableError, prepareGeminiVideoFile } from '../_shared/gemini.ts';
 import {
   computeAuraScore,
   computeLevel,
@@ -31,9 +31,17 @@ Deno.serve(async (req: Request) => {
     return new Response('ok', { headers: corsHeaders });
   }
 
+  // Declarados afuera del try para que el catch externo pueda usarlos como
+  // red de seguridad (ver abajo) -- solo tienen valor una vez que el request
+  // avanzó lo suficiente como para que exista algo que limpiar.
+  let scanId: string | undefined;
+  let admin: ReturnType<typeof createClient> | undefined;
+
   try {
     const authHeader = req.headers.get('Authorization') ?? '';
-    const { scanId, challengeToken } = await req.json();
+    const body = await req.json();
+    scanId = body.scanId;
+    const challengeToken = body.challengeToken;
 
     if (!scanId) {
       return jsonResponse({ error: 'scanId requerido' }, 400);
@@ -50,7 +58,7 @@ Deno.serve(async (req: Request) => {
     if (!user) return jsonResponse({ error: 'No autenticado' }, 401);
 
     // Cliente con service_role — el único que escribe resultados.
-    const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const { data: scan, error: scanErr } = await admin
       .from('scans')
@@ -178,18 +186,20 @@ Deno.serve(async (req: Request) => {
 
     let gemini;
     try {
-      try {
-        gemini = await analyzeVideo({ apiKey: GEMINI_API_KEY, fileUri: videoFile.uri, mimeType: videoFile.mimeType, scanId });
-      } catch (e) {
-        // Un reintento simple ante un fallo de parseo/red -- el video ya
-        // está subido a Gemini, así que reintentamos solo el análisis, no
-        // el upload completo.
-        gemini = await analyzeVideo({ apiKey: GEMINI_API_KEY, fileUri: videoFile.uri, mimeType: videoFile.mimeType, scanId });
-      }
-    } catch (e2) {
+      // El retry ante 503/UNAVAILABLE ya vive dentro de analyzeVideo() (con
+      // backoff exponencial) -- acá no hace falta reintentar nada más: si
+      // esto lanza, es porque ya se agotaron esos intentos o el error no
+      // era retryable de entrada (ver _shared/gemini.ts).
+      gemini = await analyzeVideo({ apiKey: GEMINI_API_KEY, fileUri: videoFile.uri, mimeType: videoFile.mimeType, scanId });
+    } catch (e) {
+      // Código corto y legible cuando Gemini siguió indisponible tras los
+      // reintentos (mismo patrón que invalid_path/daily_upload_limit/etc.
+      // más arriba) -- AnalyzingScreen lo usa para mostrar un mensaje
+      // específico en vez del texto crudo del error.
+      const errorMessage = e instanceof GeminiUnavailableError ? 'gemini_unavailable' : String(e);
       await admin
         .from('scans')
-        .update({ status: 'failed', error_message: String(e2) })
+        .update({ status: 'failed', error_message: errorMessage })
         .eq('id', scanId);
       return jsonResponse({ error: 'Análisis falló' }, 502);
     } finally {
@@ -280,6 +290,28 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ ok: true });
   } catch (e) {
     console.error(e);
+
+    // Red de seguridad: todo lo anterior a esto ya marca 'failed' en su
+    // propio catch específico ante un error esperado (video ilegible, subida
+    // a Gemini caída, análisis fallido, etc.). Si el código llegó hasta acá
+    // es porque algo *no previsto* explotó -- un error de Postgres en el
+    // upsert de daily_scan_counts, en la actualización de profiles/
+    // challenges, o cualquier otra cosa -- después de que el scan ya había
+    // pasado a 'processing'. Sin esto, esa fila quedaría en 'processing'
+    // para siempre: el cliente invoca esta función fire-and-forget (ver
+    // scanService.ts) y nunca ve este 500, solo sigue haciendo polling de
+    // un status que ya no va a cambiar.
+    if (scanId && admin) {
+      try {
+        await admin
+          .from('scans')
+          .update({ status: 'failed', error_message: 'unexpected_error' })
+          .eq('id', scanId);
+      } catch (updateErr) {
+        console.error('No se pudo marcar el scan como failed en el catch externo', updateErr);
+      }
+    }
+
     return jsonResponse({ error: 'Error interno' }, 500);
   }
 });

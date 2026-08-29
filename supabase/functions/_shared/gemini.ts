@@ -141,24 +141,47 @@ interface AnalyzeVideoParams {
 }
 
 /**
- * Llama a Gemini referenciando un video ya subido a la Files API (por URI,
- * `fileData`) y fuerza el JSON del contrato.
- *
- * Antes esto recibía el video entero en base64 y lo embebía inline
- * (`inlineData`) en este mismo request — la causa real del "Memory limit
- * exceeded" en producción: entre el string base64 y el JSON.stringify que
- * lo envuelve, un video de apenas 25-35MB podía superar el límite de
- * memoria de la Edge Function (150MB en el plan Free) mucho antes de que
- * el video en sí fuera "grande". Referenciar por URI evita construir esos
- * strings gigantes por completo, sin importar el tamaño del archivo — ver
- * uploadVideoToGeminiFiles/prepareGeminiVideoFile más abajo.
+ * Producción confirmó (vía Supabase, directo en la fila del scan)
+ * `Gemini API error 503: This model is currently experiencing high
+ * demand...` -- un pico transitorio de carga del lado de Google, no un
+ * problema con el request. Distinguible de cualquier otro error HTTP por
+ * status === 503; analyzeVideo() es el único lugar que decide reintentar
+ * en base a esto.
  */
-export async function analyzeVideo({
-  apiKey,
-  fileUri,
-  mimeType,
-  scanId,
-}: AnalyzeVideoParams): Promise<GeminiResult> {
+class GeminiHttpError extends Error {
+  status: number;
+  constructor(status: number, body: string) {
+    super(`Gemini API error ${status}: ${body}`);
+    this.name = 'GeminiHttpError';
+    this.status = status;
+  }
+}
+
+/**
+ * Lanzado únicamente cuando los 503 persisten tras agotar los reintentos
+ * -- process-scan lo distingue de cualquier otra falla de análisis para
+ * guardar un error_message corto y legible en vez del texto crudo de
+ * Gemini, y AnalyzingScreen lo usa para mostrar un mensaje específico en
+ * vez del genérico "el análisis falló".
+ */
+export class GeminiUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'GeminiUnavailableError';
+  }
+}
+
+// 1 intento inicial + 3 reintentos = 4 intentos totales, con backoff
+// exponencial entre cada uno. Nunca reintenta nada que no sea un 503 --
+// un 400 mal formado o un 401 de API key no se arregla insistiendo.
+const MAX_ATTEMPTS = 4;
+const RETRY_DELAYS_MS = [1000, 2000, 4000];
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function callGeminiOnce({ apiKey, fileUri, mimeType }: Omit<AnalyzeVideoParams, 'scanId'>): Promise<GeminiResult> {
   const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -182,7 +205,7 @@ export async function analyzeVideo({
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new Error(`Gemini API error ${response.status}: ${errText}`);
+    throw new GeminiHttpError(response.status, errText);
   }
 
   const data = await response.json();
@@ -192,6 +215,49 @@ export async function analyzeVideo({
   const parsed = JSON.parse(text) as GeminiResult;
   validateGeminiResult(parsed);
   return parsed;
+}
+
+/**
+ * Llama a Gemini referenciando un video ya subido a la Files API (por URI,
+ * `fileData`) y fuerza el JSON del contrato.
+ *
+ * Antes esto recibía el video entero en base64 y lo embebía inline
+ * (`inlineData`) en este mismo request — la causa real del "Memory limit
+ * exceeded" en producción: entre el string base64 y el JSON.stringify que
+ * lo envuelve, un video de apenas 25-35MB podía superar el límite de
+ * memoria de la Edge Function (150MB en el plan Free) mucho antes de que
+ * el video en sí fuera "grande". Referenciar por URI evita construir esos
+ * strings gigantes por completo, sin importar el tamaño del archivo — ver
+ * uploadVideoToGeminiFiles/prepareGeminiVideoFile más abajo.
+ *
+ * Reintenta con backoff exponencial (1s, 2s, 4s) SOLO ante un 503 --
+ * cualquier otro error (400/401/404/parseo/schema inválido) se propaga de
+ * inmediato en el primer intento, sin retraso, porque insistir no lo
+ * arregla. Si los 4 intentos agotan en 503, lanza GeminiUnavailableError
+ * en vez de seguir propagando el error crudo de Gemini.
+ */
+export async function analyzeVideo({ apiKey, fileUri, mimeType, scanId }: AnalyzeVideoParams): Promise<GeminiResult> {
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      return await callGeminiOnce({ apiKey, fileUri, mimeType });
+    } catch (e) {
+      // Guard clause (not a derived boolean) so TS narrows `e` to
+      // GeminiHttpError below -- `e` is `unknown` in a catch clause, and
+      // narrowing only applies to the checked variable itself, not to a
+      // separately-assigned boolean.
+      if (!(e instanceof GeminiHttpError) || e.status !== 503) throw e;
+
+      if (attempt === MAX_ATTEMPTS) {
+        throw new GeminiUnavailableError(
+          `Gemini siguió respondiendo 503 tras ${MAX_ATTEMPTS} intentos (scan ${scanId}): ${e.message}`,
+        );
+      }
+
+      await sleep(RETRY_DELAYS_MS[attempt - 1]);
+    }
+  }
+  // Inalcanzable -- el loop siempre retorna o lanza dentro de sus MAX_ATTEMPTS iteraciones.
+  throw new Error('analyzeVideo: estado inesperado');
 }
 
 interface UploadedGeminiFile {

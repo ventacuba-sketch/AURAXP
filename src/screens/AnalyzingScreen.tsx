@@ -105,7 +105,7 @@ export default function AnalyzingScreen() {
       }, 300);
     };
 
-    const finishFailure = (reason: 'failed' | 'rejected') => {
+    const finishFailure = (reason: 'failed' | 'rejected', errorCode?: string | null) => {
       if (hasNavigatedRef.current || cancelled) return;
       hasNavigatedRef.current = true;
       if (pollTimer) clearInterval(pollTimer);
@@ -113,7 +113,9 @@ export default function AnalyzingScreen() {
       setErrorMessage(
         reason === 'rejected'
           ? 'Este video no se pudo procesar (moderación o límite diario).'
-          : 'El análisis falló. Intenta de nuevo.',
+          : errorCode === 'gemini_unavailable'
+            ? 'La IA está temporalmente ocupada. Intenta de nuevo en unos minutos.'
+            : 'El análisis falló. Intenta de nuevo.',
       );
     };
 
@@ -129,7 +131,7 @@ export default function AnalyzingScreen() {
           return;
         case 'failed':
         case 'rejected':
-          finishFailure(result.kind);
+          finishFailure(result.kind, result.scan.error_message);
           return;
         case 'error':
           consecutiveErrors += 1;
@@ -147,8 +149,8 @@ export default function AnalyzingScreen() {
     // errores (es una señal push, no una verificación que pueda fallar).
     const unsubscribeRealtime = subscribeToScan(scanId, (scan) => {
       if (scan.status === 'done') finishSuccess();
-      else if (scan.status === 'failed') finishFailure('failed');
-      else if (scan.status === 'rejected') finishFailure('rejected');
+      else if (scan.status === 'failed') finishFailure('failed', scan.error_message);
+      else if (scan.status === 'rejected') finishFailure('rejected', scan.error_message);
     });
 
     const poll = () => {
