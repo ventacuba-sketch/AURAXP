@@ -218,6 +218,17 @@ async function callGeminiOnce({ apiKey, fileUri, mimeType }: Omit<AnalyzeVideoPa
 }
 
 /**
+ * Log estructurado por intento -- JSON de una sola línea para poder
+ * grep/filtrar en `supabase functions logs process-scan` por
+ * "src":"analyzeVideo" o por scanId. Es la forma directa de confirmar,
+ * desde logs reales, que esta versión del retry está corriendo (en vez
+ * de inferirlo indirectamente por cómo terminó un scan).
+ */
+function logAttempt(event: string, data: Record<string, unknown>): void {
+  console.log(JSON.stringify({ src: 'analyzeVideo', event, ...data }));
+}
+
+/**
  * Llama a Gemini referenciando un video ya subido a la Files API (por URI,
  * `fileData`) y fuerza el JSON del contrato.
  *
@@ -238,22 +249,36 @@ async function callGeminiOnce({ apiKey, fileUri, mimeType }: Omit<AnalyzeVideoPa
  */
 export async function analyzeVideo({ apiKey, fileUri, mimeType, scanId }: AnalyzeVideoParams): Promise<GeminiResult> {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    logAttempt('attempt_start', { scanId, attempt, maxAttempts: MAX_ATTEMPTS });
     try {
-      return await callGeminiOnce({ apiKey, fileUri, mimeType });
+      const result = await callGeminiOnce({ apiKey, fileUri, mimeType });
+      if (attempt > 1) logAttempt('attempt_succeeded_after_retry', { scanId, attempt });
+      return result;
     } catch (e) {
       // Guard clause (not a derived boolean) so TS narrows `e` to
       // GeminiHttpError below -- `e` is `unknown` in a catch clause, and
       // narrowing only applies to the checked variable itself, not to a
       // separately-assigned boolean.
-      if (!(e instanceof GeminiHttpError) || e.status !== 503) throw e;
+      if (!(e instanceof GeminiHttpError) || e.status !== 503) {
+        logAttempt('non_retryable_error', {
+          scanId,
+          attempt,
+          status: e instanceof GeminiHttpError ? e.status : null,
+          message: e instanceof Error ? e.message : String(e),
+        });
+        throw e;
+      }
 
       if (attempt === MAX_ATTEMPTS) {
+        logAttempt('final_failure', { scanId, attempt, status: 503 });
         throw new GeminiUnavailableError(
           `Gemini siguió respondiendo 503 tras ${MAX_ATTEMPTS} intentos (scan ${scanId}): ${e.message}`,
         );
       }
 
-      await sleep(RETRY_DELAYS_MS[attempt - 1]);
+      const delayMs = RETRY_DELAYS_MS[attempt - 1];
+      logAttempt('retrying', { scanId, attempt, status: 503, delayMs });
+      await sleep(delayMs);
     }
   }
   // Inalcanzable -- el loop siempre retorna o lanza dentro de sus MAX_ATTEMPTS iteraciones.

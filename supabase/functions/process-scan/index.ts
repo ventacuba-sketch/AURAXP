@@ -197,6 +197,15 @@ Deno.serve(async (req: Request) => {
       // más arriba) -- AnalyzingScreen lo usa para mostrar un mensaje
       // específico en vez del texto crudo del error.
       const errorMessage = e instanceof GeminiUnavailableError ? 'gemini_unavailable' : String(e);
+      console.log(
+        JSON.stringify({
+          src: 'process-scan',
+          event: 'analyze_failed',
+          scanId,
+          isGeminiUnavailable: e instanceof GeminiUnavailableError,
+          errorMessageSaved: errorMessage,
+        }),
+      );
       await admin
         .from('scans')
         .update({ status: 'failed', error_message: errorMessage })
