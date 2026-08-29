@@ -56,7 +56,7 @@ export default function HomeScreen() {
           <PrimaryButton
             label="Ver replay"
             variant="text"
-            onPress={() => navigation.navigate('ScanResult', undefined)}
+            onPress={() => navigation.navigate('ScanResult', { scanId: latestReplay.id })}
           />
         </Card>
       )}

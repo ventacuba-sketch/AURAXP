@@ -4,6 +4,22 @@ import { supabase } from './supabaseClient';
 
 export type SignUpStatus = 'signedIn' | 'confirmationRequired' | 'alreadyRegistered';
 
+// A dónde manda Supabase el link "Confirmar correo" del email de
+// verificación. Bug real encontrado probando en dos celulares: sin esto,
+// Supabase usa el "Site URL" configurado en el dashboard del proyecto --
+// que sigue en su default de localhost, así que cualquiera que confirmara
+// su cuenta terminaba varado ahí en vez de volver a AURA VS. La raíz
+// (sin path): RootNavigator ya sabe qué hacer apenas hay sesión --
+// retoma el Challenge pendiente si había uno (ver pendingChallenge.ts),
+// así que no hace falta una ruta de callback dedicada.
+//
+// IMPORTANTE: Supabase ignora un emailRedirectTo que no esté en la lista
+// de Redirect URLs permitidas del proyecto (Authentication -> URL
+// Configuration) -- si esa lista no incluye este dominio, cae de vuelta
+// al Site URL (localhost) igual, con o sin este código. Ese es el único
+// paso que no se puede hacer desde el código.
+const EMAIL_CONFIRMATION_REDIRECT_URL = 'https://auravs.app';
+
 /**
  * Email + password — sin login social todavía (cero configuración externa).
  *
@@ -15,7 +31,11 @@ export type SignUpStatus = 'signedIn' | 'confirmationRequired' | 'alreadyRegiste
  */
 export async function signUp(email: string, password: string): Promise<SignUpStatus> {
   if (!supabase) throw new Error('Supabase no está configurado');
-  const { data, error } = await supabase.auth.signUp({ email, password });
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+    options: { emailRedirectTo: EMAIL_CONFIRMATION_REDIRECT_URL },
+  });
   if (error) throw error;
 
   // Supabase, para no filtrar qué emails existen, responde signUp() sin

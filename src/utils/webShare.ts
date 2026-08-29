@@ -40,9 +40,18 @@ async function copyToClipboard(text: string): Promise<boolean> {
 }
 
 /**
- * `text` y `url` se combinan en un solo string para el fallback de
- * portapapeles (no todos los métodos separan texto de link); la Web Share
- * API real sí los recibe separados cuando está disponible.
+ * `text` y `url` SIEMPRE se combinan en un solo string -- para el
+ * fallback de portapapeles, pero también para la propia Web Share API.
+ *
+ * Bug real encontrado probando por WhatsApp en iPhone: pasar `{ text, url
+ * }` como campos separados a `navigator.share()` (como se hacía antes)
+ * hace que WhatsApp en iOS reciba el texto pero DESCARTE el campo `url`
+ * -- comportamiento conocido de su hoja de compartir vía Web Share API,
+ * no específico de esta app: el spec no obliga a cada app receptora a
+ * combinar los campos de la misma forma, y la de WhatsApp en iOS no
+ * incluye `url` de forma confiable. La única forma robusta de garantizar
+ * que el link viaje SIEMPRE, sea cual sea la app que reciba el share, es
+ * no depender de ese campo separado: el link va incrustado en `text`.
  */
 export async function shareOnWeb(text: string, url?: string): Promise<ShareOutcome> {
   const combined = url ? `${text} ${url}` : text;
@@ -50,7 +59,7 @@ export async function shareOnWeb(text: string, url?: string): Promise<ShareOutco
   const nav = typeof navigator !== 'undefined' ? (navigator as Navigator & { share?: (data: unknown) => Promise<void> }) : undefined;
   if (nav?.share) {
     try {
-      await nav.share(url ? { text, url } : { text });
+      await nav.share({ text: combined });
       return 'shared';
     } catch (e) {
       // El usuario cerró el sheet nativo -- no es una falla, no hay que

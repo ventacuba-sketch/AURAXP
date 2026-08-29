@@ -5,11 +5,19 @@
  * (see supabaseClient.isSupabaseConfigured), falling back to mock data
  * otherwise — so the app keeps working before the backend is wired up.
  *
- * `fetchLatestReplay` / `fetchFriendChallenge` / `fetchAuraChain` stay
- * mock-only on purpose: an "incoming challenge inbox" and a real Aura
- * Chain graph were explicitly deferred out of this MVP's approved scope
- * (Challenge is link-only for now). `submitScan` is the mock fallback
- * used by AnalyzingScreen when there's no real scanId to poll.
+ * `fetchFriendChallenge` / `fetchAuraChain` stay mock-only on purpose: an
+ * "incoming challenge inbox" and a real Aura Chain graph were explicitly
+ * deferred out of this MVP's approved scope (Challenge is link-only for
+ * now). `submitScan` is the mock fallback used by AnalyzingScreen when
+ * there's no real scanId to poll.
+ *
+ * `fetchLatestReplay` USES to be mock-only too -- real bug found testing
+ * on device: Home's "Ver replay" always opened a hardcoded mock scan
+ * (id "s_001", not a real row), so DESAFIAR A UN AMIGO from there tried
+ * to create a Challenge with that fake id as source_scan_id and failed
+ * the scans(id) foreign key -- caught as the generic "No pudimos crear
+ * el desafío". Now real once Supabase+session are available, same
+ * pattern as fetchCurrentUser.
  */
 
 import {
@@ -21,6 +29,7 @@ import {
 } from './mockData';
 import { supabase } from './supabaseClient';
 import { computeLevel, xpToNextLevel } from '../utils/xpLevel';
+import { formatRelativeTime } from '../utils/format';
 import { AuraChain, FriendChallenge, ReplayHighlight, ScanResult, User } from '../types';
 
 export async function fetchCurrentUser(): Promise<User> {
@@ -52,8 +61,37 @@ export async function fetchCurrentUser(): Promise<User> {
   };
 }
 
-export async function fetchLatestReplay(): Promise<ReplayHighlight> {
-  return mockLatestReplay;
+/**
+ * El scan `done` más reciente del usuario actual, como "ÚLTIMO REPLAY".
+ * `null` (no mock) cuando hay sesión real pero todavía no tiene ningún
+ * Scan terminado -- Home ya sabe ocultar la card entera con `{latestReplay
+ * && ...}`, mejor eso que mostrar un replay que no existe.
+ */
+export async function fetchLatestReplay(): Promise<ReplayHighlight | null> {
+  if (!supabase) return mockLatestReplay;
+
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) return mockLatestReplay;
+
+  const { data: scan, error } = await supabase
+    .from('scans')
+    .select('id, aura_score, verdict_tag, created_at')
+    .eq('user_id', session.user.id)
+    .eq('status', 'done')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !scan) return null;
+
+  return {
+    id: scan.id,
+    xpDelta: scan.aura_score ?? 0,
+    momentLabel: scan.verdict_tag ?? '',
+    timestamp: formatRelativeTime(scan.created_at),
+  };
 }
 
 export async function fetchFriendChallenge(): Promise<FriendChallenge> {
