@@ -174,3 +174,56 @@ export async function getScan(scanId: string): Promise<ScanRow | null> {
   if (error) return null;
   return data as ScanRow;
 }
+
+/**
+ * Outcome of one status check, used by Analyzing's polling loop. Unlike
+ * getScan() above (kept as-is -- useScanResult relies on its "null means
+ * fall back to mock" contract), this never collapses a real error into
+ * the same shape as "still processing": that conflation is exactly what
+ * let a stuck scan look identical to a silently-failing one, with no way
+ * to tell them apart from the UI.
+ */
+export type ScanStatusCheck =
+  | { kind: 'pending' }
+  | { kind: 'done'; scan: ScanRow }
+  | { kind: 'failed'; scan: ScanRow }
+  | { kind: 'rejected'; scan: ScanRow }
+  | { kind: 'error'; message: string };
+
+export async function checkScanStatus(scanId: string): Promise<ScanStatusCheck> {
+  if (!supabase) return { kind: 'error', message: 'Supabase no está configurado' };
+
+  const { data, error } = await supabase.from('scans').select('*').eq('id', scanId).single();
+  if (error) return { kind: 'error', message: error.message };
+  if (!data) return { kind: 'error', message: 'Scan no encontrado' };
+
+  const scan = data as ScanRow;
+  if (scan.status === 'done') return { kind: 'done', scan };
+  if (scan.status === 'failed') return { kind: 'failed', scan };
+  if (scan.status === 'rejected') return { kind: 'rejected', scan };
+  return { kind: 'pending' };
+}
+
+/**
+ * Realtime acceleration for Analyzing -- purely additive. If the `scans`
+ * table isn't added to the supabase_realtime publication, this channel
+ * just never fires and the caller's polling stays the sole (and
+ * sufficient) source of truth; it never throws for that reason, so it's
+ * always safe to call regardless of whether Realtime is enabled.
+ */
+export function subscribeToScan(scanId: string, onUpdate: (scan: ScanRow) => void): () => void {
+  if (!supabase) return () => {};
+
+  const channel = supabase
+    .channel(`scan-${scanId}`)
+    .on(
+      'postgres_changes',
+      { event: 'UPDATE', schema: 'public', table: 'scans', filter: `id=eq.${scanId}` },
+      (payload) => onUpdate(payload.new as ScanRow),
+    )
+    .subscribe();
+
+  return () => {
+    supabase?.removeChannel(channel);
+  };
+}

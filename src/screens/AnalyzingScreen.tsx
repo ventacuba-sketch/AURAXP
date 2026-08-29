@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { RouteProp, useRoute } from '@react-navigation/native';
 
@@ -7,7 +7,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { SCAN_DURATION_MS, submitScan } from '../services/api';
-import { getScan } from '../services/scanService';
+import { checkScanStatus, ScanStatusCheck, subscribeToScan } from '../services/scanService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { RootStackParamList } from '../types';
@@ -23,7 +23,14 @@ const PROGRESS_STEP_MS = 40;
 // real llega a 'done'. Evita una barra que miente sobre el tiempo real.
 const REAL_PROGRESS_CAP = 0.9;
 const REAL_PROGRESS_ESTIMATE_MS = 6000;
-const POLL_INTERVAL_MS = 1500;
+const POLL_INTERVAL_MS = 2500;
+
+// Distingue un blip transitorio (Wi-Fi flaqueando un instante) de una falla
+// real y sostenida (sesión inválida, red caída, etc.): recién después de
+// varios fallos *reales* consecutivos (no "todavía pendiente" -- eso no
+// cuenta como fallo) se corta el polling y se muestra un error accionable,
+// en vez de quedar reintentando en silencio para siempre.
+const MAX_CONSECUTIVE_ERRORS = 5;
 
 type AnalyzingRoute = RouteProp<RootStackParamList, 'Analyzing'>;
 
@@ -36,6 +43,9 @@ export default function AnalyzingScreen() {
   const [labelIndex, setLabelIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  // Guard contra navegación duplicada: polling y Realtime pueden detectar
+  // `done` casi al mismo tiempo -- solo la primera fuente que llega navega.
+  const hasNavigatedRef = useRef(false);
 
   // Anima el AuraScanner — mock: 0->1 real en SCAN_DURATION_MS.
   // Real: 0->90% estimado, se completa cuando el polling confirma 'done'.
@@ -69,34 +79,89 @@ export default function AnalyzingScreen() {
     };
   }, [useRealBackend, navigation]);
 
-  // Polling real cada 1.5s (acordado: simple, sin Realtime todavía).
+  // Detección robusta de `done`, con tres capas independientes:
+  // 1. fetch inmediato al montar (no esperar el primer tick del interval);
+  // 2. polling de respaldo cada POLL_INTERVAL_MS -- la fuente de verdad
+  //    real, funciona siempre, con o sin Realtime habilitado;
+  // 3. Realtime como aceleración opcional -- si `scans` no está en la
+  //    publicación supabase_realtime, el canal simplemente no dispara
+  //    nunca y el polling sigue cubriendo todo el flujo solo.
+  // Cualquiera de las tres que detecte `done` navega; un guard evita que
+  // dos fuentes disparen la navegación dos veces.
   useEffect(() => {
     if (!useRealBackend || !scanId) return;
     let cancelled = false;
+    let consecutiveErrors = 0;
+    let pollTimer: ReturnType<typeof setInterval> | undefined;
 
-    const interval = setInterval(async () => {
-      const scan = await getScan(scanId);
-      if (cancelled || !scan) return;
+    const finishSuccess = () => {
+      if (hasNavigatedRef.current || cancelled) return;
+      hasNavigatedRef.current = true;
+      if (pollTimer) clearInterval(pollTimer);
+      unsubscribeRealtime();
+      setProgress(1);
+      setTimeout(() => {
+        if (!cancelled) navigation.replace('ScanResult', { scanId });
+      }, 300);
+    };
 
-      if (scan.status === 'done') {
-        clearInterval(interval);
-        setProgress(1);
-        setTimeout(() => {
-          if (!cancelled) navigation.replace('ScanResult', { scanId });
-        }, 300);
-      } else if (scan.status === 'failed' || scan.status === 'rejected') {
-        clearInterval(interval);
-        setErrorMessage(
-          scan.status === 'rejected'
-            ? 'Este video no se pudo procesar (moderación o límite diario).'
-            : 'El análisis falló. Intenta de nuevo.',
-        );
+    const finishFailure = (reason: 'failed' | 'rejected') => {
+      if (hasNavigatedRef.current || cancelled) return;
+      hasNavigatedRef.current = true;
+      if (pollTimer) clearInterval(pollTimer);
+      unsubscribeRealtime();
+      setErrorMessage(
+        reason === 'rejected'
+          ? 'Este video no se pudo procesar (moderación o límite diario).'
+          : 'El análisis falló. Intenta de nuevo.',
+      );
+    };
+
+    const handleResult = (result: ScanStatusCheck) => {
+      if (cancelled || hasNavigatedRef.current) return;
+
+      switch (result.kind) {
+        case 'pending':
+          consecutiveErrors = 0;
+          return;
+        case 'done':
+          finishSuccess();
+          return;
+        case 'failed':
+        case 'rejected':
+          finishFailure(result.kind);
+          return;
+        case 'error':
+          consecutiveErrors += 1;
+          if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+            if (pollTimer) clearInterval(pollTimer);
+            unsubscribeRealtime();
+            setErrorMessage('No pudimos confirmar el resultado. Revisa tu conexión e intenta de nuevo.');
+          }
+          return;
       }
-    }, POLL_INTERVAL_MS);
+    };
+
+    // Capa 3: Realtime, solo acelera -- una fila que llega por acá se trata
+    // igual que una detectada por polling, sin pasar por el contador de
+    // errores (es una señal push, no una verificación que pueda fallar).
+    const unsubscribeRealtime = subscribeToScan(scanId, (scan) => {
+      if (scan.status === 'done') finishSuccess();
+      else if (scan.status === 'failed') finishFailure('failed');
+      else if (scan.status === 'rejected') finishFailure('rejected');
+    });
+
+    const poll = () => {
+      checkScanStatus(scanId).then(handleResult);
+    };
+
+    poll(); // Capa 1: fetch inmediato al montar, no esperar el primer tick.
+    pollTimer = setInterval(poll, POLL_INTERVAL_MS); // Capa 2: respaldo.
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      if (pollTimer) clearInterval(pollTimer);
+      unsubscribeRealtime();
     };
   }, [useRealBackend, scanId, navigation]);
 
