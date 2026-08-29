@@ -21,8 +21,24 @@ const PROGRESS_STEP_MS = 40;
 // El backend real no reporta progreso — animamos hacia un techo visual
 // mientras hacemos polling, y recién saltamos a 100% cuando el status
 // real llega a 'done'. Evita una barra que miente sobre el tiempo real.
+//
+// Curva desacelerada (no lineal): progress = CAP * (1 - e^(-t/TAU)) --
+// rápido al principio, cada vez más lento después, asintótica hacia CAP
+// sin tocarlo nunca mientras no llegue 'done'. Con TAU=22s: ~18% a los
+// 5s, ~54% a los 20s, ~84% a los 60s, ~89% a los 120s -- consume gran
+// parte de la espera real en vez de plancharse en el 90% a los pocos
+// segundos como hacía la curva lineal anterior (6s a tope).
 const REAL_PROGRESS_CAP = 0.9;
-const REAL_PROGRESS_ESTIMATE_MS = 6000;
+const REAL_PROGRESS_TAU_MS = 22000;
+// Pasado este tiempo sin 'done', la curva sigue viva (sigue siendo
+// asintótica, nunca se congela del todo) pero además se muestra el
+// mensaje de "casi listo" para que quede claro que seguimos esperando al
+// backend, no que la pantalla se colgó.
+const ALMOST_READY_THRESHOLD_MS = 60000;
+// Animación corta y rápida de "terminar": del progreso actual a 100% en
+// este tiempo, recién ahí se navega -- reemplaza el salto instantáneo a
+// 100% que había antes.
+const FINISH_ANIMATION_MS = 500;
 const POLL_INTERVAL_MS = 2500;
 
 // Distingue un blip transitorio (Wi-Fi flaqueando un instante) de una falla
@@ -43,19 +59,43 @@ export default function AnalyzingScreen() {
 
   const [labelIndex, setLabelIndex] = useState(0);
   const [progress, setProgress] = useState(0);
+  const [almostReady, setAlmostReady] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // Guard contra navegación duplicada: polling y Realtime pueden detectar
   // `done` casi al mismo tiempo -- solo la primera fuente que llega navega.
   const hasNavigatedRef = useRef(false);
+  // Espejo de `progress` legible desde closures que no lo tienen como
+  // dependencia (el efecto de polling, más abajo) -- para poder animar la
+  // recta final desde el valor real en pantalla, no desde 0.
+  const progressRef = useRef(0);
+  // Corta la curva desacelerada apenas arranca la animación final de
+  // cierre, para que no sigan compitiendo por escribir `progress` a la vez.
+  const finishingRef = useRef(false);
 
-  // Anima el AuraScanner — mock: 0->1 real en SCAN_DURATION_MS.
-  // Real: 0->90% estimado, se completa cuando el polling confirma 'done'.
+  // Anima el AuraScanner — mock: 0->1 lineal en SCAN_DURATION_MS (clip
+  // corto, tiempo conocido de antemano, no hace falta desacelerar).
+  // Real: curva desacelerada hacia el techo visual (ver constantes arriba)
+  // mientras hacemos polling -- la animación de cierre a 100% la maneja
+  // por separado finishSuccess() más abajo, apenas confirmamos 'done'.
   useEffect(() => {
     const start = Date.now();
-    const cap = useRealBackend ? REAL_PROGRESS_CAP : 1;
-    const duration = useRealBackend ? REAL_PROGRESS_ESTIMATE_MS : SCAN_DURATION_MS;
+
+    if (!useRealBackend) {
+      const interval = setInterval(() => {
+        const next = Math.min(1, (Date.now() - start) / SCAN_DURATION_MS);
+        progressRef.current = next;
+        setProgress(next);
+      }, PROGRESS_STEP_MS);
+      return () => clearInterval(interval);
+    }
+
     const interval = setInterval(() => {
-      setProgress((p) => (p >= cap ? p : Math.min(cap, (Date.now() - start) / duration)));
+      if (finishingRef.current) return;
+      const elapsed = Date.now() - start;
+      const next = REAL_PROGRESS_CAP * (1 - Math.exp(-elapsed / REAL_PROGRESS_TAU_MS));
+      progressRef.current = next;
+      setProgress(next);
+      if (elapsed > ALMOST_READY_THRESHOLD_MS) setAlmostReady(true);
     }, PROGRESS_STEP_MS);
     return () => clearInterval(interval);
   }, [useRealBackend]);
@@ -94,25 +134,44 @@ export default function AnalyzingScreen() {
     let cancelled = false;
     let consecutiveErrors = 0;
     let pollTimer: ReturnType<typeof setInterval> | undefined;
+    let finishInterval: ReturnType<typeof setInterval> | undefined;
 
     const finishSuccess = () => {
       if (hasNavigatedRef.current || cancelled) return;
       hasNavigatedRef.current = true;
       if (pollTimer) clearInterval(pollTimer);
       unsubscribeRealtime();
-      setProgress(1);
-      setTimeout(() => {
-        if (cancelled) return;
-        // Este scan era el del oponente de un Challenge -- process-scan ya
-        // resolvió el duelo server-side en el mismo request que lo marcó
-        // 'done' (ver _shared/challengeResolution.ts). Ir directo al
-        // versus en vez de al Aura Replay individual.
-        if (challengeToken) {
-          navigation.replace('Challenge', { challengeToken });
-        } else {
-          navigation.replace('ScanResult', { scanId });
+
+      // Anima rápido desde el progreso real actual (no desde 0, no un
+      // salto instantáneo) hasta 100%, y recién ahí navega -- la curva
+      // desacelerada de arriba deja de escribir `progress` gracias a
+      // finishingRef, así que esta animación no compite con ella.
+      finishingRef.current = true;
+      const finishStart = Date.now();
+      const finishFrom = progressRef.current;
+      finishInterval = setInterval(() => {
+        if (cancelled) {
+          if (finishInterval) clearInterval(finishInterval);
+          return;
         }
-      }, 300);
+        const t = Math.min(1, (Date.now() - finishStart) / FINISH_ANIMATION_MS);
+        const next = finishFrom + (1 - finishFrom) * t;
+        progressRef.current = next;
+        setProgress(next);
+
+        if (t >= 1) {
+          if (finishInterval) clearInterval(finishInterval);
+          // Este scan era el del oponente de un Challenge -- process-scan ya
+          // resolvió el duelo server-side en el mismo request que lo marcó
+          // 'done' (ver _shared/challengeResolution.ts). Ir directo al
+          // versus en vez de al Aura Replay individual.
+          if (challengeToken) {
+            navigation.replace('Challenge', { challengeToken });
+          } else {
+            navigation.replace('ScanResult', { scanId });
+          }
+        }
+      }, PROGRESS_STEP_MS);
     };
 
     const finishFailure = (reason: 'failed' | 'rejected', errorCode?: string | null) => {
@@ -173,6 +232,7 @@ export default function AnalyzingScreen() {
     return () => {
       cancelled = true;
       if (pollTimer) clearInterval(pollTimer);
+      if (finishInterval) clearInterval(finishInterval);
       unsubscribeRealtime();
     };
   }, [useRealBackend, scanId, challengeToken, navigation]);
@@ -192,6 +252,9 @@ export default function AnalyzingScreen() {
         <Text style={styles.percent}>{Math.round(progress * 100)}%</Text>
       </AuraScanner>
       <Text style={styles.title}>LEYENDO TU AURA...</Text>
+      {almostReady && (
+        <Text style={styles.almostReady}>Casi listo… la IA está terminando el análisis</Text>
+      )}
       <View style={styles.labelRow}>
         {LABELS.map((label, index) => (
           <View
@@ -223,6 +286,14 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     marginBottom: spacing.lg,
     letterSpacing: 1,
+  },
+  almostReady: {
+    ...typography.caption,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginTop: -spacing.md,
+    marginBottom: spacing.lg,
+    paddingHorizontal: spacing.lg,
   },
   labelRow: {
     flexDirection: 'row',
