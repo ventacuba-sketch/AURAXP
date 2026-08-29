@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Card } from '../components/Card';
+import { DailyScanCounter } from '../components/DailyScanCounter';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ReplayPlaceholder } from '../components/ReplayPlaceholder';
 import { ScreenContainer } from '../components/ScreenContainer';
@@ -32,6 +33,8 @@ export default function HomeScreen() {
         </Text>
         <PrimaryButton label="ESCANEAR MI AURA" onPress={() => navigation.navigate('Upload')} />
       </View>
+
+      <DailyScanCounter />
 
       <View style={styles.auraSection}>
         <Text style={styles.eyebrow}>TU AURA</Text>

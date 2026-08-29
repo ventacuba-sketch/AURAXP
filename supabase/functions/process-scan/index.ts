@@ -12,6 +12,7 @@
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { resolveChallengeIfApplicable } from '../_shared/challengeResolution.ts';
 import { corsHeaders } from '../_shared/cors.ts';
+import { isUnlimitedTestUser } from '../_shared/dailyLimit.ts';
 import { analyzeVideo, deleteGeminiFile, GeminiUnavailableError, prepareGeminiVideoFile } from '../_shared/gemini.ts';
 import {
   computeAuraScore,
@@ -26,21 +27,6 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY')!;
-
-// Opt-in por cuenta, no un interruptor global: mientras este secret no
-// exista, DAILY_UPLOAD_CAP se aplica exactamente igual que hoy para
-// absolutamente todos, cuentas de desarrollo incluidas -- no debilita nada
-// en producción por sí solo. Solo cuando alguien pone su propio user_id acá
-// (Project Settings -> Edge Functions -> process-scan -> Secrets) esa
-// cuenta puntual deja de contar contra el límite diario; nadie más se ve
-// afectado. El contador (`daily_scan_counts`) se sigue incrementando igual
-// para esas cuentas, así que las métricas de uso no se pierden.
-const UNLIMITED_TEST_USER_IDS = new Set(
-  (Deno.env.get('UNLIMITED_TEST_USER_IDS') ?? '')
-    .split(',')
-    .map((id) => id.trim())
-    .filter(Boolean),
-);
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -112,7 +98,7 @@ Deno.serve(async (req: Request) => {
       { onConflict: 'user_id,day' },
     );
 
-    if (uploadCount > DAILY_UPLOAD_CAP && !UNLIMITED_TEST_USER_IDS.has(user.id)) {
+    if (uploadCount > DAILY_UPLOAD_CAP && !isUnlimitedTestUser(user.id)) {
       await admin
         .from('scans')
         .update({ status: 'rejected', error_message: 'daily_upload_limit' })

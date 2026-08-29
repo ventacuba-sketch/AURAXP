@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { Badge } from '../components/Badge';
 import { Card } from '../components/Card';
+import { DailyScanCounter } from '../components/DailyScanCounter';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { StatTile } from '../components/StatTile';
@@ -141,6 +142,8 @@ export default function ProfileScreen() {
         <StatTile label="RACHA 🔥" value={String(user?.streakDays ?? 0)} />
         <StatTile label="NIVEL" value={formatLevel(user?.level ?? 0)} />
       </View>
+
+      <DailyScanCounter />
     </ScreenContainer>
   );
 }

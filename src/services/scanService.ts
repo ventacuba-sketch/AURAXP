@@ -228,3 +228,29 @@ export function subscribeToScan(scanId: string, onUpdate: (scan: ScanRow) => voi
     supabase?.removeChannel(channel);
   };
 }
+
+/** Shape returned by the get-daily-scan-status Edge Function. */
+export interface DailyScanStatus {
+  count: number;
+  cap: number;
+  /** true si esta cuenta está en UNLIMITED_TEST_USER_IDS (ver process-scan) --
+   * el límite diario no se le aplica. Nunca se mezcla con `count`/`cap`: el
+   * caller debe mostrar uno u otro, no ambos a la vez. */
+  unlimited: boolean;
+}
+
+/**
+ * Cuántos Scans lleva hoy el usuario actual, contra el límite real --
+ * SIEMPRE desde el backend (daily_scan_counts vía el Edge Function
+ * get-daily-scan-status), nunca estimado acá. `daily_scan_counts` tiene
+ * RLS sin policies para el cliente a propósito (ver init_schema.sql), así
+ * que no hay forma de leerla directo con `supabase.from(...)` -- este
+ * Edge Function es la única puerta, y devuelve nada más que el conteo de
+ * quien llama.
+ */
+export async function fetchDailyScanStatus(): Promise<DailyScanStatus | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase.functions.invoke('get-daily-scan-status');
+  if (error || !data || data.error) return null;
+  return data as DailyScanStatus;
+}

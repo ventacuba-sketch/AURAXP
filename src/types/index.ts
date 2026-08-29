@@ -44,6 +44,8 @@ export type RootStackParamList = {
    * como oponente que ya aceptó o como creador que vuelve a chequear). */
   Challenge: { scanId?: string; challengeToken?: string } | undefined;
   ChallengeLanding: { token: string };
+  /** Placeholder de beneficios PRO -- sin checkout todavía, ver DailyScanCounter. */
+  Pro: undefined;
   /** Solo registrada en el navigator cuando no hay sesión — ver RootNavigator. */
   Auth: undefined;
 };
