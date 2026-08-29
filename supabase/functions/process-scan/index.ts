@@ -205,12 +205,22 @@ Deno.serve(async (req: Request) => {
     }
 
     let gemini;
+    // Se llena adentro de analyzeVideo() si Gemini devuelve usageMetadata
+    // -- se persiste en scans.gemini_usage_metadata más abajo para poder
+    // medir el costo real por Scan por SQL (ver auditoría de escala).
+    const geminiUsage: { value?: unknown } = {};
     try {
       // El retry ante 503/UNAVAILABLE ya vive dentro de analyzeVideo() (con
       // backoff exponencial) -- acá no hace falta reintentar nada más: si
       // esto lanza, es porque ya se agotaron esos intentos o el error no
       // era retryable de entrada (ver _shared/gemini.ts).
-      gemini = await analyzeVideo({ apiKey: GEMINI_API_KEY, fileUri: videoFile.uri, mimeType: videoFile.mimeType, scanId });
+      gemini = await analyzeVideo({
+        apiKey: GEMINI_API_KEY,
+        fileUri: videoFile.uri,
+        mimeType: videoFile.mimeType,
+        scanId,
+        usageHolder: geminiUsage,
+      });
     } catch (e) {
       // Código corto y legible cuando Gemini siguió indisponible tras los
       // reintentos (mismo patrón que invalid_path/daily_upload_limit/etc.
@@ -247,6 +257,7 @@ Deno.serve(async (req: Request) => {
         .update({
           status: 'rejected',
           gemini_raw: gemini,
+          gemini_usage_metadata: geminiUsage.value ?? null,
           moderation_flagged: true,
           moderation_reason: gemini.moderation.reason,
           xp_awarded: 0,
@@ -284,6 +295,7 @@ Deno.serve(async (req: Request) => {
       .update({
         status: 'done',
         gemini_raw: gemini,
+        gemini_usage_metadata: geminiUsage.value ?? null,
         stats: gemini.scores,
         beats: 'beats' in outcome ? outcome.beats : [],
         verdict_headline: gemini.verdict.headline,

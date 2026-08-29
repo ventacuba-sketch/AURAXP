@@ -138,6 +138,17 @@ interface AnalyzeVideoParams {
   fileUri: string;
   mimeType: string;
   scanId: string;
+  /**
+   * Referencia mutable donde analyzeVideo() deja el `usageMetadata` crudo
+   * de la respuesta de Gemini del intento que finalmente tuvo éxito --
+   * para medir costo real (promptTokenCount/candidatesTokenCount/
+   * totalTokenCount, y el desglose de tokens de video si Gemini lo manda)
+   * sin cambiar el tipo de retorno de esta función (GeminiResult, usado
+   * tal cual en varios lugares de process-scan) ni el de computeAuraScore.
+   * Opcional: si no se pasa, analyzeVideo() simplemente no persiste nada
+   * acá, solo lo loguea (ver logAttempt('usage', ...) abajo).
+   */
+  usageHolder?: { value?: unknown };
 }
 
 /**
@@ -181,7 +192,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function callGeminiOnce({ apiKey, fileUri, mimeType }: Omit<AnalyzeVideoParams, 'scanId'>): Promise<GeminiResult> {
+async function callGeminiOnce({ apiKey, fileUri, mimeType, scanId, usageHolder }: AnalyzeVideoParams): Promise<GeminiResult> {
   const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -211,6 +222,16 @@ async function callGeminiOnce({ apiKey, fileUri, mimeType }: Omit<AnalyzeVideoPa
   const data = await response.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Gemini no devolvió contenido');
+
+  // Costo real por Scan -- ver auditoría de escala. `usageMetadata` viene
+  // en la misma respuesta que el análisis, sin costo ni request extra.
+  // Se loguea siempre (grepeable en los logs de la función) y, si el
+  // caller pasó dónde guardarlo, también queda ahí para poder agregarlo
+  // por SQL más adelante (ver scans.gemini_usage_metadata).
+  if (data?.usageMetadata) {
+    logAttempt('usage', { scanId, usage: data.usageMetadata });
+    if (usageHolder) usageHolder.value = data.usageMetadata;
+  }
 
   const parsed = JSON.parse(text) as GeminiResult;
   validateGeminiResult(parsed);
@@ -247,11 +268,11 @@ function logAttempt(event: string, data: Record<string, unknown>): void {
  * arregla. Si los 4 intentos agotan en 503, lanza GeminiUnavailableError
  * en vez de seguir propagando el error crudo de Gemini.
  */
-export async function analyzeVideo({ apiKey, fileUri, mimeType, scanId }: AnalyzeVideoParams): Promise<GeminiResult> {
+export async function analyzeVideo({ apiKey, fileUri, mimeType, scanId, usageHolder }: AnalyzeVideoParams): Promise<GeminiResult> {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     logAttempt('attempt_start', { scanId, attempt, maxAttempts: MAX_ATTEMPTS });
     try {
-      const result = await callGeminiOnce({ apiKey, fileUri, mimeType });
+      const result = await callGeminiOnce({ apiKey, fileUri, mimeType, scanId, usageHolder });
       if (attempt > 1) logAttempt('attempt_succeeded_after_retry', { scanId, attempt });
       return result;
     } catch (e) {
