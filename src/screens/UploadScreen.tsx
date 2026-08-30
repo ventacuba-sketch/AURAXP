@@ -6,6 +6,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
+import { useSmartBack } from '../hooks/useSmartBack';
 import { uploadAndSubmitScan, VideoTooLargeError } from '../services/scanService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
@@ -29,6 +30,7 @@ const GUIDELINES = [
 
 export default function UploadScreen() {
   const navigation = useRootNavigation();
+  const goBack = useSmartBack();
   const { params } = useRoute<UploadRoute>();
   const [video, setVideo] = useState<PickedVideo | null>(null);
   const [source, setSource] = useState<'record' | 'upload' | null>(null);
@@ -150,7 +152,7 @@ export default function UploadScreen() {
   }
 
   return (
-    <ScreenContainer style={styles.container}>
+    <ScreenContainer style={styles.container} onBack={goBack}>
       <View style={styles.header}>
         <Text style={styles.title}>MUÉSTRANOS EL MOMENTO</Text>
         <Text style={styles.subtitle}>Entre 5 y 8 segundos funciona mejor.</Text>

@@ -58,6 +58,16 @@ export default function ChallengeLandingScreen() {
 
   const isOwnChallenge = Boolean(session && user && preview && user.username === preview.fromUsername);
 
+  // Navegación propia -- antes esta pantalla no tenía NINGUNA forma de
+  // salir salvo el Back del navegador (bug real probado en iPhone). onBack
+  // solo si hay algo real a lo que volver (si se llegó por un link externo
+  // directo no hay historial in-app); onHome solo con sesión -- sin
+  // sesión, MainTabs ni siquiera está registrado en el stack todavía (ver
+  // RootNavigator), así que ofrecerlo sería un botón muerto.
+  const canGoBack = navigation.canGoBack();
+  const handleBack = canGoBack ? () => navigation.goBack() : undefined;
+  const handleHome = session ? () => navigation.navigate('MainTabs') : undefined;
+
   async function handleAccept() {
     if (!session) {
       await setPendingChallengeToken(params.token);
@@ -95,7 +105,7 @@ export default function ChallengeLandingScreen() {
 
   if (loading) {
     return (
-      <ScreenContainer style={styles.center}>
+      <ScreenContainer style={styles.center} onBack={handleBack} onHome={handleHome}>
         <ActivityIndicator color={colors.accent} size="large" />
       </ScreenContainer>
     );
@@ -103,7 +113,7 @@ export default function ChallengeLandingScreen() {
 
   if (notFound || !preview) {
     return (
-      <ScreenContainer style={styles.center}>
+      <ScreenContainer style={styles.center} onBack={handleBack} onHome={handleHome}>
         <Text style={styles.wordmark}>AURA VS</Text>
         <Text style={styles.notFound}>Este desafío ya no está disponible.</Text>
       </ScreenContainer>
@@ -114,7 +124,7 @@ export default function ChallengeLandingScreen() {
   const deadReason = STATUS_COPY[preview.status];
 
   return (
-    <ScreenContainer style={styles.center}>
+    <ScreenContainer style={styles.center} onBack={handleBack} onHome={handleHome}>
       <Text style={styles.wordmark}>AURA VS</Text>
 
       <Card style={styles.card}>

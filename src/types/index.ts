@@ -5,6 +5,7 @@
  * is backed by placeholder/mock data (see `src/services`) instead of a real
  * backend or AI API.
  */
+import type { NavigatorScreenParams } from '@react-navigation/native';
 
 /** Bottom tabs — always-available destinations. */
 export type MainTabParamList = {
@@ -25,7 +26,10 @@ export type MainTabParamList = {
  * both Analyzing and ScanResult fall back to mock data.
  */
 export type RootStackParamList = {
-  MainTabs: undefined;
+  /** `{ screen: 'Profile' }` etc. salta directo a un tab puntual (p. ej.
+   * desde el link "Ver perfil" del XP en ScanResult) -- `undefined` cae
+   * en el tab por default (Home). */
+  MainTabs: NavigatorScreenParams<MainTabParamList> | undefined;
   Upload:
     | {
         challengeToken?: string;
@@ -48,6 +52,9 @@ export type RootStackParamList = {
   Pro: undefined;
   /** Solo registrada en el navigator cuando no hay sesión — ver RootNavigator. */
   Auth: undefined;
+  /** Solo registrada mientras useAuth().passwordRecovery es true (volviendo
+   * del link de "olvidé mi contraseña") — ver RootNavigator. */
+  ResetPassword: undefined;
 };
 
 export interface User {

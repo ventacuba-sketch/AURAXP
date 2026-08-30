@@ -66,12 +66,64 @@ export async function getSession(): Promise<Session | null> {
   return data.session;
 }
 
-export function onAuthStateChange(callback: (session: Session | null) => void): () => void {
+/**
+ * `event` ahora se pasa tal cual además de la sesión -- useAuth lo
+ * necesita para distinguir 'PASSWORD_RECOVERY' (alguien volvió del link de
+ * "olvidé mi contraseña") de un login/confirmación normal. Antes se
+ * descartaba (`_event`); ningún caller existente rompe por esto, todos
+ * ya ignoraban el primer argumento de todos modos.
+ */
+export function onAuthStateChange(callback: (event: string, session: Session | null) => void): () => void {
   if (!supabase) return () => {};
   const {
     data: { subscription },
-  } = supabase.auth.onAuthStateChange((_event, session) => callback(session));
+  } = supabase.auth.onAuthStateChange((event, session) => callback(event, session));
   return () => subscription.unsubscribe();
+}
+
+// Mismo destino que la confirmación de email (ver EMAIL_CONFIRMATION_REDIRECT_URL
+// arriba) y mismo motivo: sin esto, Supabase cae al Site URL del dashboard
+// (localhost). RootNavigator detecta el evento PASSWORD_RECOVERY (ver
+// useAuth) y manda a ResetPasswordScreen en vez de asumir que cualquier
+// sesión nueva significa "entrar a la app normal".
+const PASSWORD_RESET_REDIRECT_URL = 'https://auravs.app';
+
+/**
+ * Dispara el email de "recuperar contraseña" -- respuesta idéntica exista
+ * o no esa cuenta (mismo comportamiento que ya tiene Supabase acá, no
+ * hay nada que decidir del lado de la app): nunca hay forma de usar esto
+ * para averiguar qué emails tienen cuenta.
+ */
+export async function requestPasswordReset(email: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase no está configurado');
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: PASSWORD_RESET_REDIRECT_URL,
+  });
+  if (error) throw error;
+}
+
+/**
+ * Solo tiene sentido llamarla con la sesión de recuperación temporal que
+ * deja el link del email (ver PASSWORD_RECOVERY arriba) -- Supabase la
+ * exige así, no hay forma (ni debería haberla) de leer/reusar la
+ * contraseña anterior desde acá.
+ */
+export async function updatePassword(newPassword: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase no está configurado');
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw error;
+}
+
+/** Reenvía el email de confirmación de cuenta -- para alguien que se
+ * registró pero perdió/no encuentra el primer correo. */
+export async function resendConfirmationEmail(email: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase no está configurado');
+  const { error } = await supabase.auth.resend({
+    type: 'signup',
+    email,
+    options: { emailRedirectTo: EMAIL_CONFIRMATION_REDIRECT_URL },
+  });
+  if (error) throw error;
 }
 
 /**
@@ -98,6 +150,18 @@ export function mapAuthError(error: unknown): string {
     lower.includes('network error')
   ) {
     return 'No pudimos conectar con el servidor. Intenta de nuevo.';
+  }
+  if (
+    lower.includes('expired') ||
+    lower.includes('invalid') && (lower.includes('token') || lower.includes('otp') || lower.includes('link'))
+  ) {
+    return 'Este enlace ya no es válido o expiró. Solicita uno nuevo.';
+  }
+  if (lower.includes('password') && (lower.includes('at least') || lower.includes('should be') || lower.includes('weak'))) {
+    return 'La contraseña debe tener al menos 8 caracteres.';
+  }
+  if (lower.includes('same') && lower.includes('password')) {
+    return 'La nueva contraseña tiene que ser distinta de la actual.';
   }
 
   return 'Algo salió mal. Intenta de nuevo.';

@@ -9,6 +9,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useRootNavigation } from '../hooks/useRootNavigation';
+import { useSmartBack } from '../hooks/useSmartBack';
 import {
   cancelChallenge,
   createChallenge,
@@ -79,6 +80,7 @@ function MiniReplay({ scanId, label }: { scanId: string; label: string }) {
 export default function ChallengeScreen() {
   const { params } = useRoute<ChallengeRoute>();
   const navigation = useRootNavigation();
+  const goBack = useSmartBack();
   const { user } = useCurrentUser();
 
   const [token, setToken] = useState<string | null>(params?.challengeToken ?? null);
@@ -206,7 +208,7 @@ export default function ChallengeScreen() {
 
   if (creating || (loading && !challenge)) {
     return (
-      <ScreenContainer style={styles.center}>
+      <ScreenContainer style={styles.center} onBack={goBack}>
         <ActivityIndicator color={colors.accent} size="large" />
       </ScreenContainer>
     );
@@ -214,7 +216,7 @@ export default function ChallengeScreen() {
 
   if (createError) {
     return (
-      <ScreenContainer style={styles.center}>
+      <ScreenContainer style={styles.center} onBack={goBack}>
         <Text style={styles.notFound}>{createError}</Text>
         <PrimaryButton label="VOLVER" onPress={() => navigation.navigate('MainTabs')} />
       </ScreenContainer>
@@ -223,7 +225,7 @@ export default function ChallengeScreen() {
 
   if (!challenge) {
     return (
-      <ScreenContainer style={styles.center}>
+      <ScreenContainer style={styles.center} onBack={goBack}>
         <Text style={styles.notFound}>Este desafío ya no está disponible.</Text>
         <PrimaryButton label="VOLVER" onPress={() => navigation.navigate('MainTabs')} />
       </ScreenContainer>
@@ -237,7 +239,7 @@ export default function ChallengeScreen() {
   // ── Estados terminales sin duelo (cancelado/expirado) ────────────────
   if (challenge.status === 'cancelled' || challenge.status === 'expired') {
     return (
-      <ScreenContainer style={styles.center}>
+      <ScreenContainer style={styles.center} onBack={goBack}>
         <Text style={styles.headline}>
           {challenge.status === 'cancelled' ? 'Desafío cancelado' : 'Desafío expirado'}
         </Text>
@@ -252,7 +254,7 @@ export default function ChallengeScreen() {
     const myXp = iAmCreator ? challenge.creatorXpAwarded : challenge.opponentXpAwarded;
 
     return (
-      <ScreenContainer scroll>
+      <ScreenContainer scroll onBack={goBack}>
         <Text style={styles.headline}>@{me.username} VS @{rival.username}</Text>
 
         <View style={styles.versusRow}>
@@ -306,7 +308,7 @@ export default function ChallengeScreen() {
     if (!iAmCreator && rival) {
       if (!me?.scanId) {
         return (
-          <ScreenContainer style={styles.center}>
+          <ScreenContainer style={styles.center} onBack={goBack}>
             <Text style={styles.avatar}>{rival.avatarEmoji}</Text>
             <Text style={styles.headline}>Aceptaste el desafío de @{rival.username}</Text>
             <Text style={styles.copy}>Ahora te toca a ti. Graba o sube tu Scan.</Text>
@@ -320,7 +322,7 @@ export default function ChallengeScreen() {
 
       if (me.scanStatus === 'failed' || me.scanStatus === 'rejected') {
         return (
-          <ScreenContainer style={styles.center}>
+          <ScreenContainer style={styles.center} onBack={goBack}>
             <Text style={styles.headline}>Tu Scan no se pudo procesar</Text>
             <Text style={styles.copy}>El desafío sigue abierto -- puedes intentarlo de nuevo.</Text>
             <PrimaryButton
@@ -333,7 +335,7 @@ export default function ChallengeScreen() {
     }
 
     return (
-      <ScreenContainer style={styles.center}>
+      <ScreenContainer style={styles.center} onBack={goBack}>
         <ActivityIndicator color={colors.accent} size="large" />
         <Text style={styles.headline}>
           {iAmCreator ? `@${rival?.username} está haciendo su Scan…` : 'Analizando tu Scan…'}
@@ -345,7 +347,7 @@ export default function ChallengeScreen() {
 
   // ── Pending: soy el creador esperando rival ──────────────────────────
   return (
-    <ScreenContainer style={styles.center}>
+    <ScreenContainer style={styles.center} onBack={goBack}>
       <Text style={styles.headline}>Desafío creado ⚔️</Text>
       <Text style={styles.copy}>Esperando rival…</Text>
 
@@ -369,6 +371,13 @@ export default function ChallengeScreen() {
           onPress={handleCancel}
         />
       </View>
+
+      {/* Loop de retención: esperar a que el rival acepte no debería ser
+          una pantalla muerta -- ofrece la siguiente acción natural sin
+          competir con COMPARTIR (que sigue siendo el CTA principal acá). */}
+      <Pressable onPress={() => navigation.navigate('Upload')} hitSlop={6}>
+        <Text style={styles.waitingHint}>Mientras esperás, escaneá otro momento ›</Text>
+      </Pressable>
     </ScreenContainer>
   );
 }
@@ -553,6 +562,12 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.success,
     textAlign: 'center',
+  },
+  waitingHint: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: spacing.md,
   },
   actions: {
     gap: spacing.sm,

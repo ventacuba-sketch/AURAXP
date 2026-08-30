@@ -12,6 +12,7 @@ import { StatMeter } from '../components/StatMeter';
 import { TimelineRow } from '../components/TimelineRow';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useScanResult } from '../hooks/useScanResult';
+import { useSmartBack } from '../hooks/useSmartBack';
 import { getVideoPlaybackUrl } from '../services/scanService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { RootStackParamList } from '../types';
@@ -24,6 +25,7 @@ export default function ScanResultScreen() {
   const { params } = useRoute<ScanResultRoute>();
   const { result, loading } = useScanResult(params?.scanId);
   const navigation = useRootNavigation();
+  const goBack = useSmartBack();
 
   const scanId = result?.id ?? params?.scanId ?? 'unknown';
 
@@ -104,14 +106,14 @@ export default function ScanResultScreen() {
 
   if (loading || !result) {
     return (
-      <ScreenContainer style={styles.center}>
+      <ScreenContainer style={styles.center} onBack={goBack}>
         <ActivityIndicator color={colors.accent} size="large" />
       </ScreenContainer>
     );
   }
 
   return (
-    <ScreenContainer scroll>
+    <ScreenContainer scroll onBack={goBack}>
       {/* The shareable "poster" — everything a Story/TikTok export would need. */}
       <Card style={styles.heroCard}>
         <Text style={styles.eyebrow}>AURA REPLAY</Text>
@@ -145,7 +147,13 @@ export default function ScanResultScreen() {
       </Card>
 
       {result.xpAwarded > 0 && (
-        <Text style={styles.xpLine}>+{result.xpAwarded} XP a tu progreso</Text>
+        // Tappable a propósito -- parte del loop de retención (Scan ->
+        // Resultado -> XP/progreso -> volver): en vez de un dato suelto,
+        // es la siguiente acción natural para alguien que quiere ver
+        // cuánto le falta para el próximo nivel.
+        <Pressable onPress={() => navigation.navigate('MainTabs', { screen: 'Profile' })} hitSlop={6}>
+          <Text style={styles.xpLine}>+{result.xpAwarded} XP a tu progreso · Ver perfil ›</Text>
+        </Pressable>
       )}
 
       <Text style={styles.sectionLabel}>DESGLOSE</Text>

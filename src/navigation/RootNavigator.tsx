@@ -19,6 +19,7 @@ import ChallengeLandingScreen from '../screens/ChallengeLandingScreen';
 import ChallengeScreen from '../screens/ChallengeScreen';
 import ProScreen from '../screens/ProScreen';
 import RecordScreen from '../screens/RecordScreen';
+import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import ScanResultScreen from '../screens/ScanResultScreen';
 import UploadScreen from '../screens/UploadScreen';
 import { isSupabaseConfigured } from '../services/supabaseClient';
@@ -67,7 +68,7 @@ const linking: LinkingOptions<RootStackParamList> = {
  * route — reachable via deep link or web URL regardless of session).
  */
 export function RootNavigator() {
-  const { session, loading } = useAuth();
+  const { session, loading, passwordRecovery } = useAuth();
   const authed = !isSupabaseConfigured || Boolean(session);
   const navigationRef = useRef<NavigationContainerRef<RootStackParamList>>(null);
   const resumedRef = useRef(false);
@@ -78,8 +79,18 @@ export function RootNavigator() {
   // ternario más abajo), así que cualquier param de la ruta anterior ya
   // se perdió; esto vuelve a intentar la aceptación real desde cero con
   // el token guardado, no confía en que la navegación lo haya conservado.
+  //
+  // Gateado por `passwordRecovery`: si alguien volvió del link de
+  // "olvidé mi contraseña" con un Challenge pendiente guardado (ver
+  // AuthScreen -> handleForgotPassword), `authed` ya es true apenas
+  // Supabase establece la sesión de recuperación -- sin este guard, este
+  // efecto correría YA (marcando resumedRef=true) y mandaría a la persona
+  // directo al Challenge sin haber llegado a cambiar la contraseña. Al
+  // no marcar resumedRef mientras passwordRecovery es true, el efecto
+  // vuelve a correr (está en las deps) apenas se limpia -- ahí sí retoma
+  // el Challenge normalmente, ya con la contraseña nueva puesta.
   useEffect(() => {
-    if (!authed || resumedRef.current) return;
+    if (!authed || passwordRecovery || resumedRef.current) return;
     resumedRef.current = true;
 
     consumePendingChallengeToken().then((token) => {
@@ -96,7 +107,7 @@ export function RootNavigator() {
         }
       });
     });
-  }, [authed]);
+  }, [authed, passwordRecovery]);
 
   if (isSupabaseConfigured && loading) {
     return (
@@ -114,7 +125,15 @@ export function RootNavigator() {
           contentStyle: { backgroundColor: colors.background },
         }}
       >
-        {authed ? (
+        {authed && passwordRecovery ? (
+          // Rama propia, deliberadamente sin el resto de la app: mientras
+          // se está recuperando la contraseña, la única pantalla que debe
+          // existir es esta -- ni un deep link ni una navegación
+          // accidental deberían poder sacar a nadie de acá antes de
+          // terminar. clearPasswordRecovery() (llamado desde adentro) es
+          // la única salida.
+          <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ gestureEnabled: false }} />
+        ) : authed ? (
           <>
             <Stack.Screen name="MainTabs" component={MainTabNavigator} />
             <Stack.Screen name="Upload" component={UploadScreen} />
