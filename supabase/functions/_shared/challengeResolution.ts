@@ -143,6 +143,14 @@ export async function resolveChallengeIfApplicable({
     awardXp(admin, challenge.from_user_id, creatorXp),
     awardXp(admin, challenge.opponent_user_id, opponentXp),
     notifyResult(admin, challenge.from_user_id, challenge.opponent_user_id, challenge.id, challenge.share_token, winnerUserId, isTie),
+    // Analítica de funnel (L) -- server-side a propósito: es el único
+    // lugar donde "se completó" es un hecho real y único, sin depender de
+    // que cada cliente involucrado siga conectado en ese momento para
+    // loguearlo él mismo.
+    admin.from('analytics_events').insert([
+      { event_name: 'challenge_completed', user_id: challenge.from_user_id, metadata: { challenge_id: challenge.id } },
+      { event_name: 'challenge_completed', user_id: challenge.opponent_user_id, metadata: { challenge_id: challenge.id } },
+    ]),
   ]);
 }
 

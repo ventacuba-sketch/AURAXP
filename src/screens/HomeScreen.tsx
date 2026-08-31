@@ -11,9 +11,11 @@ import { useAsyncData } from '../hooks/useAsyncData';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useLatestChallengeResult } from '../hooks/useLatestChallengeResult';
 import { useMyTurnChallengeCount } from '../hooks/useMyTurnChallengeCount';
+import { useReceivedChallengeCount } from '../hooks/useReceivedChallengeCount';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useUnreadNotificationCount } from '../hooks/useUnreadNotificationCount';
 import { fetchLatestReplay } from '../services/api';
+import { fetchFrequentRivals, fetchMyStreak, FrequentRival, StreakInfo } from '../services/statsService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { formatSignedXP, formatXP } from '../utils/format';
 
@@ -24,20 +26,35 @@ const RESULT_EVENT_COPY: Record<'won' | 'lost' | 'tie', (rival: string) => strin
 };
 
 /**
- * Orden de la pantalla (auditado a pedido explícito -- ver reporte de esta
- * tarea): Challenge que requiere UNA ACCIÓN MÍA primero (si existe de
- * verdad), después Scan, después la notificación de resultado más
- * reciente, después progreso/XP, después Replay/compartir. Sin esto
- * pendiente, el orden vuelve al de siempre (Scan primero) -- no se
- * reordena la pantalla entera solo para mostrar una card vacía arriba.
+ * Home ADAPTATIVA (J) -- prioriza en este orden y muestra solo lo que
+ * tiene datos reales, no todo siempre:
+ * 1. Banner de acción urgente: un Challenge DIRIGIDO recibido pesa más
+ *    que uno que ya acepté y me falta escanear (alguien más está
+ *    esperando mi respuesta, no solo mi Scan) -- se muestra COMO MUCHO
+ *    uno de los dos, nunca ambos apilados.
+ * 2. Scan (siempre -- es el loop central).
+ * 3. Un solo bloque "adaptativo" extra: racha (si ya lleva 2+ días,
+ *    una racha de 1 día no es interesante todavía) o si no, el rival más
+ *    frecuente (si existe) -- nunca los dos a la vez, para no saturar.
+ * 4. Progreso/XP y Replay, igual que antes.
+ * El resultado más reciente sigue como una línea de texto chica (no un
+ * bloque completo) debajo del contador de Scans -- barato, no compite por
+ * espacio con lo de arriba.
  */
 export default function HomeScreen() {
   const { user } = useCurrentUser();
   const { data: latestReplay } = useAsyncData(fetchLatestReplay);
+  const { data: streak } = useAsyncData<StreakInfo | null>(fetchMyStreak);
+  const { data: frequentRivals } = useAsyncData<FrequentRival[]>(() => fetchFrequentRivals(1));
   const myTurnCount = useMyTurnChallengeCount();
+  const receivedCount = useReceivedChallengeCount();
   const latestResult = useLatestChallengeResult();
   const unreadCount = useUnreadNotificationCount();
   const navigation = useRootNavigation();
+
+  const topRival = frequentRivals?.[0] ?? null;
+  const showStreak = (streak?.currentStreak ?? 0) >= 2;
+  const showFrequentRival = !showStreak && Boolean(topRival);
 
   return (
     <ScreenContainer scroll>
@@ -53,15 +70,27 @@ export default function HomeScreen() {
         </Pressable>
       </View>
 
-      {myTurnCount != null && myTurnCount > 0 && (
+      {receivedCount != null && receivedCount > 0 ? (
         <Pressable onPress={() => navigation.navigate('MyChallenges')}>
           <Card style={styles.urgentCard}>
             <Text style={styles.urgentText}>
-              ⚔️ Tenés {myTurnCount} desafío{myTurnCount === 1 ? '' : 's'} esperando tu Scan
+              ⚔️ Te desafiaron -- tenés {receivedCount} respuesta{receivedCount === 1 ? '' : 's'} pendiente{receivedCount === 1 ? '' : 's'}
             </Text>
-            <Text style={styles.urgentArrow}>Continuar ›</Text>
+            <Text style={styles.urgentArrow}>Responder ›</Text>
           </Card>
         </Pressable>
+      ) : (
+        myTurnCount != null &&
+        myTurnCount > 0 && (
+          <Pressable onPress={() => navigation.navigate('MyChallenges')}>
+            <Card style={styles.urgentCard}>
+              <Text style={styles.urgentText}>
+                ⚔️ Tenés {myTurnCount} desafío{myTurnCount === 1 ? '' : 's'} esperando tu Scan
+              </Text>
+              <Text style={styles.urgentArrow}>Continuar ›</Text>
+            </Card>
+          </Pressable>
+        )
       )}
 
       <View style={styles.hero}>
@@ -82,6 +111,32 @@ export default function HomeScreen() {
         <Text style={styles.latestResultText}>
           {RESULT_EVENT_COPY[latestResult.kind](latestResult.rivalUsername)}
         </Text>
+      )}
+
+      {showStreak && streak && (
+        <Card style={styles.streakCard}>
+          <Text style={styles.streakText}>🔥 Racha de Aura: {streak.currentStreak} días</Text>
+        </Card>
+      )}
+
+      {showFrequentRival && topRival && (
+        <Pressable onPress={() => navigation.navigate('PublicProfile', { username: topRival.username })}>
+          <Card style={styles.rivalCard}>
+            <Text style={styles.rivalAvatar}>{topRival.avatarEmoji}</Text>
+            <View style={styles.rivalInfo}>
+              <Text style={styles.rivalName}>@{topRival.username}</Text>
+              <Text style={styles.rivalScore}>
+                {topRival.myWins}–{topRival.rivalWins}
+                {topRival.ties > 0 ? `–${topRival.ties}` : ''} entre ustedes
+              </Text>
+            </View>
+            <PrimaryButton
+              label="DESAFIAR"
+              variant="ghost"
+              onPress={() => navigation.navigate('PublicProfile', { username: topRival.username })}
+            />
+          </Card>
+        </Pressable>
       )}
 
       {/* Reemplaza la card "Carlos te desafió" que era mock puro (ningún
@@ -251,5 +306,35 @@ const styles = StyleSheet.create({
   myChallengesArrow: {
     ...typography.title,
     color: colors.textMuted,
+  },
+  streakCard: {
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+    borderColor: colors.secondary,
+  },
+  streakText: {
+    ...typography.subtitle,
+    color: colors.textPrimary,
+  },
+  rivalCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  rivalAvatar: {
+    fontSize: 32,
+  },
+  rivalInfo: {
+    flex: 1,
+  },
+  rivalName: {
+    ...typography.subtitle,
+    color: colors.textPrimary,
+  },
+  rivalScore: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
 });

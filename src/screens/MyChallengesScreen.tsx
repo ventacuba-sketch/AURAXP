@@ -8,33 +8,52 @@ import { ScreenContainer } from '../components/ScreenContainer';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useSmartBack } from '../hooks/useSmartBack';
+import { logEvent } from '../services/analyticsService';
 import {
   buildChallengeResultShare,
   CHALLENGE_LIST_PAGE_SIZE,
   cancelChallenge,
   challengeShareUrl,
+  ChallengeListFilter,
   createChallenge,
   listMyChallenges,
+  respondDirectChallenge,
 } from '../services/challengeService';
-import { colors, spacing, typography } from '../theme/colors';
+import { colors, radius, spacing, typography } from '../theme/colors';
 import { ChallengeListItem } from '../types';
 import { formatRelativeTime, formatSignedXP } from '../utils/format';
 import { copyLink, shareImage, shareText } from '../utils/share';
 import { generateChallengeShareCardBlob } from '../utils/shareCard';
 
+const TABS: { key: ChallengeListFilter; label: string }[] = [
+  { key: 'received', label: 'RECIBIDOS' },
+  { key: 'sent', label: 'ENVIADOS' },
+  { key: 'completed', label: 'COMPLETADOS' },
+];
+
+const EMPTY_COPY: Record<ChallengeListFilter, string> = {
+  received: 'Nadie te desafió todavía.',
+  sent: 'No tienes desafíos esperando respuesta.',
+  completed: 'Todavía no completaste ningún desafío.',
+  all: 'Todavía no tienes desafíos.',
+};
+
 /**
- * "MIS DESAFÍOS ⚔️" -- historial completo de Challenges del usuario,
- * paginado. Consulta la MISMA tabla `challenges` que ya usa el Challenge
- * real (ver challengeService.listMyChallenges) -- nada de esto duplica esa
- * tabla ni su RLS. Toda acción de acá reutiliza los flujos reales
- * existentes (createChallenge, cancelChallenge, ChallengeScreen para el
- * detalle completo) -- ver comentarios por acción abajo.
+ * "MIS DESAFÍOS ⚔️" -- inbox de Challenges del usuario, con 3 pestañas
+ * (RECIBIDOS/ENVIADOS/COMPLETADOS -- item B) cada una con su propia
+ * paginación (ver challengeService.listMyChallenges). Consulta la MISMA
+ * tabla `challenges` que ya usa el Challenge real -- nada de esto duplica
+ * esa tabla ni su RLS. Toda acción de acá reutiliza los flujos reales
+ * existentes (createChallenge, cancelChallenge, respondDirectChallenge,
+ * ChallengeScreen para el detalle completo) -- ver comentarios por acción
+ * abajo.
  */
 export default function MyChallengesScreen() {
   const navigation = useRootNavigation();
   const goBack = useSmartBack();
   const { user } = useCurrentUser();
 
+  const [tab, setTab] = useState<ChallengeListFilter>('received');
   const [items, setItems] = useState<ChallengeListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -44,22 +63,23 @@ export default function MyChallengesScreen() {
 
   const loadFirstPage = useCallback(() => {
     setLoading(true);
-    listMyChallenges(0, CHALLENGE_LIST_PAGE_SIZE).then((page) => {
+    listMyChallenges(0, CHALLENGE_LIST_PAGE_SIZE, tab).then((page) => {
       setItems(page.items);
       setHasMore(page.hasMore);
       setLoading(false);
     });
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
 
-  // Refresca cada vez que se vuelve a esta pantalla -- volver de cancelar,
-  // de hacer el Scan de un desafío aceptado, o de ver el resultado de uno
-  // recién completado siempre debe reflejarse acá sin un pull-to-refresh
-  // manual.
+  // Refresca cada vez que se vuelve a esta pantalla (volver de cancelar,
+  // de aceptar/rechazar, de hacer el Scan de un desafío aceptado, o de
+  // ver un resultado recién completado) Y cada vez que se cambia de
+  // pestaña -- ambos casos deben resetear la paginación desde offset 0.
   useFocusEffect(loadFirstPage);
 
   function handleLoadMore() {
     setLoadingMore(true);
-    listMyChallenges(items.length, CHALLENGE_LIST_PAGE_SIZE).then((page) => {
+    listMyChallenges(items.length, CHALLENGE_LIST_PAGE_SIZE, tab).then((page) => {
       setItems((prev) => [...prev, ...page.items]);
       setHasMore(page.hasMore);
       setLoadingMore(false);
@@ -104,6 +124,35 @@ export default function MyChallengesScreen() {
     }
   }
 
+  // ACEPTAR/RECHAZAR un Challenge dirigido (A/C) -- vía
+  // respondDirectChallenge, que hace cumplir server-side que solo YO (el
+  // target) puedo responder. Aceptar deja el Challenge en 'accepted' --
+  // openChallenge() de acá abajo, o la siguiente visita a la pestaña
+  // ENVIADOS/pendientes, ya lo muestra igual que cualquier otro aceptado.
+  async function handleAccept(item: ChallengeListItem) {
+    setBusyId(item.id);
+    const result = await respondDirectChallenge(item.id, true);
+    setBusyId(null);
+    if (result.ok) {
+      openChallenge(item);
+    } else {
+      setNotice('No pudimos aceptar el desafío. Puede que ya haya expirado.');
+      loadFirstPage();
+    }
+  }
+
+  async function handleReject(item: ChallengeListItem) {
+    setBusyId(item.id);
+    const result = await respondDirectChallenge(item.id, false);
+    setBusyId(null);
+    if (result.ok) {
+      setItems((prev) => prev.filter((i) => i.id !== item.id));
+    } else {
+      setNotice('No pudimos rechazar el desafío.');
+      loadFirstPage();
+    }
+  }
+
   async function handleRematch(item: ChallengeListItem) {
     if (!item.myScanId) return;
     setBusyId(item.id);
@@ -137,6 +186,7 @@ export default function MyChallengesScreen() {
 
     setBusyId(item.id);
     try {
+      logEvent('result_shared');
       const blob = await generateChallengeShareCardBlob(card);
       const result = await shareImage(blob, `aura-vs-${item.shareToken}.png`, text, challengeShareUrl(item.shareToken));
       if (result === 'copied') setNotice('Enlace copiado');
@@ -150,6 +200,14 @@ export default function MyChallengesScreen() {
     <ScreenContainer scroll onBack={goBack}>
       <Text style={styles.title}>MIS DESAFÍOS ⚔️</Text>
 
+      <View style={styles.tabs}>
+        {TABS.map((t) => (
+          <Pressable key={t.key} onPress={() => setTab(t.key)} style={[styles.tab, tab === t.key && styles.tabActive]}>
+            <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>{t.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
       {notice && <Text style={styles.notice}>{notice}</Text>}
 
       {loading ? (
@@ -158,9 +216,13 @@ export default function MyChallengesScreen() {
         </View>
       ) : items.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyText}>Todavía no tienes desafíos.</Text>
-          <Text style={styles.emptySubtext}>Desafía a un amigo desde tu próximo Scan.</Text>
-          <PrimaryButton label="ESCANEAR MI AURA" onPress={() => navigation.navigate('Upload')} />
+          <Text style={styles.emptyText}>{EMPTY_COPY[tab]}</Text>
+          {tab !== 'received' && (
+            <>
+              <Text style={styles.emptySubtext}>Desafía a un amigo desde tu próximo Scan.</Text>
+              <PrimaryButton label="ESCANEAR MI AURA" onPress={() => navigation.navigate('Upload')} />
+            </>
+          )}
         </View>
       ) : (
         <>
@@ -176,6 +238,8 @@ export default function MyChallengesScreen() {
                 onCancel={() => handleCancel(item)}
                 onRematch={() => handleRematch(item)}
                 onShareResult={() => handleShareResult(item)}
+                onAccept={() => handleAccept(item)}
+                onReject={() => handleReject(item)}
                 onOpenRivalProfile={() => item.rival && navigation.navigate('PublicProfile', { username: item.rival.username })}
               />
             ))}
@@ -201,6 +265,7 @@ const STATE_LABEL: Record<ChallengeListItem['status'], string> = {
   completed: 'Completado',
   cancelled: 'Cancelado',
   expired: 'Expirado',
+  rejected: 'Rechazado',
 };
 
 function resultLine(item: ChallengeListItem, myUserId: string | undefined): string | null {
@@ -219,6 +284,8 @@ function ChallengeRow({
   onCancel,
   onRematch,
   onShareResult,
+  onAccept,
+  onReject,
   onOpenRivalProfile,
 }: {
   item: ChallengeListItem;
@@ -229,12 +296,17 @@ function ChallengeRow({
   onCancel: () => void;
   onRematch: () => void;
   onShareResult: () => void;
+  onAccept: () => void;
+  onReject: () => void;
   onOpenRivalProfile: () => void;
 }) {
   const { user } = useCurrentUser();
   // Mi turno de verdad: acepté el desafío pero todavía no subí mi Scan --
   // mismo criterio que challengeService.countMyTurnChallenges (ver Home).
   const myTurn = item.status === 'accepted' && !item.isCreator && !item.myScanId;
+  // Recibí este Challenge DIRIGIDO y todavía no respondí (A/C) -- distinto
+  // de un pending clásico por link, que nadie tomó todavía.
+  const awaitingMyResponse = item.status === 'pending' && item.isDirectedToMe;
   const result = resultLine(item, user?.id);
 
   return (
@@ -253,7 +325,9 @@ function ChallengeRow({
           </View>
         </Pressable>
         <Pressable onPress={onOpen} style={styles.rowHeaderState} hitSlop={6}>
-          <Text style={styles.stateLabel}>{myTurn ? 'Tu turno de escanear' : STATE_LABEL[item.status]}</Text>
+          <Text style={styles.stateLabel}>
+            {awaitingMyResponse ? 'Te desafiaron' : myTurn ? 'Tu turno de escanear' : STATE_LABEL[item.status]}
+          </Text>
         </Pressable>
       </View>
 
@@ -271,12 +345,22 @@ function ChallengeRow({
       )}
 
       <View style={styles.actions}>
-        {item.status === 'pending' && (
+        {awaitingMyResponse ? (
+          // Me desafiaron DIRECTO -- solo yo puedo responder esto (lo hace
+          // cumplir respond_direct_challenge server-side, no esta pantalla).
           <>
-            <RowAction label={busy ? '...' : 'COMPARTIR'} disabled={busy} onPress={onShareAgain} />
-            <RowAction label="COPIAR LINK" disabled={busy} onPress={onCopyLink} />
-            <RowAction label="CANCELAR" disabled={busy} tone="danger" onPress={onCancel} />
+            <RowAction label={busy ? '...' : 'ACEPTAR'} disabled={busy} tone="accent" onPress={onAccept} />
+            <RowAction label={busy ? '...' : 'RECHAZAR'} disabled={busy} tone="danger" onPress={onReject} />
           </>
+        ) : (
+          item.status === 'pending' &&
+          item.isCreator && (
+            <>
+              <RowAction label={busy ? '...' : 'COMPARTIR'} disabled={busy} onPress={onShareAgain} />
+              <RowAction label="COPIAR LINK" disabled={busy} onPress={onCopyLink} />
+              <RowAction label="CANCELAR" disabled={busy} tone="danger" onPress={onCancel} />
+            </>
+          )
         )}
         {myTurn && <RowAction label="CONTINUAR DESAFÍO" tone="accent" onPress={onOpen} />}
         {item.status === 'accepted' && !myTurn && <RowAction label="VER ESTADO" onPress={onOpen} />}
@@ -290,7 +374,9 @@ function ChallengeRow({
             <RowAction label={busy ? '...' : 'REVANCHA'} disabled={busy} onPress={onRematch} />
           </>
         )}
-        {(item.status === 'cancelled' || item.status === 'expired') && <RowAction label="VER" onPress={onOpen} />}
+        {(item.status === 'cancelled' || item.status === 'expired' || item.status === 'rejected') && (
+          <RowAction label="VER" onPress={onOpen} />
+        )}
       </View>
     </Card>
   );
@@ -328,7 +414,32 @@ const styles = StyleSheet.create({
     ...typography.title,
     color: colors.textPrimary,
     marginTop: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  tabs: {
+    flexDirection: 'row',
+    gap: spacing.sm,
     marginBottom: spacing.lg,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  tabActive: {
+    borderColor: colors.accent,
+    backgroundColor: colors.surfaceAlt,
+  },
+  tabText: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontWeight: '800',
+  },
+  tabTextActive: {
+    color: colors.accent,
   },
   notice: {
     ...typography.caption,

@@ -14,8 +14,16 @@ import { useRootNavigation } from '../hooks/useRootNavigation';
 import { signOut } from '../services/authService';
 import { clearPendingChallengeToken } from '../services/pendingChallenge';
 import { ProfileUpdateError, updateProfile, usernameCooldownDaysLeft } from '../services/profileService';
+import { fetchDailyMissions, DailyMissions } from '../services/missionsService';
 import { DailyScanStatus, fetchDailyScanStatus } from '../services/scanService';
-import { ChallengeStats, fetchMyChallengeStats } from '../services/statsService';
+import {
+  ChallengeStats,
+  fetchFrequentRivals,
+  fetchMyChallengeStats,
+  fetchMyStreak,
+  FrequentRival,
+  StreakInfo,
+} from '../services/statsService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { formatLevel, formatSignedXP } from '../utils/format';
@@ -48,6 +56,9 @@ export default function ProfileScreen() {
   // ProfileScreen decide ocultar la sección entera en vez de mostrar ceros
   // que podrían confundirse con "0 Challenges jugados" real.
   const [challengeStats, setChallengeStats] = useState<ChallengeStats | null>(null);
+  const [streak, setStreak] = useState<StreakInfo | null>(null);
+  const [topRival, setTopRival] = useState<FrequentRival | null>(null);
+  const [missions, setMissions] = useState<DailyMissions | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -57,6 +68,15 @@ export default function ProfileScreen() {
       });
       fetchMyChallengeStats().then((result) => {
         if (!cancelled) setChallengeStats(result);
+      });
+      fetchMyStreak().then((result) => {
+        if (!cancelled) setStreak(result);
+      });
+      fetchFrequentRivals(1).then((result) => {
+        if (!cancelled) setTopRival(result[0] ?? null);
+      });
+      fetchDailyMissions().then((result) => {
+        if (!cancelled) setMissions(result);
       });
       return () => {
         cancelled = true;
@@ -203,11 +223,50 @@ export default function ProfileScreen() {
       </Card>
 
       <View style={styles.statsRow}>
-        <StatTile label="RACHA 🔥" value={String(user?.streakDays ?? 0)} />
+        {/* Racha real (H) -- reemplaza el `streakDays` de User, que
+            siempre era 0 (nunca hubo tracking real, ver api.ts). Ahora
+            sale de get_my_streak (server-side, cuenta días distintos con
+            al menos un Scan `done`). */}
+        <StatTile label="RACHA 🔥" value={String(streak?.currentStreak ?? 0)} />
         <StatTile label="NIVEL" value={formatLevel(user?.level ?? 0)} />
       </View>
+      {streak && streak.bestStreak > streak.currentStreak && (
+        <Text style={styles.bestStreakText}>Mejor racha: {streak.bestStreak} días</Text>
+      )}
 
       <DailyScanCounter />
+
+      {/* Misiones diarias simples (I) -- solo visuales, sin XP (ver
+          missionsService.ts). Cada check sale de un evento real ya
+          existente, nunca inventado. */}
+      {missions && (
+        <View style={styles.socialStatsSection}>
+          <Text style={styles.settingsTitle}>MISIONES DE HOY</Text>
+          <MissionRow done={missions.scanDone} label="Hacé 1 Scan" />
+          <MissionRow done={missions.challengeCompletedToday} label="Completa 1 Challenge" />
+          <MissionRow done={missions.sharedToday} label="Comparte 1 resultado" />
+        </View>
+      )}
+
+      {/* Rivales frecuentes (G) -- derivado de `challenges`, sin tabla
+          nueva (ver get_frequent_rivals). Solo el más frecuente acá --
+          la vista completa (si algún día hace falta) sería su propia
+          pantalla, no corresponde inflar Profile con eso todavía. */}
+      {topRival && (
+        <Pressable onPress={() => navigation.navigate('PublicProfile', { username: topRival.username })}>
+          <Card style={styles.linkCard}>
+            <Text style={styles.rivalCardAvatar}>{topRival.avatarEmoji}</Text>
+            <View style={styles.rivalCardInfo}>
+              <Text style={styles.linkCardLabel}>Rival frecuente: @{topRival.username}</Text>
+              <Text style={styles.winRateText}>
+                {topRival.myWins}–{topRival.rivalWins}
+                {topRival.ties > 0 ? `–${topRival.ties}` : ''} entre ustedes
+              </Text>
+            </View>
+            <Text style={styles.linkCardArrow}>›</Text>
+          </Card>
+        </Pressable>
+      )}
 
       {/* Perfil social mínimo (F) -- calculado server-side (get_my_challenge_
           stats), nunca inventado ni derivado de listas parciales en el
@@ -294,6 +353,15 @@ export default function ProfileScreen() {
   );
 }
 
+function MissionRow({ done, label }: { done: boolean; label: string }) {
+  return (
+    <View style={styles.missionRow}>
+      <Text style={[styles.missionCheck, done && styles.missionCheckDone]}>{done ? '✅' : '⬜'}</Text>
+      <Text style={[styles.missionLabel, done && styles.missionLabelDone]}>{label}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   avatarBlock: {
     alignItems: 'center',
@@ -322,6 +390,38 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
     gap: spacing.md,
+  },
+  bestStreakText: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginTop: -spacing.sm,
+    marginBottom: spacing.md,
+  },
+  missionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  missionCheck: {
+    fontSize: 16,
+  },
+  missionCheckDone: {
+    opacity: 1,
+  },
+  missionLabel: {
+    ...typography.body,
+    color: colors.textSecondary,
+  },
+  missionLabelDone: {
+    color: colors.textMuted,
+    textDecorationLine: 'line-through',
+  },
+  rivalCardAvatar: {
+    fontSize: 28,
+  },
+  rivalCardInfo: {
+    flex: 1,
   },
   socialStatsSection: {
     marginTop: spacing.md,

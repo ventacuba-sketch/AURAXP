@@ -9,21 +9,28 @@ import { StatTile } from '../components/StatTile';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useSmartBack } from '../hooks/useSmartBack';
+import { logEvent } from '../services/analyticsService';
 import { fetchLatestReplay } from '../services/api';
-import { challengeShareUrl, createChallenge } from '../services/challengeService';
-import { fetchPublicProfile, PublicProfile } from '../services/statsService';
+import { createDirectChallenge } from '../services/challengeService';
+import {
+  fetchPublicProfile,
+  fetchPublicRecentResults,
+  fetchPublicXpRank,
+  PublicProfile,
+  PublicRecentResult,
+} from '../services/statsService';
 import { colors, spacing, typography } from '../theme/colors';
 import { RootStackParamList } from '../types';
-import { formatLevel, formatSignedXP, formatXP } from '../utils/format';
-import { shareText } from '../utils/share';
+import { formatLevel, formatRelativeTime, formatSignedXP, formatXP } from '../utils/format';
 
 type PublicProfileRoute = RouteProp<RootStackParamList, 'PublicProfile'>;
 
 /**
  * Perfil público de OTRO usuario (o el propio visto desde afuera, p. ej.
  * tocando tu propia fila en el Ranking) -- solo datos ya aprobados como
- * públicos (ver get_public_profile: username/avatar/nivel/XP/mejor Aura/
- * stats de Challenge, nunca email/plan/id técnico).
+ * públicos (ver get_public_profile/get_public_xp_rank/get_public_recent_
+ * results: username/avatar/nivel/XP/mejor Aura/stats de Challenge/rank/
+ * últimos resultados, nunca email/plan/id técnico/videos).
  */
 export default function PublicProfileScreen() {
   const { params } = useRoute<PublicProfileRoute>();
@@ -32,6 +39,8 @@ export default function PublicProfileScreen() {
   const { user: me } = useCurrentUser();
 
   const [profile, setProfile] = useState<PublicProfile | null>(null);
+  const [rank, setRank] = useState<number | null>(null);
+  const [recentResults, setRecentResults] = useState<PublicRecentResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [challenging, setChallenging] = useState(false);
@@ -41,10 +50,20 @@ export default function PublicProfileScreen() {
     let cancelled = false;
     setLoading(true);
     setNotFound(false);
-    fetchPublicProfile(params.username).then((result) => {
+    Promise.all([
+      fetchPublicProfile(params.username),
+      fetchPublicXpRank(params.username),
+      fetchPublicRecentResults(params.username, 5),
+    ]).then(([profileResult, rankResult, resultsResult]) => {
       if (cancelled) return;
-      if (result) setProfile(result);
-      else setNotFound(true);
+      if (profileResult) {
+        setProfile(profileResult);
+        setRank(rankResult);
+        setRecentResults(resultsResult);
+        logEvent('profile_viewed', { username: params.username });
+      } else {
+        setNotFound(true);
+      }
       setLoading(false);
     });
     return () => {
@@ -53,15 +72,17 @@ export default function PublicProfileScreen() {
   }, [params.username]);
 
   const isMe = me?.username === params.username;
+  const winRate = profile && profile.challengesCompleted > 0 ? Math.round((profile.wins / profile.challengesCompleted) * 100) : null;
 
   /**
-   * "Challenge directo" (item 5) -- reutiliza el Challenge clásico por
-   * link 100%: crea un Challenge normal desde mi Scan más reciente
-   * (createChallenge, la MISMA función que usa ScanResult/revancha) y
-   * comparte el link con el texto pre-dirigido a esta persona. No agrega
-   * ningún concepto nuevo de "invitado específico" al backend -- el link
-   * lo puede aceptar cualquiera que lo reciba, exactamente como hoy;
-   * "directo" es solo que el texto del share ya viene con su @username.
+   * Challenge DIRECTO real (A) -- vía create_direct_challenge (SECURITY
+   * DEFINER): el backend crea el Challenge YA con target_user_id fijado
+   * en esta persona, y le manda una notificación in-app real. Nada de
+   * "compartir un link con su nombre en el texto" (así funcionaba antes) --
+   * ahora es un Challenge genuinamente dirigido, que SOLO esta persona
+   * puede aceptar o rechazar (lo hace cumplir el RPC, ver esa migración).
+   * El Challenge clásico por link (createChallenge, sin target) sigue
+   * intacto y es un camino totalmente separado.
    */
   async function handleChallengeDirect() {
     setChallenging(true);
@@ -72,10 +93,24 @@ export default function PublicProfileScreen() {
         setNotice('Hacé tu primer Scan antes de desafiar a alguien.');
         return;
       }
-      const token = await createChallenge(latest.id);
-      const result = await shareText(`@${params.username}, ¿aceptás mi desafío en AURA VS? ⚔️`, challengeShareUrl(token));
-      if (result === 'copied') setNotice('Enlace copiado -- mandáselo a @' + params.username);
-      navigation.navigate('Challenge', { challengeToken: token });
+      const result = await createDirectChallenge(latest.id, params.username);
+      if (result.ok && result.shareToken) {
+        navigation.navigate('Challenge', { challengeToken: result.shareToken });
+        return;
+      }
+      switch (result.errorCode) {
+        case 'cannot_challenge_self':
+          setNotice('No puedes desafiarte a ti mismo.');
+          break;
+        case 'target_not_found':
+          setNotice('Este usuario ya no existe.');
+          break;
+        case 'invalid_scan':
+          setNotice('Tu último Scan no es válido para desafiar. Hacé uno nuevo.');
+          break;
+        default:
+          setNotice('No pudimos crear el desafío. Intenta de nuevo.');
+      }
     } catch (e) {
       console.warn('handleChallengeDirect failed', e);
       setNotice('No pudimos crear el desafío. Intenta de nuevo.');
@@ -105,7 +140,10 @@ export default function PublicProfileScreen() {
       <View style={styles.avatarBlock}>
         <Text style={styles.avatar}>{profile.avatarEmoji}</Text>
         <Text style={styles.username}>@{profile.username}</Text>
-        <Text style={styles.level}>{formatLevel(profile.level)} · {formatXP(profile.xp)}</Text>
+        <Text style={styles.level}>
+          {formatLevel(profile.level)} · {formatXP(profile.xp)}
+          {rank != null ? ` · #${rank} en el ranking` : ''}
+        </Text>
       </View>
 
       {profile.bestAuraScore != null && (
@@ -119,7 +157,7 @@ export default function PublicProfileScreen() {
         <StatTile label="CHALLENGES" value={String(profile.challengesCompleted)} />
         <StatTile label="GANADOS" value={String(profile.wins)} />
         <StatTile label="PERDIDOS" value={String(profile.losses)} />
-        <StatTile label="EMPATES" value={String(profile.ties)} />
+        <StatTile label="WIN RATE" value={winRate != null ? `${winRate}%` : '—'} />
       </View>
 
       {notice && <Text style={styles.notice}>{notice}</Text>}
@@ -130,6 +168,28 @@ export default function PublicProfileScreen() {
           disabled={challenging}
           onPress={handleChallengeDirect}
         />
+      )}
+
+      {recentResults.length > 0 && (
+        <View style={styles.recentSection}>
+          <Text style={styles.recentTitle}>ÚLTIMAS BATALLAS</Text>
+          {recentResults.map((r, i) => (
+            <View key={i} style={styles.recentRow}>
+              <Text style={styles.recentAvatar}>{r.rivalAvatarEmoji}</Text>
+              <View style={styles.recentInfo}>
+                <Text style={styles.recentText}>
+                  {r.isTie ? '🤝' : r.iWon ? '🏆' : '💀'} vs @{r.rivalUsername}
+                </Text>
+                <Text style={styles.recentDate}>{formatRelativeTime(r.resolvedAt)}</Text>
+              </View>
+              {r.myScore != null && r.rivalScore != null && (
+                <Text style={styles.recentScore}>
+                  {formatSignedXP(r.myScore)} / {formatSignedXP(r.rivalScore)}
+                </Text>
+              )}
+            </View>
+          ))}
+        </View>
       )}
     </ScreenContainer>
   );
@@ -157,6 +217,7 @@ const styles = StyleSheet.create({
   level: {
     ...typography.body,
     color: colors.textSecondary,
+    textAlign: 'center',
   },
   bestAuraCard: {
     alignItems: 'center',
@@ -187,5 +248,41 @@ const styles = StyleSheet.create({
   notFound: {
     ...typography.body,
     color: colors.textSecondary,
+  },
+  recentSection: {
+    marginTop: spacing.xl,
+  },
+  recentTitle: {
+    ...typography.eyebrow,
+    color: colors.textMuted,
+    marginBottom: spacing.sm,
+  },
+  recentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  recentAvatar: {
+    fontSize: 22,
+  },
+  recentInfo: {
+    flex: 1,
+  },
+  recentText: {
+    ...typography.body,
+    color: colors.textPrimary,
+  },
+  recentDate: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  recentScore: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    fontWeight: '700',
   },
 });

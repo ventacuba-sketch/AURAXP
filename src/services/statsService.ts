@@ -146,3 +146,102 @@ export async function fetchPublicProfile(username: string): Promise<PublicProfil
     ties: row.ties,
   };
 }
+
+/** Posición en el ranking de XP de CUALQUIER usuario -- mismo cálculo que
+ * fetchMyXpRank, parametrizado por username (get_public_xp_rank). */
+export async function fetchPublicXpRank(username: string): Promise<number | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase.rpc('get_public_xp_rank', { p_username: username });
+  if (error || data == null) return null;
+  return Number(data);
+}
+
+export interface PublicRecentResult {
+  rivalUsername: string;
+  rivalAvatarEmoji: string;
+  myScore: number | null;
+  rivalScore: number | null;
+  isTie: boolean;
+  iWon: boolean;
+  resolvedAt: string;
+}
+
+interface PublicRecentResultRow {
+  rival_username: string;
+  rival_avatar_emoji: string;
+  my_score: number | null;
+  rival_score: number | null;
+  is_tie: boolean;
+  i_won: boolean;
+  resolved_at: string;
+}
+
+/** Últimos resultados públicos de Challenge de un usuario (E) -- solo
+ * rival/scores/resultado/fecha, ver get_public_recent_results (nunca
+ * expone IDs/paths). */
+export async function fetchPublicRecentResults(username: string, limit = 5): Promise<PublicRecentResult[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase.rpc('get_public_recent_results', { p_username: username, p_limit: limit });
+  if (error || !data) return [];
+
+  return (data as PublicRecentResultRow[]).map((row) => ({
+    rivalUsername: row.rival_username,
+    rivalAvatarEmoji: row.rival_avatar_emoji,
+    myScore: row.my_score,
+    rivalScore: row.rival_score,
+    isTie: row.is_tie,
+    iWon: row.i_won,
+    resolvedAt: row.resolved_at,
+  }));
+}
+
+export interface FrequentRival {
+  username: string;
+  avatarEmoji: string;
+  games: number;
+  myWins: number;
+  rivalWins: number;
+  ties: number;
+}
+
+interface FrequentRivalRow {
+  rival_username: string;
+  rival_avatar_emoji: string;
+  games: number;
+  my_wins: number;
+  rival_wins: number;
+  ties: number;
+}
+
+/** Rivales frecuentes (G) -- derivado de `challenges`, sin tabla nueva
+ * (ver get_frequent_rivals). */
+export async function fetchFrequentRivals(limit = 5): Promise<FrequentRival[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase.rpc('get_frequent_rivals', { p_limit: limit });
+  if (error || !data) return [];
+
+  return (data as FrequentRivalRow[]).map((row) => ({
+    username: row.rival_username,
+    avatarEmoji: row.rival_avatar_emoji,
+    games: row.games,
+    myWins: row.my_wins,
+    rivalWins: row.rival_wins,
+    ties: row.ties,
+  }));
+}
+
+export interface StreakInfo {
+  currentStreak: number;
+  bestStreak: number;
+}
+
+/** Racha diaria (H) -- server-side, cuenta días distintos con al menos un
+ * Scan `done` (ver get_my_streak; no premia Scans fallidos ni repetidos
+ * el mismo día). */
+export async function fetchMyStreak(): Promise<StreakInfo | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase.rpc('get_my_streak').single();
+  if (error || !data) return null;
+  const row = data as { current_streak: number; best_streak: number };
+  return { currentStreak: row.current_streak ?? 0, bestStreak: row.best_streak ?? 0 };
+}

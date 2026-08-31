@@ -69,6 +69,7 @@ export default function AuthScreen() {
     try {
       if (mode === 'signIn') {
         await signIn(email.trim(), password);
+        logEvent('login');
         // Éxito -> onAuthStateChange (useAuth) actualiza la sesión y
         // RootNavigator cambia de Auth a MainTabs solo.
       } else {
@@ -76,14 +77,15 @@ export default function AuthScreen() {
           setError('La contraseña debe tener al menos 8 caracteres.');
           return;
         }
+        logEvent('signup_started');
         const status = await signUp(email.trim(), password);
         if (status === 'confirmationRequired') {
           setSuccessMessage('Cuenta creada. Revisa tu correo para confirmar el registro.');
-          logEvent('signup');
+          logEvent('signup_completed');
         } else if (status === 'alreadyRegistered') {
           setShowAlreadyRegistered(true);
         } else if (status === 'signedIn') {
-          logEvent('signup');
+          logEvent('signup_completed');
         }
         // 'signedIn' (proyectos sin confirmación de email activada) ->
         // onAuthStateChange resuelve la navegación solo, igual que el login.

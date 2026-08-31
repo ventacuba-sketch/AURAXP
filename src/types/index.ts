@@ -143,7 +143,7 @@ export interface AuraChain {
   names: string[]; // ["You", "Carlos", "Ana", "Leo"]
 }
 
-export type ChallengeStatus = 'pending' | 'accepted' | 'completed' | 'cancelled' | 'expired';
+export type ChallengeStatus = 'pending' | 'accepted' | 'completed' | 'cancelled' | 'expired' | 'rejected';
 
 /** Public preview of a shared challenge — served by get-challenge-preview, no auth needed. */
 export interface ChallengePreview {
@@ -178,6 +178,10 @@ export interface Challenge {
   creator: ChallengeParticipant;
   /** null mientras nadie aceptó todavía. */
   opponent: ChallengeParticipant | null;
+  /** No-null solo en un Challenge DIRIGIDO (A) -- quién puede
+   * aceptar/rechazar mientras sigue 'pending'. null en el Challenge
+   * clásico por link (cualquiera que lo reciba puede aceptarlo). */
+  targetUserId: string | null;
   winnerUserId: string | null;
   isTie: boolean;
   creatorXpAwarded: number | null;
@@ -201,10 +205,16 @@ export interface ChallengeListItem {
   isCreator: boolean;
   myScanId: string | null;
   myAuraScore: number | null;
-  /** null mientras nadie aceptó todavía (challenge 'pending' del que soy creador). */
+  /** null mientras nadie aceptó todavía Y no es un Challenge dirigido (si
+   * lo es, `rival` ya está resuelto desde el momento en que se creó --
+   * ver challengeService.listMyChallenges). */
   rival: { userId: string; username: string; avatarEmoji: string } | null;
   rivalAuraScore: number | null;
   winnerUserId: string | null;
   isTie: boolean;
   myXpAwarded: number | null;
+  /** true si es un Challenge DIRIGIDO (target_user_id no nulo) y soy yo
+   * el destinatario -- distingue "me desafiaron, tengo que responder" de
+   * un pending clásico por link (nadie lo aceptó todavía). */
+  isDirectedToMe: boolean;
 }

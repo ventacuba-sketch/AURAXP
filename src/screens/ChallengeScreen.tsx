@@ -10,12 +10,14 @@ import { ScreenContainer } from '../components/ScreenContainer';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useSmartBack } from '../hooks/useSmartBack';
+import { logEvent } from '../services/analyticsService';
 import {
   buildChallengeResultShare,
   cancelChallenge,
   challengeShareUrl as shareUrl,
   createChallenge,
   getChallenge,
+  respondDirectChallenge,
 } from '../services/challengeService';
 import { getChallengeReplayUrl } from '../services/scanService';
 import { colors, radius, spacing, typography } from '../theme/colors';
@@ -93,6 +95,7 @@ export default function ChallengeScreen() {
   const [createError, setCreateError] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [responding, setResponding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
   const hasCreatedRef = useRef(false);
@@ -173,6 +176,24 @@ export default function ChallengeScreen() {
     }
   }
 
+  async function handleRespondDirect(accept: boolean) {
+    if (!challenge) return;
+    setResponding(true);
+    setNotice(null);
+    const result = await respondDirectChallenge(challenge.id, accept);
+    setResponding(false);
+    if (result.ok) {
+      if (!accept) {
+        navigation.navigate('MainTabs');
+      } else {
+        refresh();
+      }
+    } else {
+      setNotice(result.errorCode === 'expired' ? 'Este desafío ya expiró.' : 'No pudimos procesar tu respuesta.');
+      refresh();
+    }
+  }
+
   async function handleRematch() {
     if (!challenge || !user) return;
     const myScanId = challenge.creator.userId === user.id ? challenge.creator.scanId : challenge.opponent?.scanId;
@@ -210,6 +231,7 @@ export default function ChallengeScreen() {
 
     setSharing(true);
     try {
+      logEvent('result_shared');
       const blob = await generateChallengeShareCardBlob(card);
       const result = await shareImage(blob, `aura-vs-${token}.png`, text, shareUrl(token));
       if (result === 'copied') setNotice('Enlace copiado');
@@ -249,14 +271,45 @@ export default function ChallengeScreen() {
   const me = iAmCreator ? challenge.creator : challenge.opponent;
   const rival = iAmCreator ? challenge.opponent : challenge.creator;
 
-  // ── Estados terminales sin duelo (cancelado/expirado) ────────────────
-  if (challenge.status === 'cancelled' || challenge.status === 'expired') {
+  // ── Estados terminales sin duelo (cancelado/expirado/rechazado) ──────
+  if (challenge.status === 'cancelled' || challenge.status === 'expired' || challenge.status === 'rejected') {
+    const label =
+      challenge.status === 'cancelled' ? 'Desafío cancelado' : challenge.status === 'expired' ? 'Desafío expirado' : 'Desafío rechazado';
     return (
       <ScreenContainer style={styles.center} onBack={goBack}>
-        <Text style={styles.headline}>
-          {challenge.status === 'cancelled' ? 'Desafío cancelado' : 'Desafío expirado'}
-        </Text>
+        <Text style={styles.headline}>{label}</Text>
         <PrimaryButton label="VOLVER" onPress={() => navigation.navigate('MainTabs')} />
+      </ScreenContainer>
+    );
+  }
+
+  // ── Challenge DIRIGIDO, todavía pending, y SOY el destinatario -- tengo
+  // que responder ACEPTAR/RECHAZAR (A/C). Chequeo ANTES del fallback de
+  // "pending = soy el creador esperando rival" de más abajo -- ese
+  // fallback sigue siendo el único camino para el Challenge clásico por
+  // link (targetUserId null), no se toca. ────────────────────────────────
+  if (challenge.status === 'pending' && challenge.targetUserId && user?.id === challenge.targetUserId) {
+    return (
+      <ScreenContainer style={styles.center} onBack={goBack}>
+        <Text style={styles.avatar}>{challenge.creator.avatarEmoji}</Text>
+        <Text style={styles.headline}>@{challenge.creator.username} te desafió ⚔️</Text>
+        {challenge.creator.auraScore != null && (
+          <Badge label={`${formatSignedXP(challenge.creator.auraScore)} AURA`} tone="accent" style={styles.badge} />
+        )}
+        {notice && <Text style={styles.noticeText}>{notice}</Text>}
+        <View style={styles.actions}>
+          <PrimaryButton
+            label={responding ? '...' : 'ACEPTAR'}
+            disabled={responding}
+            onPress={() => handleRespondDirect(true)}
+          />
+          <PrimaryButton
+            label={responding ? '...' : 'RECHAZAR'}
+            variant="ghost"
+            disabled={responding}
+            onPress={() => handleRespondDirect(false)}
+          />
+        </View>
       </ScreenContainer>
     );
   }

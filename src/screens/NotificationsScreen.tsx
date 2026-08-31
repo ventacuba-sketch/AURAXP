@@ -17,7 +17,9 @@ import { colors, radius, spacing, typography } from '../theme/colors';
 import { formatRelativeTime } from '../utils/format';
 
 const COPY: Record<string, (rival: string) => string> = {
+  challenge_received: (rival) => `⚔️ @${rival} te desafió`,
   challenge_accepted: (rival) => `@${rival} aceptó tu desafío`,
+  challenge_rejected: (rival) => `@${rival} rechazó tu desafío`,
   challenge_completed_won: (rival) => `🏆 Le ganaste a @${rival}`,
   challenge_completed_lost: (rival) => `💀 @${rival} te ganó`,
   challenge_completed_tie: (rival) => `🤝 Empataste con @${rival}`,
@@ -25,7 +27,9 @@ const COPY: Record<string, (rival: string) => string> = {
 
 function notificationText(n: AppNotification): string {
   const rival = n.rivalUsername ?? 'alguien';
+  if (n.kind === 'challenge_received') return COPY.challenge_received(rival);
   if (n.kind === 'challenge_accepted') return COPY.challenge_accepted(rival);
+  if (n.kind === 'challenge_rejected') return COPY.challenge_rejected(rival);
   if (n.result === 'won') return COPY.challenge_completed_won(rival);
   if (n.result === 'lost') return COPY.challenge_completed_lost(rival);
   return COPY.challenge_completed_tie(rival);
