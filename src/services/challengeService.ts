@@ -1,6 +1,7 @@
 import * as Crypto from 'expo-crypto';
 
 import { Challenge, ChallengeListItem, ChallengeParticipant, ChallengePreview } from '../types';
+import { ShareCardData } from '../utils/shareCard';
 import { getSession } from './authService';
 import { supabase } from './supabaseClient';
 
@@ -16,6 +17,51 @@ function generateShareToken(): string {
 const WEB_ORIGIN = 'https://auravs.app';
 export function challengeShareUrl(token: string): string {
   return `${WEB_ORIGIN}/c/${token}`;
+}
+
+/**
+ * Texto + datos de la result card para compartir un Challenge YA
+ * COMPLETADO -- único lugar que arma esto, para que ChallengeScreen y
+ * MyChallengesScreen nunca puedan divergir (ver auditoría: "compartir
+ * resultado" antes era solo texto plano, ahora siempre viaja con la
+ * imagen -- generateChallengeShareCardBlob en utils/shareCard.ts).
+ *
+ * Deliberadamente solo toma username/avatar/score -- nunca un user id, un
+ * scanId ni un path de Storage, para que sea imposible que un caller le
+ * pase por error algo que no debería ser público (ver sección L,
+ * seguridad de la result card).
+ */
+export function buildChallengeResultShare(params: {
+  meUsername: string;
+  meAvatarEmoji: string;
+  meScore: number;
+  rivalUsername: string;
+  rivalAvatarEmoji: string;
+  rivalScore: number;
+  isTie: boolean;
+  iWon: boolean;
+}): { text: string; card: ShareCardData } {
+  const { meUsername, rivalUsername, meScore, rivalScore, isTie, iWon } = params;
+
+  const text = isTie
+    ? `Empaté con @${rivalUsername} en AURA VS 🤝 ${meScore >= 0 ? '+' : ''}${meScore} vs ${rivalScore >= 0 ? '+' : ''}${rivalScore}. ¿Tienes más Aura?`
+    : iWon
+      ? `Le gané a @${rivalUsername} en AURA VS 🏆 ¿Tienes más Aura que yo?`
+      : `@${rivalUsername} me ganó en AURA VS ⚡ ¿Puedes vengarme?`;
+
+  return {
+    text,
+    card: {
+      meUsername: params.meUsername,
+      meAvatarEmoji: params.meAvatarEmoji,
+      meScore: params.meScore,
+      rivalUsername: params.rivalUsername,
+      rivalAvatarEmoji: params.rivalAvatarEmoji,
+      rivalScore: params.rivalScore,
+      isTie,
+      iWon,
+    },
+  };
 }
 
 export async function createChallenge(sourceScanId: string): Promise<string> {
@@ -274,6 +320,56 @@ export async function listMyChallenges(offset = 0, limit = CHALLENGE_LIST_PAGE_S
   });
 
   return { items, hasMore };
+}
+
+/** Notificaciones in-app mínimas (I) -- derivado 100% de `challenges`, sin
+ * tabla nueva ni estado leído/no-leído (eso sí necesitaría una tabla
+ * liviana -- ver el reporte de esta tarea). Solo el evento "completado"
+ * más reciente, porque es el único con timestamp preciso (`resolved_at`);
+ * "aceptado" no tiene su propia columna de fecha todavía (`created_at` es
+ * de cuando se CREÓ el Challenge, no de cuando lo aceptaron), así que
+ * mezclarlo daría un orden cronológico engañoso -- mejor mostrar menos y
+ * que sea exacto. */
+export type ChallengeResultEventKind = 'won' | 'lost' | 'tie';
+
+export interface ChallengeResultEvent {
+  shareToken: string;
+  rivalUsername: string;
+  kind: ChallengeResultEventKind;
+  resolvedAt: string;
+}
+
+export async function getLatestChallengeResultEvent(): Promise<ChallengeResultEvent | null> {
+  if (!supabase) return null;
+  const session = await getSession();
+  if (!session) return null;
+  const uid = session.user.id;
+
+  const { data: row } = await supabase
+    .from('challenges')
+    .select('share_token, from_user_id, opponent_user_id, winner_user_id, is_tie, resolved_at')
+    .or(`from_user_id.eq.${uid},opponent_user_id.eq.${uid}`)
+    .eq('status', 'completed')
+    .order('resolved_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!row) return null;
+
+  const rivalId = row.from_user_id === uid ? row.opponent_user_id : row.from_user_id;
+  if (!rivalId) return null;
+
+  const { data: rivalProfile } = await supabase.from('public_profiles').select('username').eq('id', rivalId).maybeSingle();
+  if (!rivalProfile) return null;
+
+  const kind: ChallengeResultEventKind = row.is_tie ? 'tie' : row.winner_user_id === uid ? 'won' : 'lost';
+
+  return {
+    shareToken: row.share_token,
+    rivalUsername: rivalProfile.username,
+    kind,
+    resolvedAt: row.resolved_at,
+  };
 }
 
 /**

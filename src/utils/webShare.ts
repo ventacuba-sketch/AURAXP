@@ -7,7 +7,13 @@
  * silenciado sin feedback. Esto reemplaza esa ruta en web.
  */
 
-export type ShareOutcome = 'shared' | 'copied' | 'unavailable';
+/**
+ * 'downloaded': ningún share nativo estaba disponible (Web Share API
+ * ausente por completo, típico de desktop sin app receptora) -- se
+ * descargó la imagen Y se copió el texto/link al portapapeles como
+ * fallback explícito, nunca un botón que no hace nada.
+ */
+export type ShareOutcome = 'shared' | 'copied' | 'downloaded' | 'unavailable';
 
 async function copyToClipboard(text: string): Promise<boolean> {
   try {
@@ -72,6 +78,74 @@ export async function shareOnWeb(text: string, url?: string): Promise<ShareOutco
 
   const copied = await copyToClipboard(combined);
   return copied ? 'copied' : 'unavailable';
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  // Dar tiempo al navegador a arrancar la descarga antes de liberar el
+  // blob URL -- revocarlo antes rompería la descarga en algunos navegadores.
+  setTimeout(() => URL.revokeObjectURL(objectUrl), 2000);
+}
+
+/**
+ * Comparte una imagen (la result card) + texto + link -- con la misma
+ * filosofía que shareOnWeb: nunca fallar en silencio, siempre degradar a
+ * algo que la persona pueda usar.
+ *
+ * Cadena de fallback, de mejor a peor:
+ * 1. `navigator.canShare({files})` real -- comparte imagen + texto (con el
+ *    link YA incrustado en el texto, mismo motivo que shareOnWeb: WhatsApp
+ *    iOS descarta un campo `url` separado, así que nunca se manda solo).
+ * 2. Web Share API existe pero no soporta archivos (algunos navegadores
+ *    de escritorio) -- comparte solo texto+link, mismo camino que
+ *    shareOnWeb.
+ * 3. Sin Web Share API en absoluto -- descarga el PNG Y copia texto+link
+ *    al portapapeles en el mismo gesto, para que la persona pueda
+ *    adjuntarlo donde quiera sin que el botón parezca no hacer nada.
+ */
+export async function shareImageOnWeb(blob: Blob, filename: string, text: string, url?: string): Promise<ShareOutcome> {
+  const combined = url ? `${text} ${url}` : text;
+
+  const nav = typeof navigator !== 'undefined' ? (navigator as Navigator & {
+    share?: (data: unknown) => Promise<void>;
+    canShare?: (data: unknown) => boolean;
+  }) : undefined;
+
+  if (nav?.share) {
+    const file = new File([blob], filename, { type: blob.type || 'image/png' });
+    const canShareFiles = typeof nav.canShare === 'function' && nav.canShare({ files: [file] });
+
+    try {
+      if (canShareFiles) {
+        await nav.share({ files: [file], title: 'AURA VS', text: combined });
+      } else {
+        await nav.share({ text: combined });
+      }
+      return 'shared';
+    } catch (e) {
+      // Cancelar el sheet nativo no es una falla -- mismo criterio que
+      // shareOnWeb, no hay que sorprender con una descarga "de más".
+      if (e instanceof Error && e.name === 'AbortError') return 'shared';
+      // Cualquier otro rechazo cae al fallback de descarga+portapapeles.
+    }
+  }
+
+  try {
+    downloadBlob(blob, filename);
+    await copyToClipboard(combined);
+    return 'downloaded';
+  } catch {
+    // Ni siquiera la descarga funcionó (contexto muy restringido) --
+    // último recurso: al menos el texto+link al portapapeles.
+    const copied = await copyToClipboard(combined);
+    return copied ? 'copied' : 'unavailable';
+  }
 }
 
 export { copyToClipboard };

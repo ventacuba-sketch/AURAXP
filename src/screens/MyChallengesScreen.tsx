@@ -9,6 +9,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useSmartBack } from '../hooks/useSmartBack';
 import {
+  buildChallengeResultShare,
   CHALLENGE_LIST_PAGE_SIZE,
   cancelChallenge,
   challengeShareUrl,
@@ -18,7 +19,8 @@ import {
 import { colors, spacing, typography } from '../theme/colors';
 import { ChallengeListItem } from '../types';
 import { formatRelativeTime, formatSignedXP } from '../utils/format';
-import { copyLink, shareText } from '../utils/share';
+import { copyLink, shareImage, shareText } from '../utils/share';
+import { generateChallengeShareCardBlob } from '../utils/shareCard';
 
 /**
  * "MIS DESAFÍOS ⚔️" -- historial completo de Challenges del usuario,
@@ -116,6 +118,34 @@ export default function MyChallengesScreen() {
     }
   }
 
+  // COMPARTIR RESULTADO de un Challenge completado -- mismo generador de
+  // texto+card que usa ChallengeScreen (buildChallengeResultShare +
+  // generateChallengeShareCardBlob), nunca una segunda versión del texto.
+  async function handleShareResult(item: ChallengeListItem) {
+    if (!user || !item.rival) return;
+    const iWon = item.winnerUserId === user.id;
+    const { text, card } = buildChallengeResultShare({
+      meUsername: user.username,
+      meAvatarEmoji: user.avatarEmoji,
+      meScore: item.myAuraScore ?? 0,
+      rivalUsername: item.rival.username,
+      rivalAvatarEmoji: item.rival.avatarEmoji,
+      rivalScore: item.rivalAuraScore ?? 0,
+      isTie: item.isTie,
+      iWon,
+    });
+
+    setBusyId(item.id);
+    try {
+      const blob = await generateChallengeShareCardBlob(card);
+      const result = await shareImage(blob, `aura-vs-${item.shareToken}.png`, text, challengeShareUrl(item.shareToken));
+      if (result === 'copied') setNotice('Enlace copiado');
+      else if (result === 'downloaded') setNotice('Imagen descargada y enlace copiado');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <ScreenContainer scroll onBack={goBack}>
       <Text style={styles.title}>MIS DESAFÍOS ⚔️</Text>
@@ -145,6 +175,7 @@ export default function MyChallengesScreen() {
                 onCopyLink={() => handleCopyLink(item)}
                 onCancel={() => handleCancel(item)}
                 onRematch={() => handleRematch(item)}
+                onShareResult={() => handleShareResult(item)}
               />
             ))}
           </View>
@@ -186,6 +217,7 @@ function ChallengeRow({
   onCopyLink,
   onCancel,
   onRematch,
+  onShareResult,
 }: {
   item: ChallengeListItem;
   busy: boolean;
@@ -194,6 +226,7 @@ function ChallengeRow({
   onCopyLink: () => void;
   onCancel: () => void;
   onRematch: () => void;
+  onShareResult: () => void;
 }) {
   const { user } = useCurrentUser();
   // Mi turno de verdad: acepté el desafío pero todavía no subí mi Scan --
@@ -237,7 +270,11 @@ function ChallengeRow({
         {item.status === 'accepted' && !myTurn && <RowAction label="VER ESTADO" onPress={onOpen} />}
         {item.status === 'completed' && (
           <>
+            {/* VER BATALLA lleva al ChallengeScreen completo, que ya
+                muestra REPLAY MÍO/REPLAY RIVAL con su propio player --
+                no se duplica esa lógica acá en la lista. */}
             <RowAction label="VER BATALLA" tone="accent" onPress={onOpen} />
+            <RowAction label={busy ? '...' : 'COMPARTIR RESULTADO'} disabled={busy} onPress={onShareResult} />
             <RowAction label={busy ? '...' : 'REVANCHA'} disabled={busy} onPress={onRematch} />
           </>
         )}

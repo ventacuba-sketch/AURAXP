@@ -15,9 +15,10 @@ import { signOut } from '../services/authService';
 import { clearPendingChallengeToken } from '../services/pendingChallenge';
 import { ProfileUpdateError, updateProfile, usernameCooldownDaysLeft } from '../services/profileService';
 import { DailyScanStatus, fetchDailyScanStatus } from '../services/scanService';
+import { ChallengeStats, fetchMyChallengeStats } from '../services/statsService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
-import { formatLevel } from '../utils/format';
+import { formatLevel, formatSignedXP } from '../utils/format';
 
 // Foto de perfil real (imagen) queda para una tarea aparte -- por ahora el
 // avatar sigue siendo un emoji, elegido de este set fijo.
@@ -43,12 +44,19 @@ export default function ProfileScreen() {
   const [planStatus, setPlanStatus] = useState<DailyScanStatus | null>(null);
   const [confirmingLogout, setConfirmingLogout] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
+  // Perfil social mínimo (F) -- null mientras carga o sin sesión real;
+  // ProfileScreen decide ocultar la sección entera en vez de mostrar ceros
+  // que podrían confundirse con "0 Challenges jugados" real.
+  const [challengeStats, setChallengeStats] = useState<ChallengeStats | null>(null);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       fetchDailyScanStatus().then((result) => {
         if (!cancelled && result) setPlanStatus(result);
+      });
+      fetchMyChallengeStats().then((result) => {
+        if (!cancelled) setChallengeStats(result);
       });
       return () => {
         cancelled = true;
@@ -201,9 +209,39 @@ export default function ProfileScreen() {
 
       <DailyScanCounter />
 
+      {/* Perfil social mínimo (F) -- calculado server-side (get_my_challenge_
+          stats), nunca inventado ni derivado de listas parciales en el
+          cliente. Oculto si todavía no se pudo consultar (sin sesión real). */}
+      {challengeStats && (
+        <View style={styles.socialStatsSection}>
+          <Text style={styles.settingsTitle}>ESTADÍSTICAS DE CHALLENGE</Text>
+          <View style={styles.socialStatsGrid}>
+            <StatTile label="CHALLENGES" value={String(challengeStats.challengesCompleted)} />
+            <StatTile label="GANADOS" value={String(challengeStats.wins)} />
+            <StatTile label="PERDIDOS" value={String(challengeStats.losses)} />
+            <StatTile label="EMPATES" value={String(challengeStats.ties)} />
+          </View>
+          {challengeStats.challengesCompleted > 0 && (
+            <Text style={styles.winRateText}>
+              Win rate: {Math.round((challengeStats.wins / challengeStats.challengesCompleted) * 100)}%
+            </Text>
+          )}
+          {challengeStats.bestAuraScore != null && (
+            <Text style={styles.winRateText}>Mejor Aura: {formatSignedXP(challengeStats.bestAuraScore)}</Text>
+          )}
+        </View>
+      )}
+
       <Pressable onPress={() => navigation.navigate('MyChallenges')}>
         <Card style={styles.linkCard}>
           <Text style={styles.linkCardLabel}>MIS DESAFÍOS ⚔️</Text>
+          <Text style={styles.linkCardArrow}>›</Text>
+        </Card>
+      </Pressable>
+
+      <Pressable onPress={() => navigation.navigate('Ranking')}>
+        <Card style={styles.linkCard}>
+          <Text style={styles.linkCardLabel}>TOP AURA 🏆</Text>
           <Text style={styles.linkCardArrow}>›</Text>
         </Card>
       </Pressable>
@@ -284,6 +322,21 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
     gap: spacing.md,
+  },
+  socialStatsSection: {
+    marginTop: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  socialStatsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    marginBottom: spacing.sm,
+  },
+  winRateText: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   linkCard: {
     flexDirection: 'row',

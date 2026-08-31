@@ -1,6 +1,6 @@
 import { Platform, Share } from 'react-native';
 
-import { copyToClipboard, shareOnWeb, ShareOutcome } from './webShare';
+import { copyToClipboard, shareImageOnWeb, shareOnWeb, ShareOutcome } from './webShare';
 
 export type { ShareOutcome };
 
@@ -24,6 +24,28 @@ export async function shareText(text: string, url?: string): Promise<ShareOutcom
   } catch {
     return 'unavailable';
   }
+}
+
+/**
+ * Comparte una imagen (PNG, típicamente la result card de un Challenge
+ * completado -- ver utils/shareCard.ts) junto con texto y un link.
+ *
+ * Solo tiene efecto real en web (ver shareImageOnWeb) -- en nativo
+ * (iOS/Android) compartir un archivo requiere `expo-sharing` +
+ * `expo-file-system` para escribirlo a un uri temporal antes de pasarlo al
+ * share sheet nativo; `expo-sharing` NO está instalado en este proyecto
+ * todavía y agregarlo implica un rebuild nativo que este sandbox no puede
+ * compilar ni probar en un dispositivo real, así que en nativo esto
+ * degrada honestamente a compartir solo texto+link (shareText) -- nunca
+ * fallar en silencio, pero tampoco fingir que mandó una imagen que no
+ * mandó. Ver el reporte de esta tarea para el paso exacto de cuando se
+ * agregue esa dependencia.
+ */
+export async function shareImage(blob: Blob | null, filename: string, text: string, url?: string): Promise<ShareOutcome> {
+  if (Platform.OS === 'web' && blob) {
+    return shareImageOnWeb(blob, filename, text, url);
+  }
+  return shareText(text, url);
 }
 
 /**

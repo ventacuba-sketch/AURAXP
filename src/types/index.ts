@@ -57,6 +57,8 @@ export type RootStackParamList = {
   ResetPassword: undefined;
   /** Historial paginado de Challenges del usuario -- ver MyChallengesScreen. */
   MyChallenges: undefined;
+  /** Top XP + posición propia -- ver RankingScreen. */
+  Ranking: undefined;
 };
 
 export interface User {

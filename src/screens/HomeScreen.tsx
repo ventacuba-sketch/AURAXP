@@ -9,16 +9,24 @@ import { ScreenContainer } from '../components/ScreenContainer';
 import { XPBar } from '../components/XPBar';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useLatestChallengeResult } from '../hooks/useLatestChallengeResult';
 import { useMyTurnChallengeCount } from '../hooks/useMyTurnChallengeCount';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { fetchLatestReplay } from '../services/api';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { formatSignedXP, formatXP } from '../utils/format';
 
+const RESULT_EVENT_COPY: Record<'won' | 'lost' | 'tie', (rival: string) => string> = {
+  won: (rival) => `🏆 Le ganaste a @${rival}`,
+  lost: (rival) => `💀 @${rival} te ganó`,
+  tie: (rival) => `🤝 Empataste con @${rival}`,
+};
+
 export default function HomeScreen() {
   const { user } = useCurrentUser();
   const { data: latestReplay } = useAsyncData(fetchLatestReplay);
   const myTurnCount = useMyTurnChallengeCount();
+  const latestResult = useLatestChallengeResult();
   const navigation = useRootNavigation();
 
   return (
@@ -52,6 +60,14 @@ export default function HomeScreen() {
           {myTurnCount != null && myTurnCount > 0 && (
             <Text style={styles.myChallengesBadge}>
               ⚔️ {myTurnCount} desafío{myTurnCount === 1 ? '' : 's'} pendiente{myTurnCount === 1 ? '' : 's'} de tu Scan
+            </Text>
+          )}
+          {/* Notificación in-app mínima (I) -- el último resultado real,
+              derivado de `challenges` sin tabla nueva (ver
+              useLatestChallengeResult). Solo el más reciente, no un inbox. */}
+          {latestResult && (
+            <Text style={styles.myChallengesResult}>
+              {RESULT_EVENT_COPY[latestResult.kind](latestResult.rivalUsername)}
             </Text>
           )}
         </Card>
@@ -171,6 +187,11 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.secondary,
     fontWeight: '700',
+    marginTop: spacing.xs,
+  },
+  myChallengesResult: {
+    ...typography.caption,
+    color: colors.textSecondary,
     marginTop: spacing.xs,
   },
 });

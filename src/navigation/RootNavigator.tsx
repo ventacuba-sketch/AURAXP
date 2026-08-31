@@ -19,6 +19,7 @@ import ChallengeLandingScreen from '../screens/ChallengeLandingScreen';
 import ChallengeScreen from '../screens/ChallengeScreen';
 import MyChallengesScreen from '../screens/MyChallengesScreen';
 import ProScreen from '../screens/ProScreen';
+import RankingScreen from '../screens/RankingScreen';
 import RecordScreen from '../screens/RecordScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import ScanResultScreen from '../screens/ScanResultScreen';
@@ -153,6 +154,7 @@ export function RootNavigator() {
             <Stack.Screen name="ScanResult" component={ScanResultScreen} />
             <Stack.Screen name="Challenge" component={ChallengeScreen} />
             <Stack.Screen name="MyChallenges" component={MyChallengesScreen} />
+            <Stack.Screen name="Ranking" component={RankingScreen} />
             <Stack.Screen name="Pro" component={ProScreen} />
           </>
         ) : (

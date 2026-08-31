@@ -11,6 +11,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useSmartBack } from '../hooks/useSmartBack';
 import {
+  buildChallengeResultShare,
   cancelChallenge,
   challengeShareUrl as shareUrl,
   createChallenge,
@@ -20,7 +21,8 @@ import { getChallengeReplayUrl } from '../services/scanService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { Challenge, ChallengeParticipant, RootStackParamList } from '../types';
 import { formatSignedXP } from '../utils/format';
-import { copyLink, shareText } from '../utils/share';
+import { copyLink, shareImage, shareText } from '../utils/share';
+import { generateChallengeShareCardBlob } from '../utils/shareCard';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -192,14 +194,29 @@ export default function ChallengeScreen() {
     if (!me || !rival) return;
 
     const iWon = challenge.winnerUserId === user.id;
-    const text = challenge.isTie
-      ? `Empaté con @${rival.username} en AURA VS ⚔️ ${formatSignedXP(me.auraScore ?? 0)} vs ${formatSignedXP(rival.auraScore ?? 0)}.`
-      : iWon
-        ? `Le gané a @${rival.username} en AURA VS ⚔️ ¿Tienes más Aura que yo?`
-        : `@${rival.username} me ganó en AURA VS ⚔️ ${formatSignedXP(rival.auraScore ?? 0)} vs mis ${formatSignedXP(me.auraScore ?? 0)}. ¿Puedes vengarme?`;
+    // Único generador de texto+card para "compartir resultado" -- ver
+    // challengeService.buildChallengeResultShare, MyChallengesScreen usa
+    // exactamente esto mismo para que nunca diverjan.
+    const { text, card } = buildChallengeResultShare({
+      meUsername: me.username,
+      meAvatarEmoji: me.avatarEmoji,
+      meScore: me.auraScore ?? 0,
+      rivalUsername: rival.username,
+      rivalAvatarEmoji: rival.avatarEmoji,
+      rivalScore: rival.auraScore ?? 0,
+      isTie: challenge.isTie,
+      iWon,
+    });
 
-    const result = await shareText(text, shareUrl(token));
-    if (result === 'copied') setNotice('Enlace copiado');
+    setSharing(true);
+    try {
+      const blob = await generateChallengeShareCardBlob(card);
+      const result = await shareImage(blob, `aura-vs-${token}.png`, text, shareUrl(token));
+      if (result === 'copied') setNotice('Enlace copiado');
+      else if (result === 'downloaded') setNotice('Imagen descargada y enlace copiado');
+    } finally {
+      setSharing(false);
+    }
   }
 
   if (creating || (loading && !challenge)) {
@@ -289,7 +306,11 @@ export default function ChallengeScreen() {
         {notice && <Text style={styles.noticeText}>{notice}</Text>}
 
         <View style={styles.actions}>
-          <PrimaryButton label="COMPARTIR RESULTADO" onPress={handleShareResult} />
+          <PrimaryButton
+            label={sharing ? 'GENERANDO IMAGEN...' : 'COMPARTIR RESULTADO'}
+            disabled={sharing}
+            onPress={handleShareResult}
+          />
           <PrimaryButton label="NUEVA REVANCHA" variant="ghost" onPress={handleRematch} />
           <PrimaryButton label="VOLVER" variant="text" onPress={() => navigation.navigate('MainTabs')} />
         </View>

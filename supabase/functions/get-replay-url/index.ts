@@ -34,6 +34,19 @@
  *    poder verse (mismo comportamiento que ya tenía scans_select_
  *    completed_challenge_rival).
  * Cualquier otro caso: 403, nunca una URL.
+ *
+ * ============================================================
+ * SEGUNDO BUG REAL, encontrado auditando esto de nuevo (no se asumió que
+ * el fix de arriba ya alcanzaba, se re-verificó end-to-end): el chequeo
+ * de (2) usaba `.maybeSingle()`, que exige que la query devuelva como
+ * mucho UNA fila. Pero un scan puede ser source_scan_id de más de un
+ * Challenge 'completed' -- exactamente lo que pasa apenas se usa REVANCHA
+ * sobre un scan que ya había sido el de un duelo anterior. Con 2+ filas,
+ * `.maybeSingle()` devuelve un error (que este código ni siquiera
+ * chequeaba) y `data: null`, así que el rival legítimo caía en 403. Fix:
+ * traer TODAS las filas que referencian el scan y autorizar si el usuario
+ * es participante de CUALQUIERA de ellas (ver más abajo).
+ * ============================================================
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
@@ -75,26 +88,72 @@ Deno.serve(async (req: Request) => {
       .single();
 
     if (scanErr || !scan || !scan.video_path) {
+      console.log(
+        JSON.stringify({
+          src: 'get-replay-url',
+          event: 'scan_not_found',
+          requester_user_id: user.id,
+          requested_scan_id: scanId,
+        }),
+      );
       return jsonResponse({ error: 'Scan no encontrado' }, 404);
     }
 
     let authorized = scan.user_id === user.id;
+    let matchedChallengeId: string | null = null;
 
     if (!authorized) {
-      const { data: challenge } = await admin
+      // BUG REAL encontrado auditando esto (no se asumió que ya andaba):
+      // esto usaba `.maybeSingle()`, que EXIGE que la query devuelva como
+      // mucho una fila -- pero un scan puede perfectamente ser
+      // source_scan_id de MÁS DE UN Challenge 'completed' (exactamente lo
+      // que pasa apenas se usa REVANCHA sobre un scan que ya era el
+      // ganador/perdedor de un duelo anterior: el mismo scan queda como
+      // source_scan_id de dos filas de `challenges`). Con más de una fila,
+      // `.maybeSingle()` devuelve un error (PGRST116) y `data: null` --
+      // ese error se descartaba sin chequear, así que `challenge` quedaba
+      // `null` y el rival legítimo recibía 403. Fix: traer TODAS las filas
+      // que referencian este scan como completadas y autorizar si el
+      // usuario es participante de CUALQUIERA de ellas.
+      const { data: challenges, error: challengeErr } = await admin
         .from('challenges')
-        .select('from_user_id, opponent_user_id, status')
+        .select('id, from_user_id, opponent_user_id, status')
         .or(`source_scan_id.eq.${scanId},target_scan_id.eq.${scanId}`)
-        .eq('status', 'completed')
-        .maybeSingle();
+        .eq('status', 'completed');
 
-      authorized = Boolean(
-        challenge && (challenge.from_user_id === user.id || challenge.opponent_user_id === user.id),
+      if (challengeErr) {
+        console.log(
+          JSON.stringify({
+            src: 'get-replay-url',
+            event: 'challenge_lookup_error',
+            requester_user_id: user.id,
+            requested_scan_id: scanId,
+            error: String(challengeErr),
+          }),
+        );
+      }
+
+      const matched = (challenges ?? []).find(
+        (c) => c.from_user_id === user.id || c.opponent_user_id === user.id,
       );
+      authorized = Boolean(matched);
+      matchedChallengeId = matched?.id ?? null;
     }
 
+    console.log(
+      JSON.stringify({
+        src: 'get-replay-url',
+        event: 'authorization_result',
+        requester_user_id: user.id,
+        requested_scan_id: scanId,
+        scan_owner_id: scan.user_id,
+        is_owner: scan.user_id === user.id,
+        matched_challenge_id: matchedChallengeId,
+        authorization_result: authorized ? 'authorized' : 'denied',
+      }),
+    );
+
     if (!authorized) {
-      console.log(JSON.stringify({ src: 'get-replay-url', event: 'unauthorized', scanId, userId: user.id }));
       return jsonResponse({ error: 'No autorizado' }, 403);
     }
 
@@ -102,8 +161,17 @@ Deno.serve(async (req: Request) => {
       .from('scans')
       .createSignedUrl(scan.video_path, SIGNED_URL_TTL_SECONDS);
 
+    console.log(
+      JSON.stringify({
+        src: 'get-replay-url',
+        event: 'storage_sign_result',
+        requester_user_id: user.id,
+        requested_scan_id: scanId,
+        storage_sign_result: signErr || !signed?.signedUrl ? 'failed' : 'ok',
+      }),
+    );
+
     if (signErr || !signed?.signedUrl) {
-      console.log(JSON.stringify({ src: 'get-replay-url', event: 'sign_failed', scanId, error: String(signErr) }));
       return jsonResponse({ error: 'No se pudo generar la URL' }, 500);
     }
 
