@@ -10,8 +10,8 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useSmartBack } from '../hooks/useSmartBack';
 import { logEvent } from '../services/analyticsService';
-import { fetchLatestReplay } from '../services/api';
 import { createDirectChallenge } from '../services/challengeService';
+import { fetchMyLatestValidScanId } from '../services/scanService';
 import {
   fetchPublicProfile,
   fetchPublicRecentResults,
@@ -77,42 +77,58 @@ export default function PublicProfileScreen() {
   /**
    * Challenge DIRECTO real (A) -- vía create_direct_challenge (SECURITY
    * DEFINER): el backend crea el Challenge YA con target_user_id fijado
-   * en esta persona, y le manda una notificación in-app real. Nada de
-   * "compartir un link con su nombre en el texto" (así funcionaba antes) --
-   * ahora es un Challenge genuinamente dirigido, que SOLO esta persona
-   * puede aceptar o rechazar (lo hace cumplir el RPC, ver esa migración).
-   * El Challenge clásico por link (createChallenge, sin target) sigue
-   * intacto y es un camino totalmente separado.
+   * en esta persona, y le manda una notificación in-app real. El Challenge
+   * clásico por link (createChallenge, sin target) sigue intacto y es un
+   * camino totalmente separado.
+   *
+   * BUG REAL encontrado auditando esto (causa confirmada, no una
+   * suposición): el scanId salía de `api.fetchLatestReplay()`, pensada
+   * para la card "ÚLTIMO REPLAY" de Home -- tiene un fallback a un scan
+   * MOCK (id `"s_001"`, no un uuid real) para cuando no hay sesión/
+   * Supabase configurado, que es el comportamiento correcto PARA ESA
+   * pantalla pero no acá: un id no-uuid nunca puede pasar el chequeo de
+   * `create_direct_challenge`, y Postgres devuelve un error de
+   * casteo/validación que el catch-all mostraba como el mensaje genérico
+   * -- exactamente la "sospecha principal" (scanId incorrecto/mock).
+   * Fix: `scanService.fetchMyLatestValidScanId()`, de propósito único,
+   * sin fallback a nada -- `null` siempre que no haya un scan real y
+   * válido del usuario autenticado.
    */
   async function handleChallengeDirect() {
     setChallenging(true);
     setNotice(null);
     try {
-      const latest = await fetchLatestReplay();
-      if (!latest) {
-        setNotice('Hacé tu primer Scan antes de desafiar a alguien.');
+      const scanId = await fetchMyLatestValidScanId();
+      console.log(JSON.stringify({ src: 'handleChallengeDirect', event: 'scan_resolved', scanId, targetUsername: params.username }));
+      if (!scanId) {
+        setNotice('__NEEDS_SCAN__');
         return;
       }
-      const result = await createDirectChallenge(latest.id, params.username);
+      const result = await createDirectChallenge(scanId, params.username);
       if (result.ok && result.shareToken) {
         navigation.navigate('Challenge', { challengeToken: result.shareToken });
         return;
       }
+      // Mensajes útiles según error_code (N) -- nunca el texto crudo de
+      // Postgres (eso queda solo en la consola, ver createDirectChallenge).
       switch (result.errorCode) {
         case 'cannot_challenge_self':
           setNotice('No puedes desafiarte a ti mismo.');
           break;
         case 'target_not_found':
-          setNotice('Este usuario ya no existe.');
+          setNotice('Este usuario ya no está disponible.');
           break;
         case 'invalid_scan':
-          setNotice('Tu último Scan no es válido para desafiar. Hacé uno nuevo.');
+          setNotice('__NEEDS_SCAN__');
+          break;
+        case 'network':
+          setNotice('No pudimos conectar. Intenta de nuevo.');
           break;
         default:
           setNotice('No pudimos crear el desafío. Intenta de nuevo.');
       }
     } catch (e) {
-      console.warn('handleChallengeDirect failed', e);
+      console.error(JSON.stringify({ src: 'handleChallengeDirect', event: 'unexpected_error', message: String(e) }));
       setNotice('No pudimos crear el desafío. Intenta de nuevo.');
     } finally {
       setChallenging(false);
@@ -160,14 +176,23 @@ export default function PublicProfileScreen() {
         <StatTile label="WIN RATE" value={winRate != null ? `${winRate}%` : '—'} />
       </View>
 
-      {notice && <Text style={styles.notice}>{notice}</Text>}
+      {notice && notice !== '__NEEDS_SCAN__' && <Text style={styles.notice}>{notice}</Text>}
 
-      {!isMe && (
-        <PrimaryButton
-          label={challenging ? 'CREANDO DESAFÍO...' : `DESAFIAR A @${profile.username}`}
-          disabled={challenging}
-          onPress={handleChallengeDirect}
-        />
+      {!isMe && notice === '__NEEDS_SCAN__' ? (
+        // (B) Sin Scan válido -- CTA directo a hacerlo, nunca un Challenge
+        // inválido.
+        <View style={styles.needsScan}>
+          <Text style={styles.notice}>Necesitas un Scan antes de desafiar.</Text>
+          <PrimaryButton label="HACER MI SCAN" onPress={() => navigation.navigate('Upload')} />
+        </View>
+      ) : (
+        !isMe && (
+          <PrimaryButton
+            label={challenging ? 'CREANDO DESAFÍO...' : `DESAFIAR A @${profile.username}`}
+            disabled={challenging}
+            onPress={handleChallengeDirect}
+          />
+        )
       )}
 
       {recentResults.length > 0 && (
@@ -244,6 +269,9 @@ const styles = StyleSheet.create({
     color: colors.success,
     textAlign: 'center',
     marginBottom: spacing.sm,
+  },
+  needsScan: {
+    gap: spacing.sm,
   },
   notFound: {
     ...typography.body,

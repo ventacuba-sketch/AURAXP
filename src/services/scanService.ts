@@ -289,3 +289,36 @@ export async function fetchDailyScanStatus(): Promise<DailyScanStatus | null> {
   if (error || !data || data.error) return null;
   return data as DailyScanStatus;
 }
+
+/**
+ * El último Scan `done` REAL del usuario autenticado -- fuente única para
+ * "qué scan uso para desafiar a alguien" (Challenge directo, ver
+ * PublicProfileScreen). Auditoría del bug "No pudimos crear el desafío":
+ * ese flujo reusaba `api.fetchLatestReplay()`, pensada para la card
+ * "ÚLTIMO REPLAY" de Home -- tiene un fallback a `mockLatestReplay`
+ * (id `"s_001"`, no un uuid real) para cuando no hay sesión/Supabase, que
+ * es exactamente el comportamiento correcto PARA ESA pantalla pero
+ * incorrecto acá: un id mock nunca puede pasar el chequeo de
+ * `create_direct_challenge` (`scans.id = p_source_scan_id AND user_id =
+ * auth.uid() AND status = 'done'`), y el RPC devolvía un error de
+ * casteo/validación que el catch-all mostraba como el mensaje genérico.
+ * Esta función es de propósito único: `null` siempre que no haya un scan
+ * real y válido, NUNCA un id de relleno.
+ */
+export async function fetchMyLatestValidScanId(): Promise<string | null> {
+  if (!supabase) return null;
+  const session = await getSession();
+  if (!session) return null;
+
+  const { data, error } = await supabase
+    .from('scans')
+    .select('id')
+    .eq('user_id', session.user.id)
+    .eq('status', 'done')
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return data.id as string;
+}

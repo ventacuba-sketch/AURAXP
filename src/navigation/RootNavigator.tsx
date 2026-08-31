@@ -10,6 +10,7 @@ import {
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { MainTabNavigator } from './MainTabNavigator';
+import { BottomNavBar } from '../components/BottomNavBar';
 import { useAuth } from '../hooks/useAuth';
 import { acceptChallenge } from '../services/challengeService';
 import { consumePendingChallengeToken } from '../services/pendingChallenge';
@@ -123,49 +124,61 @@ export function RootNavigator() {
 
   return (
     <NavigationContainer ref={navigationRef} theme={navigationTheme} linking={linking}>
-      <Stack.Navigator
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: colors.background },
-        }}
-      >
-        {authed && passwordRecovery ? (
-          // Rama propia, deliberadamente sin el resto de la app: mientras
-          // se está recuperando la contraseña, la única pantalla que debe
-          // existir es esta -- ni un deep link ni una navegación
-          // accidental deberían poder sacar a nadie de acá antes de
-          // terminar. clearPasswordRecovery() (llamado desde adentro) es
-          // la única salida.
-          <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ gestureEnabled: false }} />
-        ) : authed ? (
-          <>
-            <Stack.Screen name="MainTabs" component={MainTabNavigator} />
-            <Stack.Screen name="Upload" component={UploadScreen} />
-            {/* Cámara en vivo -- bloqueamos el swipe-back nativo para que no
-                se pueda salir por accidente a mitad de una grabación; el
-                botón propio de la pantalla es la única salida mientras
-                graba. El cleanup (parar cámara, limpiar timers) corre igual
-                al desmontar sin importar cómo se salga. */}
-            <Stack.Screen name="Record" component={RecordScreen} options={{ gestureEnabled: false }} />
-            {/* Transient auto-advancing state — block swiping back out of it. */}
-            <Stack.Screen
-              name="Analyzing"
-              component={AnalyzingScreen}
-              options={{ gestureEnabled: false }}
-            />
-            <Stack.Screen name="ScanResult" component={ScanResultScreen} />
-            <Stack.Screen name="Challenge" component={ChallengeScreen} />
-            <Stack.Screen name="MyChallenges" component={MyChallengesScreen} />
-            <Stack.Screen name="Ranking" component={RankingScreen} />
-            <Stack.Screen name="Notifications" component={NotificationsScreen} />
-            <Stack.Screen name="PublicProfile" component={PublicProfileScreen} />
-            <Stack.Screen name="Pro" component={ProScreen} />
-          </>
-        ) : (
-          <Stack.Screen name="Auth" component={AuthScreen} />
-        )}
-        <Stack.Screen name="ChallengeLanding" component={ChallengeLandingScreen} />
-      </Stack.Navigator>
+      {/* Navegación inferior persistente (D) -- View flex-column con el
+          Stack arriba (flex:1) y la barra como sibling de alto fijo abajo,
+          NO un overlay -- así el contenido de cada pantalla nunca queda
+          tapado (H) sin que ningún screen individual tenga que saber que
+          esto existe. BottomNavBar decide sola, por nombre de ruta actual,
+          en qué pantallas se muestra (ver ese componente) -- cero cambios
+          acá abajo en qué screens existen o cómo navegan entre sí. */}
+      <View style={styles.appShell}>
+        <View style={styles.stackArea}>
+          <Stack.Navigator
+            screenOptions={{
+              headerShown: false,
+              contentStyle: { backgroundColor: colors.background },
+            }}
+          >
+            {authed && passwordRecovery ? (
+              // Rama propia, deliberadamente sin el resto de la app: mientras
+              // se está recuperando la contraseña, la única pantalla que debe
+              // existir es esta -- ni un deep link ni una navegación
+              // accidental deberían poder sacar a nadie de acá antes de
+              // terminar. clearPasswordRecovery() (llamado desde adentro) es
+              // la única salida.
+              <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ gestureEnabled: false }} />
+            ) : authed ? (
+              <>
+                <Stack.Screen name="MainTabs" component={MainTabNavigator} />
+                <Stack.Screen name="Upload" component={UploadScreen} />
+                {/* Cámara en vivo -- bloqueamos el swipe-back nativo para que no
+                    se pueda salir por accidente a mitad de una grabación; el
+                    botón propio de la pantalla es la única salida mientras
+                    graba. El cleanup (parar cámara, limpiar timers) corre igual
+                    al desmontar sin importar cómo se salga. */}
+                <Stack.Screen name="Record" component={RecordScreen} options={{ gestureEnabled: false }} />
+                {/* Transient auto-advancing state — block swiping back out of it. */}
+                <Stack.Screen
+                  name="Analyzing"
+                  component={AnalyzingScreen}
+                  options={{ gestureEnabled: false }}
+                />
+                <Stack.Screen name="ScanResult" component={ScanResultScreen} />
+                <Stack.Screen name="Challenge" component={ChallengeScreen} />
+                <Stack.Screen name="MyChallenges" component={MyChallengesScreen} />
+                <Stack.Screen name="Ranking" component={RankingScreen} />
+                <Stack.Screen name="Notifications" component={NotificationsScreen} />
+                <Stack.Screen name="PublicProfile" component={PublicProfileScreen} />
+                <Stack.Screen name="Pro" component={ProScreen} />
+              </>
+            ) : (
+              <Stack.Screen name="Auth" component={AuthScreen} />
+            )}
+            <Stack.Screen name="ChallengeLanding" component={ChallengeLandingScreen} />
+          </Stack.Navigator>
+        </View>
+        <BottomNavBar authed={authed} navigationRef={navigationRef} />
+      </View>
     </NavigationContainer>
   );
 }
@@ -176,5 +189,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.background,
+  },
+  appShell: {
+    flex: 1,
+  },
+  stackArea: {
+    flex: 1,
   },
 });

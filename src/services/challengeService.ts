@@ -392,21 +392,59 @@ export async function countReceivedChallenges(): Promise<number> {
 export interface CreateDirectChallengeResult {
   ok: boolean;
   shareToken?: string;
-  /** 'not_authenticated' | 'target_not_found' | 'cannot_challenge_self' | 'invalid_scan' | 'rpc_error' */
+  /** Del servidor (RPC): 'not_authenticated' | 'target_not_found' |
+   * 'cannot_challenge_self' | 'invalid_scan'. Del cliente: 'not_configured'
+   * (Supabase no configurado), 'network' (el fetch no llegó), 'rpc_error'
+   * (Postgres devolvió un error no esperado -- ver el log crudo en consola). */
   errorCode?: string;
 }
 
 export async function createDirectChallenge(sourceScanId: string, targetUsername: string): Promise<CreateDirectChallengeResult> {
-  if (!supabase) return { ok: false, errorCode: 'rpc_error' };
+  if (!supabase) return { ok: false, errorCode: 'not_configured' };
+
+  console.log(
+    JSON.stringify({ src: 'createDirectChallenge', event: 'request', sourceScanId, targetUsername }),
+  );
 
   const { data, error } = await supabase.rpc('create_direct_challenge', {
     p_source_scan_id: sourceScanId,
     p_target_username: targetUsername,
   });
-  if (error) return { ok: false, errorCode: 'rpc_error' };
+
+  if (error) {
+    // Loguea el error CRUDO de Postgres/red en la consola (visible en
+    // devtools) -- nunca se lo muestra al usuario (ver PublicProfileScreen,
+    // mapea a un mensaje en español según `errorCode`), pero es
+    // exactamente lo que hace falta para diagnosticar sin acceso a los
+    // logs de Supabase. Distingue una falla de RED (fetch nunca llegó) de
+    // un ERROR de Postgres devuelto por el RPC (validación no capturada
+    // por las branches propias de la función, constraint, etc.) -- ambas
+    // cosas colapsaban antes en el mismo 'rpc_error' genérico.
+    const message = error.message ?? String(error);
+    const isNetwork = /network|fetch|failed to fetch/i.test(message);
+    console.error(
+      JSON.stringify({
+        src: 'createDirectChallenge',
+        event: 'rpc_error',
+        sourceScanId,
+        targetUsername,
+        isNetwork,
+        message,
+        details: (error as { details?: string }).details ?? null,
+        hint: (error as { hint?: string }).hint ?? null,
+        code: (error as { code?: string }).code ?? null,
+      }),
+    );
+    return { ok: false, errorCode: isNetwork ? 'network' : 'rpc_error' };
+  }
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) return { ok: false, errorCode: 'rpc_error' };
+
+  console.log(
+    JSON.stringify({ src: 'createDirectChallenge', event: 'response', ok: row.ok, errorCode: row.error_code ?? null }),
+  );
+
   if (row.ok) logEvent('challenge_direct_created');
   return { ok: Boolean(row.ok), shareToken: row.share_token ?? undefined, errorCode: row.error_code ?? undefined };
 }
