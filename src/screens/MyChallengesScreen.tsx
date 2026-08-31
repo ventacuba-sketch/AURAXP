@@ -209,7 +209,7 @@ function ChallengeRow({
           <Text style={styles.rivalName}>{item.rival ? `@${item.rival.username}` : 'Sin rival todavía'}</Text>
           <Text style={styles.date}>{formatRelativeTime(item.createdAt)}</Text>
         </View>
-        <Text style={styles.stateLabel}>{STATE_LABEL[item.status]}</Text>
+        <Text style={styles.stateLabel}>{myTurn ? 'Tu turno de escanear' : STATE_LABEL[item.status]}</Text>
       </Pressable>
 
       {(item.myAuraScore != null || item.rivalAuraScore != null) && (
