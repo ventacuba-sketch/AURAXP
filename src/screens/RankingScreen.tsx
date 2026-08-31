@@ -1,40 +1,63 @@
 import React, { useCallback, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 
 import { Card } from '../components/Card';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useSmartBack } from '../hooks/useSmartBack';
-import { fetchMyXpRank, fetchXpLeaderboard, LeaderboardEntry } from '../services/statsService';
+import {
+  AuraLeaderboardEntry,
+  fetchAuraLeaderboard,
+  fetchMyAuraRank,
+  fetchMyXpRank,
+  fetchXpLeaderboard,
+  LeaderboardEntry,
+} from '../services/statsService';
 import { colors, radius, spacing, typography } from '../theme/colors';
-import { formatXP } from '../utils/format';
+import { formatSignedXP, formatXP } from '../utils/format';
 
 const TOP_N = 20;
+type Tab = 'xp' | 'aura';
 
 /**
- * "TOP AURA" -- ranking simple por XP acumulado, ver la migración
- * 20260831120000_challenge_stats_and_leaderboard.sql para por qué es
- * lifetime (no semanal, no hay tabla de eventos de XP con fecha todavía) y
- * por qué es razonablemente anti-farming sin trabajo nuevo (reusa el
- * mismo tope diario de XP y el dedupe de video que ya rigen cómo se gana
- * ese XP en primer lugar).
+ * "TOP AURA" -- dos rankings, ambos lifetime (no semanal: no hay tabla de
+ * eventos con fecha todavía, ver la migración de stats/leaderboard) y
+ * ambos razonablemente anti-farming sin trabajo nuevo:
+ * - XP: reusa el tope diario de XP + el dedupe de video que ya rigen cómo
+ *   se gana ese XP.
+ * - Mejor Aura: un MÁXIMO por usuario, no una suma -- no se puede
+ *   "farmear" reintentando, cada intento compite contra tu propio mejor
+ *   resultado, nunca lo suma.
+ * Tocar una fila (menos la propia) lleva al perfil público de esa persona.
  */
 export default function RankingScreen() {
   const goBack = useSmartBack();
+  const navigation = useRootNavigation();
   const { user } = useCurrentUser();
-  const [entries, setEntries] = useState<LeaderboardEntry[]>([]);
-  const [myRank, setMyRank] = useState<number | null>(null);
+  const [tab, setTab] = useState<Tab>('xp');
+  const [xpEntries, setXpEntries] = useState<LeaderboardEntry[]>([]);
+  const [auraEntries, setAuraEntries] = useState<AuraLeaderboardEntry[]>([]);
+  const [myXpRank, setMyXpRank] = useState<number | null>(null);
+  const [myAuraRank, setMyAuraRank] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
       setLoading(true);
-      Promise.all([fetchXpLeaderboard(TOP_N), fetchMyXpRank()]).then(([top, rank]) => {
+      Promise.all([
+        fetchXpLeaderboard(TOP_N),
+        fetchMyXpRank(),
+        fetchAuraLeaderboard(TOP_N),
+        fetchMyAuraRank(),
+      ]).then(([xp, xpRank, aura, auraRank]) => {
         if (cancelled) return;
-        setEntries(top);
-        setMyRank(rank);
+        setXpEntries(xp);
+        setMyXpRank(xpRank);
+        setAuraEntries(aura);
+        setMyAuraRank(auraRank);
         setLoading(false);
       });
       return () => {
@@ -43,12 +66,27 @@ export default function RankingScreen() {
     }, []),
   );
 
+  function openProfile(username: string) {
+    if (username === user?.username) return;
+    navigation.navigate('PublicProfile', { username });
+  }
+
+  const entries = tab === 'xp' ? xpEntries : auraEntries;
+  const myRank = tab === 'xp' ? myXpRank : myAuraRank;
   const inTop = user ? entries.some((e) => e.username === user.username) : false;
 
   return (
     <ScreenContainer scroll onBack={goBack}>
       <Text style={styles.title}>TOP AURA 🏆</Text>
-      <Text style={styles.subtitle}>Ranking por XP acumulado.</Text>
+
+      <View style={styles.tabs}>
+        <Pressable onPress={() => setTab('xp')} style={[styles.tab, tab === 'xp' && styles.tabActive]}>
+          <Text style={[styles.tabText, tab === 'xp' && styles.tabTextActive]}>XP</Text>
+        </Pressable>
+        <Pressable onPress={() => setTab('aura')} style={[styles.tab, tab === 'aura' && styles.tabActive]}>
+          <Text style={[styles.tabText, tab === 'aura' && styles.tabTextActive]}>MEJOR AURA</Text>
+        </Pressable>
+      </View>
 
       {loading ? (
         <View style={styles.center}>
@@ -61,22 +99,23 @@ export default function RankingScreen() {
           <Card style={styles.list}>
             {entries.map((entry) => {
               const isMe = user?.username === entry.username;
+              const value = tab === 'xp' ? formatXP((entry as LeaderboardEntry).xp) : formatSignedXP((entry as AuraLeaderboardEntry).bestAuraScore);
               return (
-                <View key={entry.rank} style={[styles.row, isMe && styles.rowMe]}>
-                  <Text style={styles.rank}>#{entry.rank}</Text>
-                  <Text style={styles.avatar}>{entry.avatarEmoji}</Text>
-                  <Text style={[styles.username, isMe && styles.usernameMe]} numberOfLines={1}>
-                    @{entry.username}{isMe ? ' (tú)' : ''}
-                  </Text>
-                  <Text style={styles.xp}>{formatXP(entry.xp)}</Text>
-                </View>
+                <Pressable key={entry.rank} onPress={() => openProfile(entry.username)}>
+                  <View style={[styles.row, isMe && styles.rowMe]}>
+                    <Text style={styles.rank}>#{entry.rank}</Text>
+                    <Text style={styles.avatar}>{entry.avatarEmoji}</Text>
+                    <Text style={[styles.username, isMe && styles.usernameMe]} numberOfLines={1}>
+                      @{entry.username}{isMe ? ' (tú)' : ''}
+                    </Text>
+                    <Text style={styles.value}>{value}</Text>
+                  </View>
+                </Pressable>
               );
             })}
           </Card>
 
-          {!inTop && myRank != null && (
-            <Text style={styles.myRankText}>Tu posición: #{myRank}</Text>
-          )}
+          {!inTop && myRank != null && <Text style={styles.myRankText}>Tu posición: #{myRank}</Text>}
         </>
       )}
     </ScreenContainer>
@@ -88,11 +127,32 @@ const styles = StyleSheet.create({
     ...typography.title,
     color: colors.textPrimary,
     marginTop: spacing.lg,
+    marginBottom: spacing.md,
   },
-  subtitle: {
-    ...typography.body,
-    color: colors.textSecondary,
+  tabs: {
+    flexDirection: 'row',
+    gap: spacing.sm,
     marginBottom: spacing.lg,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  tabActive: {
+    borderColor: colors.accent,
+    backgroundColor: colors.surfaceAlt,
+  },
+  tabText: {
+    ...typography.caption,
+    color: colors.textMuted,
+    fontWeight: '800',
+  },
+  tabTextActive: {
+    color: colors.accent,
   },
   center: {
     alignItems: 'center',
@@ -136,7 +196,7 @@ const styles = StyleSheet.create({
     color: colors.accent,
     fontWeight: '700',
   },
-  xp: {
+  value: {
     ...typography.caption,
     color: colors.textSecondary,
     fontWeight: '700',

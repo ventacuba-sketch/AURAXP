@@ -59,6 +59,11 @@ export type RootStackParamList = {
   MyChallenges: undefined;
   /** Top XP + posición propia -- ver RankingScreen. */
   Ranking: undefined;
+  /** Bandeja de notificaciones in-app -- ver NotificationsScreen. */
+  Notifications: undefined;
+  /** Perfil público de OTRO usuario (o el propio, visto desde afuera) --
+   * ver PublicProfileScreen/get_public_profile. */
+  PublicProfile: { username: string };
 };
 
 export interface User {

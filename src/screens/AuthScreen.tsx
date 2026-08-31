@@ -4,6 +4,7 @@ import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
+import { logEvent } from '../services/analyticsService';
 import {
   mapAuthError,
   requestPasswordReset,
@@ -78,8 +79,11 @@ export default function AuthScreen() {
         const status = await signUp(email.trim(), password);
         if (status === 'confirmationRequired') {
           setSuccessMessage('Cuenta creada. Revisa tu correo para confirmar el registro.');
+          logEvent('signup');
         } else if (status === 'alreadyRegistered') {
           setShowAlreadyRegistered(true);
+        } else if (status === 'signedIn') {
+          logEvent('signup');
         }
         // 'signedIn' (proyectos sin confirmación de email activada) ->
         // onAuthStateChange resuelve la navegación solo, igual que el login.

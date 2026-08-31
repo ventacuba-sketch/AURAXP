@@ -4,6 +4,7 @@ import { AppState, StyleSheet, Text, View } from 'react-native';
 import { Card } from '../components/Card';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
+import { logEvent } from '../services/analyticsService';
 import { openProCheckout, PRO_MONTHLY_PRICE_USD, syncOwnProStatus } from '../services/planService';
 import { colors, spacing, typography } from '../theme/colors';
 import { useRootNavigation } from '../hooks/useRootNavigation';
@@ -57,6 +58,7 @@ export default function ProScreen() {
 
   function handleCheckoutPress() {
     hasOpenedCheckoutRef.current = true;
+    logEvent('pro_checkout_opened');
     openProCheckout();
   }
 

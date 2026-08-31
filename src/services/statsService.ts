@@ -74,3 +74,75 @@ export async function fetchMyXpRank(): Promise<number | null> {
   if (error || data == null) return null;
   return Number(data);
 }
+
+export interface AuraLeaderboardEntry {
+  username: string;
+  avatarEmoji: string;
+  bestAuraScore: number;
+  rank: number;
+}
+
+export async function fetchAuraLeaderboard(limit = 20): Promise<AuraLeaderboardEntry[]> {
+  if (!supabase) return [];
+  const { data, error } = await supabase.rpc('get_aura_leaderboard', { p_limit: limit });
+  if (error || !data) return [];
+
+  return (data as { username: string; avatar_emoji: string; best_aura_score: number; rank: number }[]).map((row) => ({
+    username: row.username,
+    avatarEmoji: row.avatar_emoji,
+    bestAuraScore: row.best_aura_score,
+    rank: row.rank,
+  }));
+}
+
+export async function fetchMyAuraRank(): Promise<number | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase.rpc('get_my_aura_rank');
+  if (error || data == null) return null;
+  return Number(data);
+}
+
+/** Perfil público mínimo de CUALQUIER usuario -- ver get_public_profile
+ * (RPC, solo columnas ya aprobadas como públicas: nunca email/plan/id). */
+export interface PublicProfile {
+  username: string;
+  avatarEmoji: string;
+  level: number;
+  xp: number;
+  bestAuraScore: number | null;
+  challengesCompleted: number;
+  wins: number;
+  losses: number;
+  ties: number;
+}
+
+interface PublicProfileRow {
+  username: string;
+  avatar_emoji: string;
+  level: number;
+  xp: number;
+  best_aura_score: number | null;
+  challenges_completed: number;
+  wins: number;
+  losses: number;
+  ties: number;
+}
+
+export async function fetchPublicProfile(username: string): Promise<PublicProfile | null> {
+  if (!supabase) return null;
+  const { data, error } = await supabase.rpc('get_public_profile', { p_username: username }).maybeSingle();
+  if (error || !data) return null;
+  const row = data as PublicProfileRow;
+
+  return {
+    username: row.username,
+    avatarEmoji: row.avatar_emoji,
+    level: row.level,
+    xp: row.xp,
+    bestAuraScore: row.best_aura_score,
+    challengesCompleted: row.challenges_completed,
+    wins: row.wins,
+    losses: row.losses,
+    ties: row.ties,
+  };
+}

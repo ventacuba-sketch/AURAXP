@@ -18,7 +18,9 @@ import AuthScreen from '../screens/AuthScreen';
 import ChallengeLandingScreen from '../screens/ChallengeLandingScreen';
 import ChallengeScreen from '../screens/ChallengeScreen';
 import MyChallengesScreen from '../screens/MyChallengesScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
 import ProScreen from '../screens/ProScreen';
+import PublicProfileScreen from '../screens/PublicProfileScreen';
 import RankingScreen from '../screens/RankingScreen';
 import RecordScreen from '../screens/RecordScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
@@ -155,6 +157,8 @@ export function RootNavigator() {
             <Stack.Screen name="Challenge" component={ChallengeScreen} />
             <Stack.Screen name="MyChallenges" component={MyChallengesScreen} />
             <Stack.Screen name="Ranking" component={RankingScreen} />
+            <Stack.Screen name="Notifications" component={NotificationsScreen} />
+            <Stack.Screen name="PublicProfile" component={PublicProfileScreen} />
             <Stack.Screen name="Pro" component={ProScreen} />
           </>
         ) : (

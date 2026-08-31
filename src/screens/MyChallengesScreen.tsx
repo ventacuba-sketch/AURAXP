@@ -176,6 +176,7 @@ export default function MyChallengesScreen() {
                 onCancel={() => handleCancel(item)}
                 onRematch={() => handleRematch(item)}
                 onShareResult={() => handleShareResult(item)}
+                onOpenRivalProfile={() => item.rival && navigation.navigate('PublicProfile', { username: item.rival.username })}
               />
             ))}
           </View>
@@ -218,6 +219,7 @@ function ChallengeRow({
   onCancel,
   onRematch,
   onShareResult,
+  onOpenRivalProfile,
 }: {
   item: ChallengeListItem;
   busy: boolean;
@@ -227,6 +229,7 @@ function ChallengeRow({
   onCancel: () => void;
   onRematch: () => void;
   onShareResult: () => void;
+  onOpenRivalProfile: () => void;
 }) {
   const { user } = useCurrentUser();
   // Mi turno de verdad: acepté el desafío pero todavía no subí mi Scan --
@@ -236,14 +239,23 @@ function ChallengeRow({
 
   return (
     <Card style={styles.row}>
-      <Pressable onPress={onOpen} style={styles.rowHeader}>
-        <Text style={styles.rivalAvatar}>{item.rival?.avatarEmoji ?? '⏳'}</Text>
-        <View style={styles.rowHeaderInfo}>
-          <Text style={styles.rivalName}>{item.rival ? `@${item.rival.username}` : 'Sin rival todavía'}</Text>
-          <Text style={styles.date}>{formatRelativeTime(item.createdAt)}</Text>
-        </View>
-        <Text style={styles.stateLabel}>{myTurn ? 'Tu turno de escanear' : STATE_LABEL[item.status]}</Text>
-      </Pressable>
+      <View style={styles.rowHeader}>
+        {/* Pressable ANIDADO a propósito -- tocar el avatar/nombre va al
+            perfil público del rival, tocar el resto de la fila (fecha,
+            estado, espacio vacío) abre el Challenge como antes. RN
+            resuelve el toque al Pressable más interno, así que ambos
+            conviven sin interferirse. */}
+        <Pressable onPress={onOpenRivalProfile} style={styles.rowHeaderIdentity} disabled={!item.rival}>
+          <Text style={styles.rivalAvatar}>{item.rival?.avatarEmoji ?? '⏳'}</Text>
+          <View style={styles.rowHeaderInfo}>
+            <Text style={styles.rivalName}>{item.rival ? `@${item.rival.username}` : 'Sin rival todavía'}</Text>
+            <Text style={styles.date}>{formatRelativeTime(item.createdAt)}</Text>
+          </View>
+        </Pressable>
+        <Pressable onPress={onOpen} style={styles.rowHeaderState} hitSlop={6}>
+          <Text style={styles.stateLabel}>{myTurn ? 'Tu turno de escanear' : STATE_LABEL[item.status]}</Text>
+        </Pressable>
+      </View>
 
       {(item.myAuraScore != null || item.rivalAuraScore != null) && (
         <View style={styles.scoreRow}>
@@ -355,7 +367,15 @@ const styles = StyleSheet.create({
   rowHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  rowHeaderIdentity: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: spacing.sm,
+    flex: 1,
+  },
+  rowHeaderState: {
+    paddingLeft: spacing.sm,
   },
   rivalAvatar: {
     fontSize: 28,

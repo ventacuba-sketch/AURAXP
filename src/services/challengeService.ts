@@ -2,6 +2,7 @@ import * as Crypto from 'expo-crypto';
 
 import { Challenge, ChallengeListItem, ChallengeParticipant, ChallengePreview } from '../types';
 import { ShareCardData } from '../utils/shareCard';
+import { logEvent } from './analyticsService';
 import { getSession } from './authService';
 import { supabase } from './supabaseClient';
 
@@ -75,6 +76,7 @@ export async function createChallenge(sourceScanId: string): Promise<string> {
     .insert({ share_token: shareToken, source_scan_id: sourceScanId, from_user_id: session.user.id });
   if (error) throw error;
 
+  logEvent('challenge_created');
   return shareToken;
 }
 
@@ -109,6 +111,7 @@ export async function acceptChallenge(shareToken: string): Promise<AcceptChallen
 
   const row = Array.isArray(data) ? data[0] : data;
   if (!row) return { ok: false, errorCode: 'rpc_error' };
+  if (row.ok) logEvent('challenge_accepted');
   return { ok: Boolean(row.ok), errorCode: row.error_code ?? undefined };
 }
 

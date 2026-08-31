@@ -1,5 +1,6 @@
 import { Platform, Share } from 'react-native';
 
+import { logEvent } from '../services/analyticsService';
 import { copyToClipboard, shareImageOnWeb, shareOnWeb, ShareOutcome } from './webShare';
 
 export type { ShareOutcome };
@@ -13,8 +14,15 @@ export type { ShareOutcome };
  * Devuelve el resultado para que la pantalla pueda mostrar feedback
  * explícito ("Enlace copiado") en el caso de fallback -- ignorarlo sigue
  * siendo válido para el caller que no lo necesite.
+ *
+ * Único punto de paso para TODO share de texto de la app (invitación de
+ * Challenge, resultado sin imagen, etc.) -- por eso es también el único
+ * lugar que hace falta para loguear el evento de analítica 'share' (ver
+ * analyticsService.ts) sin tener que instrumentar cada pantalla que
+ * comparte algo por separado.
  */
 export async function shareText(text: string, url?: string): Promise<ShareOutcome> {
+  logEvent('share', { kind: 'text' });
   if (Platform.OS === 'web') {
     return shareOnWeb(text, url);
   }
@@ -43,8 +51,11 @@ export async function shareText(text: string, url?: string): Promise<ShareOutcom
  */
 export async function shareImage(blob: Blob | null, filename: string, text: string, url?: string): Promise<ShareOutcome> {
   if (Platform.OS === 'web' && blob) {
+    logEvent('share', { kind: 'image' });
     return shareImageOnWeb(blob, filename, text, url);
   }
+  // El fallback nativo pasa por shareText(), que ya loguea 'share' --
+  // no se duplica acá.
   return shareText(text, url);
 }
 

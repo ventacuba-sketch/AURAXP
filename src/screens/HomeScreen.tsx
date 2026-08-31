@@ -12,6 +12,7 @@ import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useLatestChallengeResult } from '../hooks/useLatestChallengeResult';
 import { useMyTurnChallengeCount } from '../hooks/useMyTurnChallengeCount';
 import { useRootNavigation } from '../hooks/useRootNavigation';
+import { useUnreadNotificationCount } from '../hooks/useUnreadNotificationCount';
 import { fetchLatestReplay } from '../services/api';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { formatSignedXP, formatXP } from '../utils/format';
@@ -22,18 +23,46 @@ const RESULT_EVENT_COPY: Record<'won' | 'lost' | 'tie', (rival: string) => strin
   tie: (rival) => `🤝 Empataste con @${rival}`,
 };
 
+/**
+ * Orden de la pantalla (auditado a pedido explícito -- ver reporte de esta
+ * tarea): Challenge que requiere UNA ACCIÓN MÍA primero (si existe de
+ * verdad), después Scan, después la notificación de resultado más
+ * reciente, después progreso/XP, después Replay/compartir. Sin esto
+ * pendiente, el orden vuelve al de siempre (Scan primero) -- no se
+ * reordena la pantalla entera solo para mostrar una card vacía arriba.
+ */
 export default function HomeScreen() {
   const { user } = useCurrentUser();
   const { data: latestReplay } = useAsyncData(fetchLatestReplay);
   const myTurnCount = useMyTurnChallengeCount();
   const latestResult = useLatestChallengeResult();
+  const unreadCount = useUnreadNotificationCount();
   const navigation = useRootNavigation();
 
   return (
     <ScreenContainer scroll>
       <View style={styles.topRow}>
         <Text style={styles.wordmark}>AURAXP</Text>
+        <Pressable onPress={() => navigation.navigate('Notifications')} style={styles.bellButton} hitSlop={8}>
+          <Text style={styles.bellIcon}>🔔</Text>
+          {unreadCount > 0 && (
+            <View style={styles.bellBadge}>
+              <Text style={styles.bellBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+            </View>
+          )}
+        </Pressable>
       </View>
+
+      {myTurnCount != null && myTurnCount > 0 && (
+        <Pressable onPress={() => navigation.navigate('MyChallenges')}>
+          <Card style={styles.urgentCard}>
+            <Text style={styles.urgentText}>
+              ⚔️ Tenés {myTurnCount} desafío{myTurnCount === 1 ? '' : 's'} esperando tu Scan
+            </Text>
+            <Text style={styles.urgentArrow}>Continuar ›</Text>
+          </Card>
+        </Pressable>
+      )}
 
       <View style={styles.hero}>
         <Text style={styles.headline}>¿CUÁNTA AURA TIENES?</Text>
@@ -45,31 +74,26 @@ export default function HomeScreen() {
 
       <DailyScanCounter />
 
-      {/* Loop de retención: Challenge pendiente/revancha antes que el XP --
-          reemplaza la card "Carlos te desafió" que era mock puro (ningún
+      {/* Notificación in-app mínima (I) -- el último resultado real,
+          derivado de `challenges` sin tabla nueva (ver
+          useLatestChallengeResult) -- distinta de la bandeja completa
+          (🔔), esta es solo el resultado más reciente sin necesitar abrirla. */}
+      {latestResult && (
+        <Text style={styles.latestResultText}>
+          {RESULT_EVENT_COPY[latestResult.kind](latestResult.rivalUsername)}
+        </Text>
+      )}
+
+      {/* Reemplaza la card "Carlos te desafió" que era mock puro (ningún
           dato real detrás, y su botón ACEPTAR ni siquiera llevaba a un
-          Challenge real -- ver auditoría). Esta sí consulta Challenges de
-          verdad (challengeService.countMyTurnChallenges) y solo muestra un
-          número cuando hay algo real que mostrar. */}
+          Challenge real -- ver auditoría original). Esta sí consulta
+          Challenges de verdad. */}
       <Pressable onPress={() => navigation.navigate('MyChallenges')}>
         <Card style={styles.myChallengesCard}>
           <View style={styles.myChallengesRow}>
             <Text style={styles.myChallengesTitle}>MIS DESAFÍOS ⚔️</Text>
             <Text style={styles.myChallengesArrow}>›</Text>
           </View>
-          {myTurnCount != null && myTurnCount > 0 && (
-            <Text style={styles.myChallengesBadge}>
-              ⚔️ {myTurnCount} desafío{myTurnCount === 1 ? '' : 's'} pendiente{myTurnCount === 1 ? '' : 's'} de tu Scan
-            </Text>
-          )}
-          {/* Notificación in-app mínima (I) -- el último resultado real,
-              derivado de `challenges` sin tabla nueva (ver
-              useLatestChallengeResult). Solo el más reciente, no un inbox. */}
-          {latestResult && (
-            <Text style={styles.myChallengesResult}>
-              {RESULT_EVENT_COPY[latestResult.kind](latestResult.rivalUsername)}
-            </Text>
-          )}
         </Card>
       </Pressable>
 
@@ -113,6 +137,51 @@ const styles = StyleSheet.create({
     ...typography.title,
     color: colors.textPrimary,
     letterSpacing: 1,
+  },
+  bellButton: {
+    padding: spacing.xs,
+  },
+  bellIcon: {
+    fontSize: 22,
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    minWidth: 16,
+    height: 16,
+    borderRadius: radius.pill,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  bellBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.textPrimary,
+  },
+  urgentCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+    borderColor: colors.accent,
+  },
+  urgentText: {
+    ...typography.subtitle,
+    color: colors.textPrimary,
+    flexShrink: 1,
+  },
+  urgentArrow: {
+    ...typography.caption,
+    color: colors.accent,
+    fontWeight: '800',
+  },
+  latestResultText: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
   },
   hero: {
     marginBottom: spacing.xl,
@@ -182,16 +251,5 @@ const styles = StyleSheet.create({
   myChallengesArrow: {
     ...typography.title,
     color: colors.textMuted,
-  },
-  myChallengesBadge: {
-    ...typography.caption,
-    color: colors.secondary,
-    fontWeight: '700',
-    marginTop: spacing.xs,
-  },
-  myChallengesResult: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
   },
 });

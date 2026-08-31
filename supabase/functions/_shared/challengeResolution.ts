@@ -40,7 +40,7 @@ export async function resolveChallengeIfApplicable({
 }: ResolveParams): Promise<void> {
   const { data: challenge } = await admin
     .from('challenges')
-    .select('id, from_user_id, opponent_user_id, source_scan_id, status')
+    .select('id, from_user_id, opponent_user_id, source_scan_id, status, share_token')
     .eq('share_token', challengeToken)
     .single();
 
@@ -142,7 +142,47 @@ export async function resolveChallengeIfApplicable({
   await Promise.all([
     awardXp(admin, challenge.from_user_id, creatorXp),
     awardXp(admin, challenge.opponent_user_id, opponentXp),
+    notifyResult(admin, challenge.from_user_id, challenge.opponent_user_id, challenge.id, challenge.share_token, winnerUserId, isTie),
   ]);
+}
+
+/** Notificaciones in-app (ver migración notifications) -- una fila por
+ * participante, cada una con SU PROPIO resultado ('won'/'lost'/'tie')
+ * desde su punto de vista. Best-effort: un fallo acá nunca debe afectar
+ * el pago de XP ya hecho arriba, así que solo se loguea. */
+async function notifyResult(
+  admin: AdminClient,
+  fromUserId: string,
+  opponentUserId: string,
+  challengeId: string,
+  shareToken: string,
+  winnerUserId: string | null,
+  isTie: boolean,
+): Promise<void> {
+  const resultFor = (userId: string) => (isTie ? 'tie' : winnerUserId === userId ? 'won' : 'lost');
+
+  const { error } = await admin.from('notifications').insert([
+    {
+      user_id: fromUserId,
+      kind: 'challenge_completed',
+      challenge_id: challengeId,
+      challenge_share_token: shareToken,
+      rival_user_id: opponentUserId,
+      result: resultFor(fromUserId),
+    },
+    {
+      user_id: opponentUserId,
+      kind: 'challenge_completed',
+      challenge_id: challengeId,
+      challenge_share_token: shareToken,
+      rival_user_id: fromUserId,
+      result: resultFor(opponentUserId),
+    },
+  ]);
+
+  if (error) {
+    console.log(JSON.stringify({ src: 'challengeResolution', event: 'notify_failed', challengeId, error: String(error) }));
+  }
 }
 
 function decideWinner(

@@ -275,7 +275,12 @@ export default function ChallengeScreen() {
           <View style={styles.vsBadge}>
             <Text style={styles.vsText}>VS</Text>
           </View>
-          <ParticipantColumn participant={rival} isMe={false} highlight={!challenge.isTie && !iWon} />
+          <ParticipantColumn
+            participant={rival}
+            isMe={false}
+            highlight={!challenge.isTie && !iWon}
+            onPress={() => navigation.navigate('PublicProfile', { username: rival.username })}
+          />
         </View>
 
         <Text style={styles.resultLine}>
@@ -410,13 +415,17 @@ function ParticipantColumn({
   participant,
   isMe,
   highlight,
+  onPress,
 }: {
   participant: ChallengeParticipant;
   isMe: boolean;
   highlight: boolean;
+  /** Solo el rival es tocable -- lleva a su perfil público (ver item 4,
+   * "tocar usuario -> perfil público"). "TÚ" no navega a ningún lado. */
+  onPress?: () => void;
 }) {
-  return (
-    <View style={styles.player}>
+  const content = (
+    <>
       <Text style={styles.playerAvatar}>{participant.avatarEmoji}</Text>
       <Text style={styles.playerName}>
         {highlight ? '🏆 ' : ''}
@@ -425,8 +434,17 @@ function ParticipantColumn({
       <Text style={[styles.playerScore, isMe ? styles.youColor : styles.friendColor]}>
         {participant.auraScore != null ? formatSignedXP(participant.auraScore) : '···'}
       </Text>
-    </View>
+    </>
   );
+
+  if (onPress) {
+    return (
+      <Pressable style={styles.player} onPress={onPress}>
+        {content}
+      </Pressable>
+    );
+  }
+  return <View style={styles.player}>{content}</View>;
 }
 
 const styles = StyleSheet.create({
