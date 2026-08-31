@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Card } from '../components/Card';
 import { DailyScanCounter } from '../components/DailyScanCounter';
+import { InstallPrompt } from '../components/InstallPrompt';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ReplayPlaceholder } from '../components/ReplayPlaceholder';
 import { ScreenContainer } from '../components/ScreenContainer';
@@ -57,7 +58,13 @@ export default function HomeScreen() {
   const showFrequentRival = !showStreak && Boolean(topRival);
 
   return (
-    <ScreenContainer scroll>
+    <>
+      {/* R5: se auto-evalúa cada vez que Home recupera foco -- "volver a
+          Home después de demostrar valor" (Scan completado) es el
+          checkpoint elegido, ver installService.shouldShowInstallInvite.
+          Usa Modal (portal), así que no importa dónde vive en este árbol. */}
+      <InstallPrompt />
+      <ScreenContainer scroll>
       <View style={styles.topRow}>
         <Text style={styles.wordmark}>AURAXP</Text>
         <Pressable onPress={() => navigation.navigate('Notifications')} style={styles.bellButton} hitSlop={8}>
@@ -176,7 +183,8 @@ export default function HomeScreen() {
           />
         </Card>
       )}
-    </ScreenContainer>
+      </ScreenContainer>
+    </>
   );
 }
 

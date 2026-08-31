@@ -5,6 +5,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { Badge } from '../components/Badge';
 import { Card } from '../components/Card';
 import { DailyScanCounter } from '../components/DailyScanCounter';
+import { InstallSheet } from '../components/InstallSheet';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { StatTile } from '../components/StatTile';
@@ -12,6 +13,7 @@ import { XPBar } from '../components/XPBar';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { signOut } from '../services/authService';
+import { hasNativePrompt, isIOS, isStandalone, promptNativeInstall } from '../services/installService';
 import { clearPendingChallengeToken } from '../services/pendingChallenge';
 import { ProfileUpdateError, updateProfile, usernameCooldownDaysLeft } from '../services/profileService';
 import { fetchDailyMissions, DailyMissions } from '../services/missionsService';
@@ -59,10 +61,25 @@ export default function ProfileScreen() {
   const [streak, setStreak] = useState<StreakInfo | null>(null);
   const [topRival, setTopRival] = useState<FrequentRival | null>(null);
   const [missions, setMissions] = useState<DailyMissions | null>(null);
+  // Instalación manual (R7) -- null si ya está instalada o no hay ninguna
+  // acción real posible (nunca un botón muerto, ver InstallPrompt). Se
+  // recalcula en cada foco: `beforeinstallprompt` puede llegar mientras
+  // el usuario estaba en otra pantalla.
+  const [installVariant, setInstallVariant] = useState<'ios' | 'android' | null>(null);
+  const [showInstallSheet, setShowInstallSheet] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       let cancelled = false;
+      if (isStandalone()) {
+        setInstallVariant(null);
+      } else if (isIOS()) {
+        setInstallVariant('ios');
+      } else if (hasNativePrompt()) {
+        setInstallVariant('android');
+      } else {
+        setInstallVariant(null);
+      }
       fetchDailyScanStatus().then((result) => {
         if (!cancelled && result) setPlanStatus(result);
       });
@@ -124,6 +141,22 @@ export default function ProfileScreen() {
       setLoggingOut(false);
       setConfirmingLogout(false);
     }
+  }
+
+  // R7: "quien declinó al principio" puede volver más tarde a buscarlo acá.
+  async function handleManualInstall() {
+    if (installVariant === 'android') {
+      await promptNativeInstall();
+      setInstallVariant(hasNativePrompt() ? 'android' : null);
+    } else {
+      setShowInstallSheet(true);
+    }
+  }
+
+  async function handleInstallSheetInstall() {
+    await promptNativeInstall();
+    setShowInstallSheet(false);
+    setInstallVariant(hasNativePrompt() ? 'android' : null);
   }
 
   async function handleSave() {
@@ -209,7 +242,14 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScreenContainer scroll>
+    <>
+      <InstallSheet
+        visible={showInstallSheet}
+        variant={installVariant ?? 'ios'}
+        onInstall={handleInstallSheetInstall}
+        onDismiss={() => setShowInstallSheet(false)}
+      />
+      <ScreenContainer scroll>
       <View style={styles.avatarBlock}>
         <Text style={styles.avatar}>{user?.avatarEmoji ?? '🙂'}</Text>
         <Text style={styles.username}>@{user?.username ?? 'you'}</Text>
@@ -323,6 +363,15 @@ export default function ProfileScreen() {
             </View>
           )}
 
+          {/* R7: quien declinó la invitación automática (o nunca la vio,
+              p. ej. entró directo por link) puede instalar desde acá
+              cuando quiera -- oculto entero si ya está instalada o si no
+              hay ninguna acción real posible (browser sin
+              beforeinstallprompt y no-iOS), nunca un botón muerto. */}
+          {installVariant && (
+            <PrimaryButton variant="text" label="INSTALAR AURAXP" onPress={handleManualInstall} />
+          )}
+
           {confirmingLogout ? (
             <View style={styles.logoutConfirm}>
               <Text style={styles.logoutConfirmText}>¿Cerrar sesión?</Text>
@@ -349,7 +398,8 @@ export default function ProfileScreen() {
           )}
         </View>
       )}
-    </ScreenContainer>
+      </ScreenContainer>
+    </>
   );
 }
 

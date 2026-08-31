@@ -46,7 +46,21 @@ export type AnalyticsEventName =
   | 'result_shared'
   | 'share'
   | 'profile_viewed'
-  | 'pro_checkout_opened';
+  | 'pro_checkout_opened'
+  // PWA (R12) -- solo lo técnicamente confirmable. 'pwa_installed' se
+  // loguea en DOS puntos, ambos hechos reales, nunca una suposición: (1)
+  // el evento `appinstalled` del navegador (Android/Chrome, confirmado
+  // por el propio browser), y (2) detectar `display-mode: standalone` /
+  // `navigator.standalone` al ABRIR la app (cubre iOS, donde no existe
+  // un evento de "aceptó instalar" -- si más adelante abre en modo
+  // standalone, eso SÍ es un hecho verificable de que lo instaló, a
+  // diferencia de asumirlo apenas se le muestra la guía). Nunca se loguea
+  // un "instalado" solo porque se mostró la guía o el usuario cerró el
+  // modal -- ver installService.ts.
+  | 'pwa_install_prompt_shown'
+  | 'pwa_install_accepted'
+  | 'pwa_install_dismissed'
+  | 'pwa_installed';
 
 export async function logEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>): Promise<void> {
   if (!supabase) return;

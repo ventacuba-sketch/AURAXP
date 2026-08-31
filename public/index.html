@@ -25,6 +25,25 @@
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
     <title>%WEB_TITLE%</title>
+
+    <!--
+      PWA installability (R2). `display: standalone` en el manifest cubre
+      Android/Chrome; iOS Safari NO lo lee para "Añadir a pantalla de
+      inicio" -- necesita estos meta tags propios en paralelo (por eso el
+      theme-color/apple-touch-icon están duplicados acá y no solo en el
+      manifest). start_url/scope del manifest son "/" -- no interfiere con
+      /c/:token (Auth) ni con ninguna otra ruta, el deep link se resuelve
+      igual una vez la app carga, esté instalada o no (I / R9).
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0B0B12" />
+    <link rel="icon" href="/icon-192.png" sizes="192x192" type="image/png" />
+    <link rel="icon" href="/icon-512.png" sizes="512x512" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="AURAXP" />
+
     <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
     <style id="expo-reset">
       /*
