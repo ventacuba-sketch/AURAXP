@@ -265,6 +265,12 @@ export interface DailyScanStatus {
   inLaunchWindow: boolean;
   /** Días de bienvenida restantes; 0 si no aplica. */
   launchDaysLeft: number;
+  /** Kill switch de costo (ver migración system_status) -- 'normal' es el
+   * único valor que existe hoy en producción, así que esto no cambia nada
+   * todavía. 'high_demand'/'emergency' solo se usan si alguna vez se activan
+   * a mano en el Dashboard. */
+  systemMode: 'normal' | 'high_demand' | 'emergency';
+  systemMessage: string | null;
 }
 
 /**

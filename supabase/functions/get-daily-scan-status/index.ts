@@ -42,7 +42,7 @@ Deno.serve(async (req: Request) => {
 
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const [{ data: profile }, { data: counter }] = await Promise.all([
+    const [{ data: profile }, { data: counter }, { data: systemStatus }] = await Promise.all([
       admin.from('profiles').select('plan, created_at, is_unlimited_tester').eq('id', user.id).single(),
       admin
         .from('daily_scan_counts')
@@ -50,6 +50,12 @@ Deno.serve(async (req: Request) => {
         .eq('user_id', user.id)
         .eq('day', new Date().toISOString().slice(0, 10))
         .maybeSingle(),
+      // Mismo kill switch que ya hace cumplir process-scan (ver
+      // migración system_status) -- acá es puramente informativo: el
+      // frontend usa esto para mostrar un aviso, nunca para bloquear nada
+      // por su cuenta (la única fuente de verdad de si un Scan se acepta
+      // sigue siendo process-scan).
+      admin.from('system_status').select('mode, message').eq('id', true).maybeSingle(),
     ]);
 
     const plan: PlanTier = (profile?.plan as PlanTier | undefined) ?? 'free';
@@ -71,6 +77,11 @@ Deno.serve(async (req: Request) => {
       unlimited,
       inLaunchWindow,
       launchDaysLeft,
+      // 'normal' (default) si la tabla no está o el modo no vino -- nunca
+      // debe romper este endpoint si system_status todavía no existe en
+      // algún ambiente.
+      systemMode: systemStatus?.mode ?? 'normal',
+      systemMessage: systemStatus?.message ?? null,
     });
   } catch (e) {
     console.error(e);

@@ -193,7 +193,12 @@ export default function AnalyzingScreen() {
       // que ya es PRO, y el mensaje no revela ningún número (ver
       // _shared/dailyLimit.ts).
       let showProCta = false;
-      if (errorCode === 'gemini_unavailable') {
+      if (errorCode === 'service_paused') {
+        // Kill switch de costo (ver migración system_status) -- solo pasa
+        // esto si alguien activó 'emergency' a mano en el Dashboard; en
+        // uso normal ('normal', el default) este código nunca aparece.
+        message = 'Los análisis están pausados temporalmente. Intenta de nuevo más tarde.';
+      } else if (errorCode === 'gemini_unavailable') {
         message = 'La IA está temporalmente ocupada. Intenta de nuevo en unos minutos.';
       } else if (errorCode === 'daily_upload_limit') {
         message = 'Alcanzaste tus Scans gratuitos de hoy. Vuelve mañana o pasa a PRO para seguir ahora.';

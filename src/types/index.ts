@@ -55,6 +55,8 @@ export type RootStackParamList = {
   /** Solo registrada mientras useAuth().passwordRecovery es true (volviendo
    * del link de "olvidé mi contraseña") — ver RootNavigator. */
   ResetPassword: undefined;
+  /** Historial paginado de Challenges del usuario -- ver MyChallengesScreen. */
+  MyChallenges: undefined;
 };
 
 export interface User {
@@ -174,4 +176,28 @@ export interface Challenge {
   creatorXpAwarded: number | null;
   opponentXpAwarded: number | null;
   expiresAt: string;
+}
+
+/**
+ * Una fila de "MIS DESAFÍOS" -- versión liviana de `Challenge` pensada para
+ * listas paginadas: solo lo que la card compacta necesita mostrar, ya
+ * resuelta desde el punto de vista de "quién soy yo" (así la pantalla no
+ * tiene que repetir `isCreator ? ... : ...` en cada campo). Sale de la
+ * MISMA tabla `challenges` -- no hay una tabla de historial separada, ver
+ * challengeService.listMyChallenges.
+ */
+export interface ChallengeListItem {
+  id: string;
+  shareToken: string;
+  status: ChallengeStatus;
+  createdAt: string;
+  isCreator: boolean;
+  myScanId: string | null;
+  myAuraScore: number | null;
+  /** null mientras nadie aceptó todavía (challenge 'pending' del que soy creador). */
+  rival: { userId: string; username: string; avatarEmoji: string } | null;
+  rivalAuraScore: number | null;
+  winnerUserId: string | null;
+  isTie: boolean;
+  myXpAwarded: number | null;
 }

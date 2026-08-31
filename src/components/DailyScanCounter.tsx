@@ -47,18 +47,34 @@ export function DailyScanCounter() {
 
   if (!status) return null;
 
+  // Aviso no bloqueante -- ver migración system_status. En 'normal' (hoy el
+  // único modo que existe) esto no renderiza nada; solo aparece si alguna
+  // vez se activa a mano desde el Dashboard.
+  const systemNotice =
+    status.systemMode === 'emergency'
+      ? status.systemMessage ?? 'Los análisis están pausados temporalmente. Intenta más tarde.'
+      : status.systemMode === 'high_demand'
+        ? status.systemMessage ?? 'Alta demanda: los análisis pueden tardar más de lo usual.'
+        : null;
+
   if (status.unlimited) {
     return (
-      <View style={[styles.row, styles.badgeRow]}>
-        <Text style={styles.testText}>Scans ilimitados (TEST)</Text>
+      <View style={styles.wrapper}>
+        {systemNotice && <Text style={styles.systemNotice}>{systemNotice}</Text>}
+        <View style={[styles.row, styles.badgeRow]}>
+          <Text style={styles.testText}>Scans ilimitados (TEST)</Text>
+        </View>
       </View>
     );
   }
 
   if (status.plan === 'pro') {
     return (
-      <View style={[styles.row, styles.badgeRow, styles.proRow]}>
-        <Text style={styles.proText}>PRO · Scans ilimitados</Text>
+      <View style={styles.wrapper}>
+        {systemNotice && <Text style={styles.systemNotice}>{systemNotice}</Text>}
+        <View style={[styles.row, styles.badgeRow, styles.proRow]}>
+          <Text style={styles.proText}>PRO · Scans ilimitados</Text>
+        </View>
       </View>
     );
   }
@@ -74,6 +90,7 @@ export function DailyScanCounter() {
 
   return (
     <View style={styles.wrapper}>
+      {systemNotice && <Text style={styles.systemNotice}>{systemNotice}</Text>}
       {status.inLaunchWindow && (
         <View style={styles.launchBadge}>
           <Text style={styles.launchText}>
@@ -103,6 +120,12 @@ export function DailyScanCounter() {
 const styles = StyleSheet.create({
   wrapper: {
     marginBottom: spacing.lg,
+  },
+  systemNotice: {
+    ...typography.caption,
+    color: colors.secondary,
+    marginBottom: spacing.xs,
+    textAlign: 'center',
   },
   row: {
     flexDirection: 'row',

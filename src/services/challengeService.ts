@@ -1,12 +1,21 @@
 import * as Crypto from 'expo-crypto';
 
-import { Challenge, ChallengeParticipant, ChallengePreview } from '../types';
+import { Challenge, ChallengeListItem, ChallengeParticipant, ChallengePreview } from '../types';
 import { getSession } from './authService';
 import { supabase } from './supabaseClient';
 
 /** Corto y URL-friendly — no hace falta un UUID completo para un share_token. */
 function generateShareToken(): string {
   return Crypto.randomUUID().replace(/-/g, '').slice(0, 10);
+}
+
+// Único lugar que arma la URL pública de un Challenge -- antes vivía
+// duplicado como constante local en ChallengeScreen.tsx; MyChallengesScreen
+// necesita exactamente la misma URL para "COMPARTIR DE NUEVO" en la lista,
+// así que se centraliza acá para que nunca puedan divergir.
+const WEB_ORIGIN = 'https://auravs.app';
+export function challengeShareUrl(token: string): string {
+  return `${WEB_ORIGIN}/c/${token}`;
 }
 
 export async function createChallenge(sourceScanId: string): Promise<string> {
@@ -154,4 +163,138 @@ export async function getChallenge(shareToken: string): Promise<Challenge | null
     opponentXpAwarded: row.opponent_xp_awarded,
     expiresAt: row.expires_at,
   };
+}
+
+// ============================================================
+// MIS DESAFÍOS -- historial paginado
+// ============================================================
+// No hay una tabla de historial separada: `challenges` ya tiene todo lo
+// que hace falta (status, scores vía los scans referenciados, ganador,
+// fechas) -- confirmado auditando el schema antes de escribir esto. Esto
+// solo pagina/enriquece esa misma tabla para la lista, nunca la duplica.
+
+export const CHALLENGE_LIST_PAGE_SIZE = 20;
+
+export interface ChallengeListPage {
+  items: ChallengeListItem[];
+  hasMore: boolean;
+}
+
+interface ChallengeRow {
+  id: string;
+  share_token: string;
+  status: ChallengeListItem['status'];
+  from_user_id: string;
+  opponent_user_id: string | null;
+  source_scan_id: string;
+  target_scan_id: string | null;
+  winner_user_id: string | null;
+  is_tie: boolean;
+  creator_xp_awarded: number | null;
+  opponent_xp_awarded: number | null;
+  created_at: string;
+}
+
+/**
+ * Página de "MIS DESAFÍOS" del usuario actual -- ordenados del más reciente
+ * al más viejo. `offset`/`limit` en vez de cursor: a esta escala (Challenges
+ * por usuario, no Scans) un offset simple alcanza y es mucho más fácil de
+ * razonar que un keyset -- si esto alguna vez se vuelve un problema real de
+ * escala, se puede migrar sin cambiar la forma de `ChallengeListPage`.
+ *
+ * Pide `limit + 1` filas para saber si hay más sin una segunda query de
+ * conteo, y resuelve rival/scores con DOS queries batched (`.in(...)`) en
+ * vez de N+1 -- a diferencia de getChallenge() (una sola vista, el N+1 ahí
+ * no importa), acá sí importaría con 20 filas por página.
+ */
+export async function listMyChallenges(offset = 0, limit = CHALLENGE_LIST_PAGE_SIZE): Promise<ChallengeListPage> {
+  if (!supabase) return { items: [], hasMore: false };
+  const session = await getSession();
+  if (!session) return { items: [], hasMore: false };
+  const uid = session.user.id;
+
+  const { data: rows, error } = await supabase
+    .from('challenges')
+    .select(
+      'id, share_token, status, from_user_id, opponent_user_id, source_scan_id, target_scan_id, winner_user_id, is_tie, creator_xp_awarded, opponent_xp_awarded, created_at',
+    )
+    .or(`from_user_id.eq.${uid},opponent_user_id.eq.${uid}`)
+    .order('created_at', { ascending: false })
+    .range(offset, offset + limit);
+
+  if (error || !rows) return { items: [], hasMore: false };
+
+  const hasMore = rows.length > limit;
+  const pageRows = (hasMore ? rows.slice(0, limit) : rows) as ChallengeRow[];
+
+  const rivalIds = Array.from(
+    new Set(pageRows.map((r) => (r.from_user_id === uid ? r.opponent_user_id : r.from_user_id)).filter((id): id is string => Boolean(id))),
+  );
+  const scanIds = Array.from(
+    new Set(pageRows.flatMap((r) => [r.source_scan_id, r.target_scan_id]).filter((id): id is string => Boolean(id))),
+  );
+
+  const [{ data: profiles }, { data: scans }] = await Promise.all([
+    rivalIds.length
+      ? supabase.from('public_profiles').select('id, username, avatar_emoji').in('id', rivalIds)
+      : Promise.resolve({ data: [] as { id: string; username: string; avatar_emoji: string }[] }),
+    scanIds.length
+      ? supabase.from('scans').select('id, aura_score').in('id', scanIds)
+      : Promise.resolve({ data: [] as { id: string; aura_score: number | null }[] }),
+  ]);
+
+  const profileById = new Map((profiles ?? []).map((p) => [p.id, p]));
+  // Un scan del rival antes de que el challenge esté 'completed' simplemente
+  // no aparece acá (RLS lo filtra, no da error) -- mismo comportamiento que
+  // ya usa getChallenge/fetchScanSummary, así que el score queda `null`
+  // (mostrado como "···") en vez de romper la fila.
+  const scoreByScanId = new Map((scans ?? []).map((s) => [s.id, s.aura_score]));
+
+  const items: ChallengeListItem[] = pageRows.map((r) => {
+    const isCreator = r.from_user_id === uid;
+    const rivalId = isCreator ? r.opponent_user_id : r.from_user_id;
+    const rivalProfile = rivalId ? profileById.get(rivalId) : undefined;
+    const myScanId = isCreator ? r.source_scan_id : r.target_scan_id;
+    const rivalScanId = isCreator ? r.target_scan_id : r.source_scan_id;
+
+    return {
+      id: r.id,
+      shareToken: r.share_token,
+      status: r.status,
+      createdAt: r.created_at,
+      isCreator,
+      myScanId: myScanId ?? null,
+      myAuraScore: myScanId ? scoreByScanId.get(myScanId) ?? null : null,
+      rival: rivalId && rivalProfile ? { userId: rivalId, username: rivalProfile.username, avatarEmoji: rivalProfile.avatar_emoji } : null,
+      rivalAuraScore: rivalScanId ? scoreByScanId.get(rivalScanId) ?? null : null,
+      winnerUserId: r.winner_user_id,
+      isTie: r.is_tie,
+      myXpAwarded: isCreator ? r.creator_xp_awarded : r.opponent_xp_awarded,
+    };
+  });
+
+  return { items, hasMore };
+}
+
+/**
+ * Cuántos Challenges están genuinamente esperando UNA ACCIÓN MÍA ahora
+ * mismo: acepté, pero todavía no subí mi Scan. Usado para el badge real de
+ * Home ("⚔️ N desafíos pendientes") -- deliberadamente NO cuenta los que
+ * estoy esperando que el rival responda (esos no son "mi turno"), para no
+ * inflar el número con algo en lo que no hay nada que hacer todavía.
+ */
+export async function countMyTurnChallenges(): Promise<number> {
+  if (!supabase) return 0;
+  const session = await getSession();
+  if (!session) return 0;
+
+  const { count, error } = await supabase
+    .from('challenges')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'accepted')
+    .eq('opponent_user_id', session.user.id)
+    .is('target_scan_id', null);
+
+  if (error) return 0;
+  return count ?? 0;
 }

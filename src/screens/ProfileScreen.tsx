@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 
 import { Badge } from '../components/Badge';
 import { Card } from '../components/Card';
@@ -9,7 +10,12 @@ import { ScreenContainer } from '../components/ScreenContainer';
 import { StatTile } from '../components/StatTile';
 import { XPBar } from '../components/XPBar';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useRootNavigation } from '../hooks/useRootNavigation';
+import { signOut } from '../services/authService';
+import { clearPendingChallengeToken } from '../services/pendingChallenge';
 import { ProfileUpdateError, updateProfile, usernameCooldownDaysLeft } from '../services/profileService';
+import { DailyScanStatus, fetchDailyScanStatus } from '../services/scanService';
+import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { formatLevel } from '../utils/format';
 
@@ -21,12 +27,34 @@ const AVATAR_EMOJI_OPTIONS = [
 
 export default function ProfileScreen() {
   const { user, refetch } = useCurrentUser();
+  const navigation = useRootNavigation();
   const [editing, setEditing] = useState(false);
   const [username, setUsername] = useState('');
   const [bio, setBio] = useState('');
   const [avatarEmoji, setAvatarEmoji] = useState('🙂');
   const [saving, setSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Mismo dato real que ya usa DailyScanCounter (get-daily-scan-status) --
+  // se reconsulta acá en vez de intentar compartir estado con ese
+  // componente hermano, mismo patrón que useCurrentUser en varias
+  // pantallas. Solo se usa `plan`, así que un fetch extra liviano es mejor
+  // que acoplar dos componentes que hoy son independientes.
+  const [planStatus, setPlanStatus] = useState<DailyScanStatus | null>(null);
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
+  const [loggingOut, setLoggingOut] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
+      fetchDailyScanStatus().then((result) => {
+        if (!cancelled && result) setPlanStatus(result);
+      });
+      return () => {
+        cancelled = true;
+      };
+    }, []),
+  );
 
   // Reset the form to the current profile every time edit mode opens (not
   // on every render) so a discarded edit never leaks into the next one.
@@ -41,6 +69,34 @@ export default function ProfileScreen() {
 
   const cooldownDaysLeft = usernameCooldownDaysLeft(user?.usernameUpdatedAt ?? null);
   const usernameLocked = cooldownDaysLeft > 0;
+
+  /**
+   * Cierra sesión de verdad -- ver auditoría de "Cerrar sesión":
+   * - `signOut()` limpia la sesión real de Supabase (su propio storage);
+   *   `onAuthStateChange` dispara solo, RootNavigator desmonta TODO el
+   *   árbol autenticado y vuelve a `<Auth/>` -- ahí se pierde, por
+   *   desmontaje normal de React, cualquier estado en memoria (user, XP,
+   *   lo que sea) sin necesitar limpiarlo a mano acá.
+   * - `clearPendingChallengeToken()` es el único estado que sobrevive en
+   *   AsyncStorage por fuera de la sesión de Supabase -- sin esto, un
+   *   token pendiente de una visita SIN cuenta de antes de este login
+   *   quedaría para el próximo que use el mismo dispositivo (ver ese
+   *   archivo para el detalle completo del riesgo A->B).
+   * - NUNCA toca cuenta/XP/Challenges/Profile/PRO/Scans -- todo eso vive
+   *   en el backend, cerrar sesión no borra ni modifica ninguna fila.
+   */
+  async function handleLogout() {
+    setLoggingOut(true);
+    try {
+      await clearPendingChallengeToken();
+      await signOut();
+    } catch (e) {
+      console.warn('signOut failed', e);
+    } finally {
+      setLoggingOut(false);
+      setConfirmingLogout(false);
+    }
+  }
 
   async function handleSave() {
     if (!username.trim()) {
@@ -125,7 +181,7 @@ export default function ProfileScreen() {
   }
 
   return (
-    <ScreenContainer>
+    <ScreenContainer scroll>
       <View style={styles.avatarBlock}>
         <Text style={styles.avatar}>{user?.avatarEmoji ?? '🙂'}</Text>
         <Text style={styles.username}>@{user?.username ?? 'you'}</Text>
@@ -144,6 +200,58 @@ export default function ProfileScreen() {
       </View>
 
       <DailyScanCounter />
+
+      <Pressable onPress={() => navigation.navigate('MyChallenges')}>
+        <Card style={styles.linkCard}>
+          <Text style={styles.linkCardLabel}>MIS DESAFÍOS ⚔️</Text>
+          <Text style={styles.linkCardArrow}>›</Text>
+        </Card>
+      </Pressable>
+
+      {/* Sin Supabase configurado (modo mock/dev) ni plan ni cerrar sesión
+          significan algo real -- se oculta entero en vez de mostrar un
+          "FREE" inventado o un botón que no puede hacer nada. */}
+      {isSupabaseConfigured && (
+        <View style={styles.settingsSection}>
+          <Text style={styles.settingsTitle}>AJUSTES</Text>
+
+          {planStatus && (
+            <View style={styles.planRow}>
+              <Text style={styles.planLabel}>
+                Plan actual: {planStatus.unlimited ? 'PRUEBA (ilimitado)' : planStatus.plan === 'pro' ? 'PRO' : 'FREE'}
+              </Text>
+              {!planStatus.unlimited && planStatus.plan !== 'pro' && (
+                <PrimaryButton variant="text" label="Ver PRO" onPress={() => navigation.navigate('Pro')} />
+              )}
+            </View>
+          )}
+
+          {confirmingLogout ? (
+            <View style={styles.logoutConfirm}>
+              <Text style={styles.logoutConfirmText}>¿Cerrar sesión?</Text>
+              <View style={styles.logoutConfirmActions}>
+                <View style={styles.logoutConfirmButton}>
+                  <PrimaryButton
+                    variant="ghost"
+                    label="CANCELAR"
+                    disabled={loggingOut}
+                    onPress={() => setConfirmingLogout(false)}
+                  />
+                </View>
+                <View style={styles.logoutConfirmButton}>
+                  <PrimaryButton
+                    label={loggingOut ? 'CERRANDO...' : 'CERRAR SESIÓN'}
+                    disabled={loggingOut}
+                    onPress={handleLogout}
+                  />
+                </View>
+              </View>
+            </View>
+          ) : (
+            <PrimaryButton variant="text" label="CERRAR SESIÓN" onPress={() => setConfirmingLogout(true)} />
+          )}
+        </View>
+      )}
     </ScreenContainer>
   );
 }
@@ -176,6 +284,59 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
     gap: spacing.md,
+  },
+  linkCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: spacing.md,
+    borderColor: colors.secondary,
+  },
+  linkCardLabel: {
+    ...typography.subtitle,
+    color: colors.textPrimary,
+  },
+  linkCardArrow: {
+    ...typography.title,
+    color: colors.textMuted,
+  },
+  settingsSection: {
+    marginTop: spacing.xl,
+    marginBottom: spacing.xl,
+    gap: spacing.sm,
+  },
+  settingsTitle: {
+    ...typography.eyebrow,
+    color: colors.textMuted,
+    marginBottom: spacing.xs,
+  },
+  planRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  planLabel: {
+    ...typography.body,
+    color: colors.textSecondary,
+  },
+  logoutConfirm: {
+    borderWidth: 1,
+    borderColor: colors.danger,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  logoutConfirmText: {
+    ...typography.subtitle,
+    color: colors.textPrimary,
+    textAlign: 'center',
+  },
+  logoutConfirmActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  logoutConfirmButton: {
+    flex: 1,
   },
   editContainer: {
     paddingTop: spacing.xl,

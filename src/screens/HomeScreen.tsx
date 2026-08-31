@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Card } from '../components/Card';
 import { DailyScanCounter } from '../components/DailyScanCounter';
@@ -9,15 +9,16 @@ import { ScreenContainer } from '../components/ScreenContainer';
 import { XPBar } from '../components/XPBar';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { useCurrentUser } from '../hooks/useCurrentUser';
+import { useMyTurnChallengeCount } from '../hooks/useMyTurnChallengeCount';
 import { useRootNavigation } from '../hooks/useRootNavigation';
-import { fetchFriendChallenge, fetchLatestReplay } from '../services/api';
+import { fetchLatestReplay } from '../services/api';
 import { colors, radius, spacing, typography } from '../theme/colors';
-import { formatNumber, formatSignedXP, formatXP } from '../utils/format';
+import { formatSignedXP, formatXP } from '../utils/format';
 
 export default function HomeScreen() {
   const { user } = useCurrentUser();
   const { data: latestReplay } = useAsyncData(fetchLatestReplay);
-  const { data: friendChallenge } = useAsyncData(fetchFriendChallenge);
+  const myTurnCount = useMyTurnChallengeCount();
   const navigation = useRootNavigation();
 
   return (
@@ -35,6 +36,26 @@ export default function HomeScreen() {
       </View>
 
       <DailyScanCounter />
+
+      {/* Loop de retención: Challenge pendiente/revancha antes que el XP --
+          reemplaza la card "Carlos te desafió" que era mock puro (ningún
+          dato real detrás, y su botón ACEPTAR ni siquiera llevaba a un
+          Challenge real -- ver auditoría). Esta sí consulta Challenges de
+          verdad (challengeService.countMyTurnChallenges) y solo muestra un
+          número cuando hay algo real que mostrar. */}
+      <Pressable onPress={() => navigation.navigate('MyChallenges')}>
+        <Card style={styles.myChallengesCard}>
+          <View style={styles.myChallengesRow}>
+            <Text style={styles.myChallengesTitle}>MIS DESAFÍOS ⚔️</Text>
+            <Text style={styles.myChallengesArrow}>›</Text>
+          </View>
+          {myTurnCount != null && myTurnCount > 0 && (
+            <Text style={styles.myChallengesBadge}>
+              ⚔️ {myTurnCount} desafío{myTurnCount === 1 ? '' : 's'} pendiente{myTurnCount === 1 ? '' : 's'} de tu Scan
+            </Text>
+          )}
+        </Card>
+      </Pressable>
 
       <View style={styles.auraSection}>
         <Text style={styles.eyebrow}>TU AURA</Text>
@@ -58,17 +79,6 @@ export default function HomeScreen() {
             variant="text"
             onPress={() => navigation.navigate('ScanResult', { scanId: latestReplay.id })}
           />
-        </Card>
-      )}
-
-      {friendChallenge && (
-        <Card style={styles.challengeCard}>
-          <Text style={styles.challengeTitle}>{friendChallenge.friendName} te desafió</Text>
-          <Text style={styles.challengeScore}>
-            {friendChallenge.friendName}: {formatNumber(friendChallenge.friendScore)}
-          </Text>
-          <Text style={styles.challengePrompt}>{friendChallenge.prompt}</Text>
-          <PrimaryButton label="ACEPTAR" onPress={() => navigation.navigate('Challenge')} />
         </Card>
       )}
     </ScreenContainer>
@@ -140,22 +150,27 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     marginTop: 2,
   },
-  challengeCard: {
+  myChallengesCard: {
+    marginBottom: spacing.xl,
     borderColor: colors.secondary,
   },
-  challengeTitle: {
+  myChallengesRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  myChallengesTitle: {
     ...typography.subtitle,
     color: colors.textPrimary,
-    marginBottom: spacing.xs,
   },
-  challengeScore: {
-    ...typography.body,
-    color: colors.secondary,
-    marginBottom: spacing.xs,
-  },
-  challengePrompt: {
-    ...typography.caption,
+  myChallengesArrow: {
+    ...typography.title,
     color: colors.textMuted,
-    marginBottom: spacing.md,
+  },
+  myChallengesBadge: {
+    ...typography.caption,
+    color: colors.secondary,
+    fontWeight: '700',
+    marginTop: spacing.xs,
   },
 });

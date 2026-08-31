@@ -12,6 +12,7 @@ import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useSmartBack } from '../hooks/useSmartBack';
 import {
   cancelChallenge,
+  challengeShareUrl as shareUrl,
   createChallenge,
   getChallenge,
 } from '../services/challengeService';
@@ -21,14 +22,9 @@ import { Challenge, ChallengeParticipant, RootStackParamList } from '../types';
 import { formatSignedXP } from '../utils/format';
 import { copyLink, shareText } from '../utils/share';
 
-const WEB_ORIGIN = 'https://auravs.app';
 const POLL_INTERVAL_MS = 3000;
 
 type ChallengeRoute = RouteProp<RootStackParamList, 'Challenge'>;
-
-function shareUrl(token: string): string {
-  return `${WEB_ORIGIN}/c/${token}`;
-}
 
 /** Mini reproductor inline -- toca para cargar la signed URL y reproducir,
  * mismo mecanismo que ScanResultScreen pero compacto para el layout VS.

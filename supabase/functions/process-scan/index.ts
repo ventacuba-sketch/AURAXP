@@ -81,6 +81,22 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ error: 'Path inválido' }, 400);
     }
 
+    // ── Kill switch de costo (ver migración system_status) ──────────────
+    // Chequeo barato (una fila, indexada por PK) ANTES de tocar Gemini --
+    // el único paso que factura. En 'normal' (el default, y hoy el único
+    // valor que existe en producción) esto es un no-op total. Solo
+    // 'emergency' bloquea -- 'high_demand' es puramente informativo para el
+    // frontend (ver get-daily-scan-status), process-scan sigue aceptando
+    // Scans igual en ese modo.
+    const { data: systemStatus } = await admin.from('system_status').select('mode').eq('id', true).maybeSingle();
+    if (systemStatus?.mode === 'emergency') {
+      await admin
+        .from('scans')
+        .update({ status: 'rejected', error_message: 'service_paused' })
+        .eq('id', scanId);
+      return jsonResponse({ error: 'Análisis pausado temporalmente' }, 503);
+    }
+
     const today = new Date().toISOString().slice(0, 10);
 
     // ── Rate limit de subidas/día -- plan-aware (ver _shared/dailyLimit.ts,

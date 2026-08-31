@@ -149,6 +149,15 @@ interface AnalyzeVideoParams {
    * acá, solo lo loguea (ver logAttempt('usage', ...) abajo).
    */
   usageHolder?: { value?: unknown };
+  /**
+   * Override opcional de `generationConfig.mediaResolution` -- NUNCA lo
+   * pasa process-scan (queda `undefined`, el comportamiento de producción
+   * no cambia en absoluto). Existe únicamente para que
+   * compare-gemini-resolution pueda pedirle a Gemini el mismo video con
+   * 'MEDIA_RESOLUTION_LOW' y comparar costo/calidad contra la config
+   * actual sin tocar este pipeline -- ver auditoría de optimización.
+   */
+  mediaResolution?: string;
 }
 
 /**
@@ -192,7 +201,7 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function callGeminiOnce({ apiKey, fileUri, mimeType, scanId, usageHolder }: AnalyzeVideoParams): Promise<GeminiResult> {
+async function callGeminiOnce({ apiKey, fileUri, mimeType, scanId, usageHolder, mediaResolution }: AnalyzeVideoParams): Promise<GeminiResult> {
   const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -210,6 +219,10 @@ async function callGeminiOnce({ apiKey, fileUri, mimeType, scanId, usageHolder }
         temperature: 0.2,
         responseMimeType: 'application/json',
         responseSchema: RESPONSE_SCHEMA,
+        // Solo presente cuando el caller lo pide explícitamente (ver
+        // AnalyzeVideoParams.mediaResolution) -- omitido, Gemini usa su
+        // resolución default, exactamente el comportamiento de hoy.
+        ...(mediaResolution ? { mediaResolution } : {}),
       },
     }),
   });
@@ -268,11 +281,11 @@ function logAttempt(event: string, data: Record<string, unknown>): void {
  * arregla. Si los 4 intentos agotan en 503, lanza GeminiUnavailableError
  * en vez de seguir propagando el error crudo de Gemini.
  */
-export async function analyzeVideo({ apiKey, fileUri, mimeType, scanId, usageHolder }: AnalyzeVideoParams): Promise<GeminiResult> {
+export async function analyzeVideo({ apiKey, fileUri, mimeType, scanId, usageHolder, mediaResolution }: AnalyzeVideoParams): Promise<GeminiResult> {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     logAttempt('attempt_start', { scanId, attempt, maxAttempts: MAX_ATTEMPTS });
     try {
-      const result = await callGeminiOnce({ apiKey, fileUri, mimeType, scanId, usageHolder });
+      const result = await callGeminiOnce({ apiKey, fileUri, mimeType, scanId, usageHolder, mediaResolution });
       if (attempt > 1) logAttempt('attempt_succeeded_after_retry', { scanId, attempt });
       return result;
     } catch (e) {

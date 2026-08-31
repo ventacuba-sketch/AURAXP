@@ -31,3 +31,26 @@ export async function consumePendingChallengeToken(): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Llamar SIEMPRE al cerrar sesión -- ver ProfileScreen.handleLogout.
+ *
+ * Por qué: este token solo se escribe cuando NO hay sesión (ver
+ * ChallengeLandingScreen.handleAccept -- el branch `if (!session)`), así
+ * que si alguien ya logueado puede cerrar sesión, cualquier token que haya
+ * en storage en ese momento es necesariamente de una visita SIN cuenta de
+ * ANTES de este login -- nunca de la sesión que se está por cerrar. Sin
+ * este cleanup, quedaría ahí para el siguiente que use el mismo dispositivo:
+ * apenas esa otra persona (Usuario B) inicie sesión, el efecto de
+ * RootNavigator que retoma un Challenge pendiente correría igual y
+ * aceptaría, a nombre de B, un desafío que en realidad era de quien usó el
+ * teléfono antes. Bien probado: A cierra sesión -> B inicia sesión en el
+ * mismo dispositivo -> B nunca hereda nada de A.
+ */
+export async function clearPendingChallengeToken(): Promise<void> {
+  try {
+    await AsyncStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Best-effort, igual que el resto de este archivo.
+  }
+}
