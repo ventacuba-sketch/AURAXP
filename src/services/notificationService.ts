@@ -9,7 +9,14 @@ import { supabase } from './supabaseClient';
  * (mismo criterio que challengeService.getLatestChallengeResultEvent),
  * así nunca hay que migrar filas viejas si cambia la redacción.
  */
-export type NotificationKind = 'challenge_accepted' | 'challenge_completed' | 'challenge_received' | 'challenge_rejected';
+export type NotificationKind =
+  | 'challenge_accepted'
+  | 'challenge_completed'
+  | 'challenge_received'
+  | 'challenge_rejected'
+  | 'referral_activated'
+  | 'new_follower'
+  | 'gift_received';
 export type NotificationResult = 'won' | 'lost' | 'tie';
 
 export interface AppNotification {

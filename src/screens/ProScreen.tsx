@@ -13,6 +13,11 @@ const BENEFITS = [
   { emoji: '⚡', label: 'Scans ilimitados' },
   { emoji: '📊', label: 'Estadísticas avanzadas' },
   { emoji: '✨', label: 'Perks y cosméticos exclusivos' },
+  // Faltaba acá (auditoría pre-lanzamiento): credit_pro_monthly_coins()
+  // ya existe y corre server-side (ver sync-pro-subscriptions), pero
+  // nunca se mencionaba en la pantalla que vende PRO -- nadie se
+  // enteraba de este beneficio real hasta verlo en el historial de Wallet.
+  { emoji: '🪙', label: '+5.000 Coins cada mes' },
 ];
 
 /**

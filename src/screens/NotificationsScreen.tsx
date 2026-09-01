@@ -23,6 +23,13 @@ const COPY: Record<string, (rival: string) => string> = {
   challenge_completed_won: (rival) => `🏆 Le ganaste a @${rival}`,
   challenge_completed_lost: (rival) => `💀 @${rival} te ganó`,
   challenge_completed_tie: (rival) => `🤝 Empataste con @${rival}`,
+  // Bloque Wallet/Coins/Social -- faltaban acá (auditoría pre-lanzamiento):
+  // sin estos casos, las 3 caían en el fallback de "empataste" de más
+  // abajo -- texto directamente incorrecto para un referido activado, un
+  // follower nuevo o un regalo recibido.
+  referral_activated: (rival) => `🎉 @${rival} hizo su primer Scan -- ganaste 5.000 Coins`,
+  new_follower: (rival) => `@${rival} empezó a seguirte`,
+  gift_received: (rival) => `🎁 @${rival} te mandó un regalo`,
 };
 
 function notificationText(n: AppNotification): string {
@@ -30,6 +37,9 @@ function notificationText(n: AppNotification): string {
   if (n.kind === 'challenge_received') return COPY.challenge_received(rival);
   if (n.kind === 'challenge_accepted') return COPY.challenge_accepted(rival);
   if (n.kind === 'challenge_rejected') return COPY.challenge_rejected(rival);
+  if (n.kind === 'referral_activated') return COPY.referral_activated(rival);
+  if (n.kind === 'new_follower') return COPY.new_follower(rival);
+  if (n.kind === 'gift_received') return COPY.gift_received(rival);
   if (n.result === 'won') return COPY.challenge_completed_won(rival);
   if (n.result === 'lost') return COPY.challenge_completed_lost(rival);
   return COPY.challenge_completed_tie(rival);
@@ -60,6 +70,12 @@ export default function NotificationsScreen() {
     }
     if (n.challengeShareToken) {
       navigation.navigate('Challenge', { challengeToken: n.challengeShareToken });
+    } else if (n.kind === 'referral_activated') {
+      // Mismo destino natural que el push equivalente ("🎉 Coins ganados") --
+      // ver el saldo recién acreditado.
+      navigation.navigate('Wallet');
+    } else if ((n.kind === 'new_follower' || n.kind === 'gift_received') && n.rivalUsername) {
+      navigation.navigate('PublicProfile', { username: n.rivalUsername });
     }
   }
 
