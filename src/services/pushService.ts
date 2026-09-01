@@ -31,8 +31,32 @@ import { createNudgePolicy } from '../utils/nudgePolicy';
 const VAPID_PUBLIC_KEY = process.env.EXPO_PUBLIC_VAPID_PUBLIC_KEY ?? '';
 const policy = createNudgePolicy('auraxp_push');
 
+// Diagnóstico real (bloque investigación "NO DISPONIBLES" en iOS) -- la
+// causa encontrada fue exactamente esto: sin el secret de GitHub Actions
+// EXPO_PUBLIC_VAPID_PUBLIC_KEY, el build de producción hornea un string
+// vacío acá, y `isPushSupported()` da `false` en TODA plataforma (no es
+// un problema de iOS específicamente, aunque ahí es donde se notó) --
+// mismo resultado visual que "este browser no soporta Web Push", pero
+// con una causa completamente distinta y sí corregible (falta config,
+// ver el informe). Este log corre una sola vez, solo en web, y no cambia
+// ningún comportamiento -- es puramente para que la consola del
+// navegador diga la causa real en vez de dejar ambos casos idénticos.
+let loggedMissingVapidKey = false;
+function warnIfMissingVapidKey(): void {
+  if (loggedMissingVapidKey || Platform.OS !== 'web' || typeof window === 'undefined') return;
+  if (typeof navigator === 'undefined' || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  if (VAPID_PUBLIC_KEY) return;
+  loggedMissingVapidKey = true;
+  console.warn(
+    '[pushService] Este navegador SÍ soporta Web Push, pero EXPO_PUBLIC_VAPID_PUBLIC_KEY no está configurado en ' +
+      'el build -- por eso Perfil muestra "Notificaciones: NO DISPONIBLES" acá. Falta el secret de GitHub Actions ' +
+      '(deploy-web.yml) y las claves VAPID correspondientes como secret de la Edge Function send-push en Supabase.',
+  );
+}
+
 export function isPushSupported(): boolean {
   if (Platform.OS !== 'web' || typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  warnIfMissingVapidKey();
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && Boolean(VAPID_PUBLIC_KEY);
 }
 
