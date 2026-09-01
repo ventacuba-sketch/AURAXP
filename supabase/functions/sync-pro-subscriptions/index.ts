@@ -67,7 +67,14 @@ type AdminClient = ReturnType<typeof createClient>;
  * el modo que la llame. Dos UPDATEs a propósito: el primero es seguro de
  * repetir en cada renovación (siempre pisa lo mismo); el segundo solo
  * corre si `pro_started_at` sigue en null, así la fecha de alta real
- * nunca se mueve una vez fijada. */
+ * nunca se mueve una vez fijada.
+ *
+ * Coins mensuales de PRO (bloque Wallet/Economía): un tercer paso,
+ * best-effort -- credit_pro_monthly_coins() ya es idempotente por mes
+ * calendario por su cuenta (ver esa migración), así que llamarla en
+ * CADA sync (hasta cada hora una vez que el cron esté vivo) es seguro,
+ * nunca duplica el crédito. Un fallo acá nunca debe tumbar la
+ * activación real de PRO -- por eso está aislado y solo logueado. */
 async function activateProfile(admin: AdminClient, profileId: string, subscriptionId: string): Promise<void> {
   await admin
     .from('profiles')
@@ -78,6 +85,12 @@ async function activateProfile(admin: AdminClient, profileId: string, subscripti
     .update({ pro_started_at: new Date().toISOString() })
     .eq('id', profileId)
     .is('pro_started_at', null);
+
+  try {
+    await admin.rpc('credit_pro_monthly_coins', { p_user_id: profileId });
+  } catch (e) {
+    log('monthly_coins_credit_failed', { profileId, error: String(e) });
+  }
 }
 
 Deno.serve(async (req: Request) => {

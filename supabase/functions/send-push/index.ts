@@ -41,7 +41,14 @@ const WEB_ORIGIN = 'https://auravs.app';
 interface NotificationRow {
   id: string;
   user_id: string;
-  kind: 'challenge_received' | 'challenge_accepted' | 'challenge_completed' | 'challenge_rejected';
+  kind:
+    | 'challenge_received'
+    | 'challenge_accepted'
+    | 'challenge_completed'
+    | 'challenge_rejected'
+    | 'referral_activated'
+    | 'new_follower'
+    | 'gift_received';
   challenge_share_token: string | null;
   rival_user_id: string | null;
   result: 'won' | 'lost' | 'tie' | null;
@@ -59,6 +66,16 @@ function buildMessage(n: NotificationRow, rivalUsername: string): { title: strin
       if (n.result === 'won') return { title: '🏆 Ganaste la batalla', body: `Le ganaste a @${rivalUsername}` };
       if (n.result === 'lost') return { title: '💀 Perdiste la batalla', body: `@${rivalUsername} te ganó` };
       return { title: '🤝 Empate', body: `Empataste con @${rivalUsername}` };
+    // Bloque Wallet/Coins/Social -- reusan el mismo trigger/función, sin
+    // deep link específico todavía (ninguna ruta propia de perfil/wallet
+    // está registrada en el linking config aún) -- caen al origen de la
+    // app, que abre con la sesión intacta igual, ver reporte.
+    case 'referral_activated':
+      return { title: '🎉 Coins ganados', body: `@${rivalUsername} hizo su primer Scan -- ganaste 5.000 Coins` };
+    case 'new_follower':
+      return { title: 'AURAXP', body: `@${rivalUsername} empezó a seguirte` };
+    case 'gift_received':
+      return { title: '🎁 Recibiste un regalo', body: `@${rivalUsername} te mandó un regalo` };
   }
 }
 
