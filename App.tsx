@@ -7,6 +7,7 @@ import { AuthProvider } from './src/hooks/useAuth';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { logAppOpenOnce } from './src/services/analyticsService';
 import { checkStandaloneOnBoot, registerServiceWorker } from './src/services/installService';
+import { captureReferralFromUrl } from './src/services/referralService';
 
 export default function App() {
   // Analítica de funnel (L) -- una sola vez por carga de la app, ver
@@ -23,6 +24,10 @@ export default function App() {
     // "aceptó instalar" ahí, a diferencia de Android).
     registerServiceWorker();
     checkStandaloneOnBoot();
+    // Referidos (bloque referidos) -- captura ?ref= de la URL (solo web) y
+    // lo guarda pendiente; la atribución real a la cuenta pasa después, ya
+    // con sesión, en RootNavigator (ver tryAttributePendingReferral ahí).
+    captureReferralFromUrl();
   }, []);
 
   return (

@@ -16,10 +16,14 @@ import { NotificationInviteHost } from '../components/NotificationInviteHost';
 import { useAuth } from '../hooks/useAuth';
 import { acceptChallenge } from '../services/challengeService';
 import { consumePendingChallengeToken } from '../services/pendingChallenge';
+import { tryAttributePendingReferral } from '../services/referralService';
 import AnalyzingScreen from '../screens/AnalyzingScreen';
 import AuthScreen from '../screens/AuthScreen';
+import BugReportScreen from '../screens/BugReportScreen';
 import ChallengeLandingScreen from '../screens/ChallengeLandingScreen';
 import ChallengeScreen from '../screens/ChallengeScreen';
+import HelpScreen from '../screens/HelpScreen';
+import InviteScreen from '../screens/InviteScreen';
 import MyChallengesScreen from '../screens/MyChallengesScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import ProScreen from '../screens/ProScreen';
@@ -28,7 +32,9 @@ import RankingScreen from '../screens/RankingScreen';
 import RecordScreen from '../screens/RecordScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import ScanResultScreen from '../screens/ScanResultScreen';
+import StoreScreen from '../screens/StoreScreen';
 import UploadScreen from '../screens/UploadScreen';
+import WalletScreen from '../screens/WalletScreen';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors } from '../theme/colors';
 import { RootStackParamList } from '../types';
@@ -116,6 +122,19 @@ export function RootNavigator() {
     });
   }, [authed, passwordRecovery]);
 
+  // Atribución de referido (bloque referidos) -- si esta persona llegó por
+  // un link de invitación (ver referralService.captureReferralFromUrl(),
+  // llamado en App.tsx al boot), recién acá hay sesión real para asociar el
+  // código guardado a su cuenta. No otorga ningún Coin por sí solo -- el
+  // premio real llega después, server-side, cuando complete su primer Scan
+  // (ver la migración: activate_referral_on_first_scan). Sin gate de
+  // passwordRecovery: no depende del flujo de Challenge pendiente y es
+  // seguro de intentar en cuanto hay sesión, se recuperando contraseña o no.
+  useEffect(() => {
+    if (!session) return;
+    tryAttributePendingReferral();
+  }, [session]);
+
   if (isSupabaseConfigured && loading) {
     return (
       <View style={styles.loading}>
@@ -172,6 +191,11 @@ export function RootNavigator() {
                 <Stack.Screen name="Notifications" component={NotificationsScreen} />
                 <Stack.Screen name="PublicProfile" component={PublicProfileScreen} />
                 <Stack.Screen name="Pro" component={ProScreen} />
+                <Stack.Screen name="Wallet" component={WalletScreen} />
+                <Stack.Screen name="Store" component={StoreScreen} />
+                <Stack.Screen name="Help" component={HelpScreen} />
+                <Stack.Screen name="BugReport" component={BugReportScreen} />
+                <Stack.Screen name="Invite" component={InviteScreen} />
               </>
             ) : (
               <Stack.Screen name="Auth" component={AuthScreen} />
