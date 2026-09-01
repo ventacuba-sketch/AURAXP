@@ -139,7 +139,7 @@ export default function AuthScreen() {
     return (
       <ScreenContainer style={styles.container} onBack={canGoBack ? () => navigation.goBack() : undefined}>
         <View style={styles.header}>
-          <Text style={styles.wordmark}>AURAXP</Text>
+          <Text style={styles.wordmark}>AURA VS</Text>
           <Text style={styles.successText}>Esta cuenta ya existe o está pendiente de confirmación.</Text>
         </View>
         {resendNotice && <Text style={styles.resendNotice}>{resendNotice}</Text>}
@@ -161,7 +161,7 @@ export default function AuthScreen() {
     return (
       <ScreenContainer style={styles.container} onBack={canGoBack ? () => navigation.goBack() : undefined}>
         <View style={styles.header}>
-          <Text style={styles.wordmark}>AURAXP</Text>
+          <Text style={styles.wordmark}>AURA VS</Text>
           <Text style={styles.successText}>{successMessage}</Text>
         </View>
         <PrimaryButton label="VOLVER A INICIAR SESIÓN" onPress={() => switchMode('signIn')} />
@@ -173,7 +173,7 @@ export default function AuthScreen() {
     return (
       <ScreenContainer style={styles.container} onBack={canGoBack ? () => navigation.goBack() : undefined}>
         <View style={styles.header}>
-          <Text style={styles.wordmark}>AURAXP</Text>
+          <Text style={styles.wordmark}>AURA VS</Text>
           <Text style={styles.subtitle}>Te mandamos un link para elegir una contraseña nueva.</Text>
         </View>
 
@@ -206,7 +206,7 @@ export default function AuthScreen() {
   return (
     <ScreenContainer style={styles.container} onBack={canGoBack ? () => navigation.goBack() : undefined}>
       <View style={styles.header}>
-        <Text style={styles.wordmark}>AURAXP</Text>
+        <Text style={styles.wordmark}>AURA VS</Text>
         <Text style={styles.subtitle}>
           {mode === 'signIn' ? 'Entra a tu cuenta.' : 'Crea tu cuenta.'}
         </Text>

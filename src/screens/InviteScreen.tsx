@@ -37,7 +37,7 @@ export default function InviteScreen() {
   async function handleInvite() {
     if (!info) return;
     logEvent('referral_sent');
-    await shareText('Te invito a AURAXP -- medí tu Aura y ganá Coins con tu primer Scan ⚡', info.shareUrl);
+    await shareText('Te invito a AURA VS -- medí tu Aura y ganá Coins con tu primer Scan ⚡', info.shareUrl);
   }
 
   return (

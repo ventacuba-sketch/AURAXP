@@ -527,7 +527,7 @@ export default function ProfileScreen() {
         <Pressable onPress={handleManualInstall}>
           <Card style={styles.linkCard}>
             <View style={styles.installCardInfo}>
-              <Text style={styles.linkCardLabel}>📲 Instalar AURAXP</Text>
+              <Text style={styles.linkCardLabel}>📲 Instalar AURA VS</Text>
               <Text style={styles.installCardSubtitle}>Acceso directo en tu teléfono</Text>
             </View>
             <Text style={styles.linkCardArrow}>›</Text>

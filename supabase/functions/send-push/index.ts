@@ -57,11 +57,11 @@ interface NotificationRow {
 function buildMessage(n: NotificationRow, rivalUsername: string): { title: string; body: string } {
   switch (n.kind) {
     case 'challenge_received':
-      return { title: 'AURAXP ⚔️', body: `@${rivalUsername} te desafió` };
+      return { title: 'AURA VS ⚔️', body: `@${rivalUsername} te desafió` };
     case 'challenge_accepted':
-      return { title: 'AURAXP ⚔️', body: `@${rivalUsername} aceptó tu desafío` };
+      return { title: 'AURA VS ⚔️', body: `@${rivalUsername} aceptó tu desafío` };
     case 'challenge_rejected':
-      return { title: 'AURAXP', body: `@${rivalUsername} rechazó tu desafío` };
+      return { title: 'AURA VS', body: `@${rivalUsername} rechazó tu desafío` };
     case 'challenge_completed':
       if (n.result === 'won') return { title: '🏆 Ganaste la batalla', body: `Le ganaste a @${rivalUsername}` };
       if (n.result === 'lost') return { title: '💀 Perdiste la batalla', body: `@${rivalUsername} te ganó` };
@@ -73,7 +73,7 @@ function buildMessage(n: NotificationRow, rivalUsername: string): { title: strin
     case 'referral_activated':
       return { title: '🎉 Coins ganados', body: `@${rivalUsername} hizo su primer Scan -- ganaste 5.000 Coins` };
     case 'new_follower':
-      return { title: 'AURAXP', body: `@${rivalUsername} empezó a seguirte` };
+      return { title: 'AURA VS', body: `@${rivalUsername} empezó a seguirte` };
     case 'gift_received':
       return { title: '🎁 Recibiste un regalo', body: `@${rivalUsername} te mandó un regalo` };
   }

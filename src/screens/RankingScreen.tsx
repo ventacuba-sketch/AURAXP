@@ -77,7 +77,7 @@ export default function RankingScreen() {
   // propio (el usuario puede ya tener Scans y aun así ver esto si es de
   // los primeros), así que la acción con sentido es invitar, no escanear.
   function handleInviteFriends() {
-    shareText('Compito por el Top Aura en AURAXP -- ¿te animas? 🏆', 'https://auravs.app');
+    shareText('Compito por el Top Aura en AURA VS -- ¿te animas? 🏆', 'https://auravs.app');
   }
 
   const entries = tab === 'xp' ? xpEntries : auraEntries;

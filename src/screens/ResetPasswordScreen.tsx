@@ -52,10 +52,10 @@ export default function ResetPasswordScreen() {
     return (
       <ScreenContainer style={styles.container}>
         <View style={styles.header}>
-          <Text style={styles.wordmark}>AURAXP</Text>
+          <Text style={styles.wordmark}>AURA VS</Text>
           <Text style={styles.successText}>Contraseña actualizada.</Text>
         </View>
-        <PrimaryButton label="ENTRAR A AURAXP" onPress={clearPasswordRecovery} />
+        <PrimaryButton label="ENTRAR A AURA VS" onPress={clearPasswordRecovery} />
       </ScreenContainer>
     );
   }
@@ -63,7 +63,7 @@ export default function ResetPasswordScreen() {
   return (
     <ScreenContainer style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.wordmark}>AURAXP</Text>
+        <Text style={styles.wordmark}>AURA VS</Text>
         <Text style={styles.subtitle}>Elige tu nueva contraseña.</Text>
       </View>
 

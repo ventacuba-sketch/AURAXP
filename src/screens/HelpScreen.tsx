@@ -15,13 +15,33 @@ const FAQ: { q: string; a: string }[] = [
   { q: '¿Cómo funciona XP?', a: 'Ganas XP por cada Scan y por Challenges completados -- sube tu nivel y tu posición en el ranking.' },
   {
     q: '¿Cómo funcionan los Coins?',
-    a: 'Una moneda propia de AURAXP para la tienda (cosméticos, efectos, regalos) -- nunca compran Aura, XP ni victorias.',
+    a: 'Una moneda propia de AURA VS para la tienda (cosméticos, efectos, regalos) -- nunca compran Aura, XP ni victorias.',
+  },
+  {
+    q: '¿Qué puedo comprar con Coins?',
+    a: 'Consumibles, efectos visuales, cosméticos para tu perfil (marcos, insignias) y regalos para mandarle a otros usuarios.',
+  },
+  {
+    q: '¿Qué NO puedo comprar con Coins?',
+    a: 'Nunca Aura, XP, votos, victorias ni ninguna ventaja competitiva. Los Coins son 100% cosméticos/sociales.',
+  },
+  {
+    q: '¿Cómo funcionan las misiones diarias?',
+    a: 'Cada día podés reclamar Coins por hacer un Scan, completar un Challenge y compartir un resultado -- hasta ~400 Coins/día. Se reinician a la medianoche (UTC).',
+  },
+  {
+    q: '¿Cómo funcionan los referidos?',
+    a: 'Compartí tu código desde "Invitar amigos". Cuando la persona invitada completa su primer Scan, vos ganás 5.000 Coins y ella 2.500 -- nunca por solo registrarse.',
   },
   {
     q: '¿Cómo funcionan los Challenges?',
     a: 'Desafía a un amigo (por link o directo desde su perfil) -- cuando ambos escanean, se compara el resultado y hay un ganador.',
   },
-  { q: '¿Cómo instalo AURAXP en mi teléfono?', a: 'Desde Perfil, tocá "Instalar AURAXP" y seguí la guía según tu dispositivo.' },
+  {
+    q: '¿Qué es PRO?',
+    a: 'Una suscripción con beneficios extra, incluyendo un bono mensual de Coins -- se administra desde tu perfil, es independiente de la economía normal de Coins.',
+  },
+  { q: '¿Cómo instalo AURA VS en mi teléfono?', a: 'Desde Perfil, tocá "Instalar AURA VS" y seguí la guía según tu dispositivo.' },
   {
     q: 'Privacidad',
     a: 'Tu email, plan y videos son privados. Lo único público de tu perfil es username, avatar, nivel, XP y tus stats de Challenge.',

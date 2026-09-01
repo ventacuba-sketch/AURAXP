@@ -90,7 +90,7 @@ export default function HomeScreen() {
   return (
     <ScreenContainer scroll>
       <View style={styles.topRow}>
-        <Text style={styles.wordmark}>AURAXP</Text>
+        <Text style={styles.wordmark}>AURA VS</Text>
         <Pressable onPress={() => navigation.navigate('Notifications')} style={styles.bellButton} hitSlop={8}>
           <Text style={styles.bellIcon}>🔔</Text>
           {unreadCount > 0 && (
@@ -127,7 +127,7 @@ export default function HomeScreen() {
       <View style={styles.hero}>
         <Text style={styles.headline}>¿CUÁNTA AURA TIENES?</Text>
         <Text style={styles.heroSubtitle}>
-          Sube un momento. AURAXP te dice dónde ganaste o perdiste Aura.
+          Sube un momento. AURA VS te dice dónde ganaste o perdiste Aura.
         </Text>
         <PrimaryButton label="ESCANEAR MI AURA" onPress={() => navigation.navigate('Upload')} />
       </View>

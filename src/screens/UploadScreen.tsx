@@ -25,7 +25,7 @@ interface PickedVideo {
 const GUIDELINES = [
   'Máximo 8 segundos',
   'Procura que se vea la acción completa.',
-  'AURAXP analiza el momento, no tu apariencia.',
+  'AURA VS analiza el momento, no tu apariencia.',
 ];
 
 export default function UploadScreen() {
@@ -110,7 +110,7 @@ export default function UploadScreen() {
   async function handlePickFromLibrary() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      notify('Falta permiso', 'AURAXP necesita acceso a tus videos para subir uno.');
+      notify('Falta permiso', 'AURA VS necesita acceso a tus videos para subir uno.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'] });

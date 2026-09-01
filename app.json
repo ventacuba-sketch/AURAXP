@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "AURAXP",
+    "name": "AURA VS",
     "slug": "auraxp",
     "version": "1.0.0",
     "scheme": "auraxp",
@@ -29,8 +29,8 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "AURAXP necesita acceso a la cámara para grabar tu momento.",
-          "microphonePermission": "AURAXP necesita acceso al micrófono para grabar el audio de tu video."
+          "cameraPermission": "AURA VS necesita acceso a la cámara para grabar tu momento.",
+          "microphonePermission": "AURA VS necesita acceso al micrófono para grabar el audio de tu video."
         }
       ]
     ]
