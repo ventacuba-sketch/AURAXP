@@ -4,11 +4,31 @@
 -- se apoyan Tienda/Inventario/Regalos/Follow (siguiente migración) y,
 -- más adelante, Group Battles/AURA LIVE. Todo server-side a propósito:
 -- ningún saldo se confía nunca al cliente.
+--
+-- NOTA (re-alineación con producción, auditoría posterior): producción
+-- ya tiene este bloque aplicado -- vía una migración equivalente
+-- endurecida aplicada directamente durante una auditoría -- pero con
+-- CORRECCIONES sobre lo que había acá originalmente. Esta migración se
+-- reescribió para (1) ser 100% idempotente contra una base que YA tiene
+-- estos objetos (CREATE TABLE/INDEX IF NOT EXISTS, políticas con DROP
+-- POLICY IF EXISTS + CREATE POLICY, ADD COLUMN IF NOT EXISTS, CREATE OR
+-- REPLACE FUNCTION/TRIGGER) y (2) incorporar esas correcciones, para que
+-- una base NUEVA termine exactamente en el mismo estado que producción:
+--   - apply_coin_transaction() ahora bloquea la wallet (FOR UPDATE)
+--     ANTES de revisar el idempotency_key, no después -- cierra una
+--     race condition real: dos requests simultáneas con la misma
+--     idempotency_key podían, en la versión vieja, pasar la revisión de
+--     idempotencia AL MISMO TIEMPO (ninguna veía todavía la fila del
+--     otro) y terminar aplicando el movimiento dos veces.
+--   - Los RPC internos/privados quedan con su EXECUTE revocado de
+--     public/anon explícitamente (antes dependían solo del default de
+--     Postgres, que da EXECUTE a PUBLIC en toda función nueva salvo que
+--     se revoque a mano).
 
 -- ============================================================
 -- A) Wallet + ledger inmutable
 -- ============================================================
-create table wallets (
+create table if not exists wallets (
   user_id uuid primary key references profiles(id) on delete cascade,
   balance bigint not null default 0 check (balance >= 0),
   updated_at timestamptz not null default now()
@@ -16,6 +36,7 @@ create table wallets (
 
 alter table wallets enable row level security;
 
+drop policy if exists "wallets_select_own" on wallets;
 create policy "wallets_select_own" on wallets
   for select using (auth.uid() = user_id);
 
@@ -32,7 +53,7 @@ grant select on wallets to authenticated;
 -- no global) es la defensa real contra doble-cobro/doble-recompensa por
 -- un reintento de red o un doble tap -- mismo criterio que ya usa
 -- create_direct_challenge para Challenges duplicados.
-create table coin_transactions (
+create table if not exists coin_transactions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(id) on delete cascade,
   amount bigint not null check (amount <> 0),
@@ -48,15 +69,16 @@ create table coin_transactions (
   created_at timestamptz not null default now()
 );
 
-create index coin_transactions_user_id_created_idx on coin_transactions (user_id, created_at desc);
+create index if not exists coin_transactions_user_id_created_idx on coin_transactions (user_id, created_at desc);
 -- Único POR USUARIO (no global) -- dos usuarios distintos pueden tener
 -- coincidentemente la misma key (p. ej. si algún día se arma a partir de
 -- un id de fila ajena), pero el mismo usuario nunca puede aplicar la
 -- misma key dos veces.
-create unique index coin_transactions_user_idempotency_idx on coin_transactions (user_id, idempotency_key) where idempotency_key is not null;
+create unique index if not exists coin_transactions_user_idempotency_idx on coin_transactions (user_id, idempotency_key) where idempotency_key is not null;
 
 alter table coin_transactions enable row level security;
 
+drop policy if exists "coin_transactions_select_own" on coin_transactions;
 create policy "coin_transactions_select_own" on coin_transactions
   for select using (auth.uid() = user_id);
 
@@ -70,6 +92,19 @@ grant select on coin_transactions to authenticated;
 -- regla de negocio y recién then llama a esta -- nunca se expone
 -- directo, así ninguna pantalla puede "acreditarse" Coins inventando un
 -- `type`/`amount` propio.
+--
+-- CORRECCIÓN (auditoría): el orden real ahora es
+--   1) LOCK de la wallet (FOR UPDATE)
+--   2) recién ahí, revisar el idempotency_key
+-- en vez de al revés. Con el orden viejo, dos requests concurrentes con
+-- la MISMA idempotency_key podían las dos pasar el chequeo de
+-- idempotencia (ninguna había insertado todavía la fila de
+-- coin_transactions) antes de que cualquiera tomara el lock de la
+-- wallet, y las dos terminaban aplicando el movimiento -- doble cobro o
+-- doble recompensa real. Con el lock primero, la segunda request queda
+-- bloqueada hasta que la primera termine (commit); cuando por fin puede
+-- tomar el lock, el idempotency_key YA existe (insertado por la primera)
+-- y devuelve el resultado ya aplicado sin tocar el saldo de nuevo.
 create or replace function public.apply_coin_transaction(
   p_user_id uuid,
   p_amount bigint,
@@ -89,9 +124,20 @@ declare
   v_existing_id uuid;
   v_existing_balance bigint;
 begin
-  -- Idempotencia real (J/O): un reintento con la MISMA key nunca vuelve a
-  -- aplicar el movimiento -- devuelve el resultado ya aplicado, sin tocar
-  -- el saldo una segunda vez.
+  -- 1) Lock PRIMERO -- ninguna otra transacción concurrente sobre esta
+  -- misma wallet puede avanzar mientras esta no termine (commit/rollback).
+  select balance into v_balance from wallets where user_id = p_user_id for update;
+  if not found then
+    return query select false, null::bigint, 'no_wallet', null::uuid;
+    return;
+  end if;
+
+  -- 2) Recién con el lock tomado, revisar idempotencia (J/O): un
+  -- reintento con la MISMA key nunca vuelve a aplicar el movimiento --
+  -- devuelve el resultado ya aplicado, sin tocar el saldo una segunda
+  -- vez. Cualquier otra request concurrente con la misma key quedó
+  -- bloqueada en el FOR UPDATE de arriba hasta que esta termine, así que
+  -- este chequeo ya ve el estado final real, nunca uno a medio aplicar.
   if p_idempotency_key is not null then
     select id, balance_after into v_existing_id, v_existing_balance
     from coin_transactions
@@ -101,12 +147,6 @@ begin
       return query select true, v_existing_balance, null::text, v_existing_id;
       return;
     end if;
-  end if;
-
-  select balance into v_balance from wallets where user_id = p_user_id for update;
-  if not found then
-    return query select false, null::bigint, 'no_wallet', null::uuid;
-    return;
   end if;
 
   v_new_balance := v_balance + p_amount;
@@ -187,7 +227,12 @@ begin
 end;
 $$;
 
-create trigger on_profile_created_wallet
+-- Función de trigger -- nadie la llama directo (Postgres ya lo impide
+-- estructuralmente), pero se revoca el EXECUTE por defecto de PUBLIC
+-- igual, mismo criterio que apply_coin_transaction.
+revoke execute on function public.create_wallet_for_new_profile() from public, anon, authenticated;
+
+create or replace trigger on_profile_created_wallet
   after insert on profiles
   for each row execute function public.create_wallet_for_new_profile();
 
@@ -199,7 +244,7 @@ insert into coin_transactions (user_id, amount, balance_after, type)
 select id, 1000, 1000, 'signup_bonus' from profiles p
 where not exists (select 1 from coin_transactions t where t.user_id = p.id and t.type = 'signup_bonus');
 
-alter table profiles add column referral_code text unique;
+alter table profiles add column if not exists referral_code text unique;
 
 do $$
 declare
@@ -231,7 +276,7 @@ end $$;
 -- RE-VALIDA la condición server-side (nunca se confía en que el
 -- cliente "dice" que la cumplió) y se garantiza un solo cobro por
 -- misión por día via el UNIQUE de abajo.
-create table mission_claims (
+create table if not exists mission_claims (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(id) on delete cascade,
   mission_key text not null check (mission_key in ('scan', 'challenge', 'share', 'streak')),
@@ -243,6 +288,7 @@ create table mission_claims (
 
 alter table mission_claims enable row level security;
 
+drop policy if exists "mission_claims_select_own" on mission_claims;
 create policy "mission_claims_select_own" on mission_claims
   for select using (auth.uid() = user_id);
 
@@ -338,12 +384,16 @@ begin
 end;
 $$;
 
+-- "authenticated sí, anon no" -- sin este REVOKE explícito, el default
+-- de Postgres (EXECUTE a PUBLIC en toda función nueva) dejaría esto
+-- llamable también por `anon`.
+revoke execute on function public.claim_mission_reward(text) from public, anon;
 grant execute on function public.claim_mission_reward(text) to authenticated;
 
 -- ============================================================
 -- D) Referidos -- premio SOLO cuando el referido completa su primer Scan
 -- ============================================================
-create table referrals (
+create table if not exists referrals (
   id uuid primary key default gen_random_uuid(),
   referrer_id uuid not null references profiles(id) on delete cascade,
   -- unique: un mismo usuario referido solo puede quedar atribuido UNA
@@ -356,10 +406,11 @@ create table referrals (
   constraint referrals_no_self check (referrer_id <> referred_id)
 );
 
-create index referrals_referrer_id_idx on referrals (referrer_id);
+create index if not exists referrals_referrer_id_idx on referrals (referrer_id);
 
 alter table referrals enable row level security;
 
+drop policy if exists "referrals_select_own" on referrals;
 create policy "referrals_select_own" on referrals
   for select using (auth.uid() = referrer_id or auth.uid() = referred_id);
 
@@ -404,6 +455,9 @@ begin
 end;
 $$;
 
+-- "authenticated sí, anon no" -- ver comentario equivalente en
+-- claim_mission_reward.
+revoke execute on function public.attribute_referral(text) from public, anon;
 grant execute on function public.attribute_referral(text) to authenticated;
 
 -- Activación real (anti-abuso J: "premio SOLO cuando complete su primer
@@ -454,7 +508,12 @@ exception when others then
 end;
 $$;
 
-create trigger scans_referral_activation_trigger
+-- Función de trigger -- nadie la llama directo (Postgres ya lo impide
+-- estructuralmente), pero se revoca el EXECUTE por defecto de PUBLIC
+-- igual, mismo criterio que apply_coin_transaction/create_wallet_for_new_profile.
+revoke execute on function public.activate_referral_on_first_scan() from public, anon, authenticated;
+
+create or replace trigger scans_referral_activation_trigger
   after update of status on scans
   for each row
   when (new.status = 'done' and old.status is distinct from 'done')

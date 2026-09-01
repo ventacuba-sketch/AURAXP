@@ -4,8 +4,15 @@
 -- ese archivo: se llama desde ahí, una vez por cada sync (hasta cada
 -- hora una vez que el cron esté vivo -- ver auditoría de dLocal del
 -- bloque anterior), y esta función decide sola si ya corresponde o no.
+--
+-- NOTA (re-alineación con producción, auditoría posterior): producción
+-- ya tiene este bloque aplicado -- vía una migración equivalente. Esta
+-- migración se reescribió solo para ser idempotente (ADD COLUMN IF NOT
+-- EXISTS) contra una base que ya tiene la columna; la función en sí no
+-- tuvo correcciones (ya bloqueaba la fila con FOR UPDATE y ya tenía su
+-- EXECUTE revocado de public/anon/authenticated desde el principio).
 
-alter table profiles add column pro_coins_credited_month text;
+alter table profiles add column if not exists pro_coins_credited_month text;
 
 create or replace function public.credit_pro_monthly_coins(p_user_id uuid)
 returns table (ok boolean, credited boolean)
