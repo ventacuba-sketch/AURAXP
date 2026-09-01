@@ -389,6 +389,20 @@ export default function ProfileScreen() {
       {streak && streak.bestStreak > streak.currentStreak && (
         <Text style={styles.bestStreakText}>Mejor racha: {streak.bestStreak} días</Text>
       )}
+      {/* Siguiente hito (bloque racha) -- puramente informativo, no cambia
+          el cálculo real del bono (min(racha,5)*10, ver claim_mission_
+          reward): antes del día 5 avisa cuánto falta para el bono máximo,
+          de ahí en más marca el próximo múltiplo de 5 como hito de hábito
+          (sin techo de Coins extra, solo un objetivo visual). */}
+      {streak && (
+        <Text style={styles.streakMilestoneText}>
+          {streak.currentStreak === 0
+            ? 'Hacé un Scan hoy para arrancar tu racha 🔥'
+            : streak.currentStreak < 5
+              ? `Bono de racha sube hasta el día 5 -- ${5 - streak.currentStreak} día${5 - streak.currentStreak === 1 ? '' : 's'} más para el máximo`
+              : `Próximo hito de racha: ${streak.currentStreak - (streak.currentStreak % 5) + 5} días`}
+        </Text>
+      )}
 
       <DailyScanCounter />
 
@@ -709,6 +723,12 @@ const styles = StyleSheet.create({
   bestStreakText: {
     ...typography.caption,
     color: colors.textMuted,
+    marginTop: -spacing.sm,
+    marginBottom: spacing.md,
+  },
+  streakMilestoneText: {
+    ...typography.caption,
+    color: colors.accent,
     marginTop: -spacing.sm,
     marginBottom: spacing.md,
   },

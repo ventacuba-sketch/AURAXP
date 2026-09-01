@@ -15,6 +15,7 @@ import { useScanResult } from '../hooks/useScanResult';
 import { useSmartBack } from '../hooks/useSmartBack';
 import { requestInstallInvite } from '../services/installService';
 import { requestNotificationInvite } from '../services/pushService';
+import { markFirstResultSeen } from '../services/onboardingService';
 import { getVideoPlaybackUrl } from '../services/scanService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { RootStackParamList } from '../types';
@@ -42,6 +43,11 @@ export default function ScanResultScreen() {
   // verdad acá, no solo en la Tienda: borde dorado + una fila del emoji
   // del efecto arriba del puntaje.
   const [resultEffect, setResultEffect] = useState<PublicEquippedItem | null>(null);
+  // Onboarding (bloque 12) -- highlight liviano, no bloqueante, mostrado
+  // UNA sola vez por dispositivo (ver onboardingService): introduce Coins/
+  // Wallet justo cuando ya tienen sentido (recién vio su primer resultado
+  // real), sin sumar una pantalla ni un paso más al flujo.
+  const [showFirstResultHighlight, setShowFirstResultHighlight] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -67,6 +73,17 @@ export default function ScanResultScreen() {
     if (!result) return;
     const showedInstall = requestInstallInvite('scan_completed');
     if (!showedInstall) requestNotificationInvite('scan_completed');
+  }, [result]);
+
+  useEffect(() => {
+    if (!result) return;
+    let cancelled = false;
+    markFirstResultSeen().then((isFirst) => {
+      if (!cancelled && isFirst) setShowFirstResultHighlight(true);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [result]);
 
   async function handleShare() {
@@ -195,6 +212,35 @@ export default function ScanResultScreen() {
         </Pressable>
       )}
 
+      {/* Highlight de Coins/Wallet (bloque 12, onboarding) -- una sola vez
+          por dispositivo, justo cuando ya tiene sentido: recién vio su
+          primer resultado real. No es un modal ni un paso extra, es una
+          card chica y descartable en el mismo flujo. */}
+      {showFirstResultHighlight && (
+        <Card style={styles.onboardingCard}>
+          <Text style={styles.onboardingTitle}>🪙 Ya tienes Coins</Text>
+          <Text style={styles.onboardingBody}>
+            Arrancaste con 1.000 Coins. Se ganan más completando misiones diarias, rachas y referidos -- y se usan
+            en la Tienda (nunca compran Aura ni XP).
+          </Text>
+          <View style={styles.onboardingActions}>
+            <View style={styles.onboardingActionButton}>
+              <PrimaryButton
+                label="VER MI WALLET"
+                variant="ghost"
+                onPress={() => {
+                  setShowFirstResultHighlight(false);
+                  navigation.navigate('Wallet');
+                }}
+              />
+            </View>
+            <View style={styles.onboardingActionButton}>
+              <PrimaryButton label="ENTENDIDO" variant="text" onPress={() => setShowFirstResultHighlight(false)} />
+            </View>
+          </View>
+        </Card>
+      )}
+
       <Text style={styles.sectionLabel}>DESGLOSE</Text>
       <Card style={styles.timelineCard}>
         {result.timeline.map((event, index) => (
@@ -304,6 +350,27 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textAlign: 'center',
     marginBottom: spacing.lg,
+  },
+  onboardingCard: {
+    marginBottom: spacing.lg,
+    borderColor: colors.accent,
+  },
+  onboardingTitle: {
+    ...typography.subtitle,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  onboardingBody: {
+    ...typography.body,
+    color: colors.textSecondary,
+    marginBottom: spacing.sm,
+  },
+  onboardingActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  onboardingActionButton: {
+    flex: 1,
   },
   shareNotice: {
     ...typography.caption,
