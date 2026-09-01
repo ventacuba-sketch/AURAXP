@@ -266,34 +266,6 @@ export async function promptNativeInstall(): Promise<'accepted' | 'dismissed' | 
   return outcome;
 }
 
-/**
- * COMPARTIR en la guía de iPhone (C/N) -- abre la hoja nativa de iOS para
- * ahorrarle al usuario buscar el botón de Safari, que es el paso 1 real
- * para "Añadir a pantalla de inicio". Jamás finge seleccionar esa opción
- * por su cuenta -- `navigator.share` no puede hacerlo, ninguna API web
- * puede. Comparte la URL real de la app (no contenido inventado): es lo
- * más honesto que se puede pasar sin que sea una mentira ("mira este
- * resultado" cuando el propósito real es instalar).
- */
-export function canShareForInstall(): boolean {
-  return Platform.OS === 'web' && typeof navigator !== 'undefined' && typeof (navigator as unknown as { share?: unknown }).share === 'function';
-}
-
-export async function shareForInstall(): Promise<void> {
-  if (!canShareForInstall()) return;
-  try {
-    await (navigator as unknown as { share: (data: ShareData) => Promise<void> }).share({
-      title: 'AURAXP',
-      text: '¿Cuánta Aura tienes? Descúbrelo en AURAXP.',
-      url: typeof window !== 'undefined' ? window.location.origin : undefined,
-    });
-  } catch {
-    // AbortError si el usuario cancela la hoja -- no es un error real, no
-    // hay nada que mostrar ni loguear; la guía sigue abierta para que
-    // intente el camino manual (buscar Compartir en Safari) si quiere.
-  }
-}
-
 /** Registra el service worker (R10) -- SOLO existe para cumplir el
  * criterio de instalabilidad de Android/Chrome (manifest + SW con fetch
  * handler); ver public/sw.js -- no cachea nada, cero riesgo de datos

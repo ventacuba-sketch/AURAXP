@@ -1,7 +1,6 @@
 import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { canShareForInstall, shareForInstall } from '../services/installService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { PrimaryButton } from './PrimaryButton';
 
@@ -40,31 +39,43 @@ export function InstallSheet({ visible, variant, onInstall, onDismiss }: Props) 
             <>
               <Text style={styles.title}>LLEVA AURAXP A TU INICIO ⚡</Text>
               <Text style={styles.subtitle}>Entra con un toque, como una app.</Text>
-              <View style={styles.steps}>
-                <Step n={1} icon="⬆️" text="Toca COMPARTIR" />
-                <Step n={2} icon="➕" text='Selecciona "Añadir a pantalla de inicio"' />
-                <Step n={3} icon="✅" text='Confirma "Añadir"' />
-              </View>
-              {/* (C) navigator.share NO puede seleccionar "Añadir a
-                  pantalla de inicio" por su cuenta -- ninguna API web
-                  puede. Esto solo le ahorra al usuario tener que ENCONTRAR
-                  el botón Compartir de Safari; el resto de los pasos los
-                  sigue haciendo él. Si el browser no soporta
-                  navigator.share (Safari viejo, o no-Safari en iOS),
-                  ENTENDIDO ocupa todo el ancho -- la guía sigue siendo
-                  correcta igual, solo sin el atajo. */}
-              {canShareForInstall() ? (
-                <View style={styles.iosButtonsRow}>
-                  <View style={styles.iosButtonHalf}>
-                    <PrimaryButton label="COMPARTIR ⬆️" variant="ghost" onPress={shareForInstall} />
-                  </View>
-                  <View style={styles.iosButtonHalf}>
-                    <PrimaryButton label="ENTENDIDO" onPress={onDismiss} />
-                  </View>
+
+              {/* Mockup CONCEPTUAL de la barra de Safari -- no un overlay
+                  sobre la pantalla real ni una coordenada fija: Safari
+                  puede tener su barra arriba o abajo según el iPhone/
+                  versión de iOS, así que señalar un punto exacto de la
+                  pantalla real rompería en la mitad de los casos. Estilo
+                  deliberadamente gris/neutro (no lima/violeta de AURAXP)
+                  para que se lea como "esto es del navegador", no de la
+                  app -- la leyenda de abajo lo dice también en texto, sin
+                  depender solo del color. */}
+              <View style={styles.safariBar}>
+                <View style={styles.safariBarUrl}>
+                  <Text style={styles.safariBarUrlText} numberOfLines={1}>
+                    🔒 auravs.app
+                  </Text>
                 </View>
-              ) : (
-                <PrimaryButton label="ENTENDIDO" onPress={onDismiss} />
-              )}
+                <View style={styles.safariShareIcon}>
+                  <Text style={styles.safariShareIconGlyph}>⬆</Text>
+                </View>
+              </View>
+              <Text style={styles.safariBarCaption}>
+                El botón Compartir vive en la barra de Safari -- arriba o abajo según tu iPhone -- no dentro de AURAXP.
+              </Text>
+
+              <View style={styles.steps}>
+                <Step n={1} icon="⬆️" text="Toca el botón Compartir de Safari" />
+                <Step n={2} icon="👇" text="Desplázate hacia abajo" />
+                <Step n={3} icon="➕" text='Toca "Añadir a pantalla de inicio"' />
+                <Step n={4} icon="🌐" text='Si aparece, activa "Abrir como app web"' />
+                <Step n={5} icon="✅" text='Toca "Añadir"' />
+              </View>
+
+              <Text style={styles.fallbackHint}>
+                ¿No ves "Añadir a pantalla de inicio"? Desliza hasta el final y toca "Editar acciones" para agregarla.
+              </Text>
+
+              <PrimaryButton label="ENTENDIDO" onPress={onDismiss} />
             </>
           )}
         </View>
@@ -141,11 +152,55 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     flex: 1,
   },
-  iosButtonsRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
+  fallbackHint: {
+    ...typography.caption,
+    color: colors.textMuted,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
   },
-  iosButtonHalf: {
+  // Mockup de barra de Safari -- gris neutro a propósito, ver comentario
+  // en el JSX de arriba: nunca los colores propios de AURAXP acá, la
+  // idea entera es que se lea como "otra interfaz", no como parte de la app.
+  safariBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: '#E8E8ED',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#C7C7CC',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  safariBarUrl: {
     flex: 1,
+    backgroundColor: '#D6D6DC',
+    borderRadius: radius.sm,
+    paddingVertical: 6,
+    paddingHorizontal: spacing.sm,
+  },
+  safariBarUrlText: {
+    ...typography.caption,
+    color: '#1C1C1E',
+    textAlign: 'center',
+  },
+  safariShareIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: radius.sm,
+    borderWidth: 1.5,
+    borderColor: '#1C1C1E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  safariShareIconGlyph: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1C1C1E',
+  },
+  safariBarCaption: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginBottom: spacing.md,
   },
 });
