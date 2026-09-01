@@ -1,0 +1,48 @@
+name: Sync PRO subscriptions (dLocal)
+
+# El cron que faltaba (ver auditoría dLocal/cron de esta tarea):
+# sync-pro-subscriptions ya soporta un modo de sincronización completa
+# (recorre TODAS las suscripciones de dLocal Go y activa/desactiva PRO por
+# email -- ver ese archivo), pero nada lo llamaba periódicamente todavía.
+# Esto lo dispara cada hora -- suficiente para que una alta, renovación,
+# cancelación o pago fallido en dLocal se refleje en `profiles.plan` sin
+# depender únicamente de que la persona vuelva a abrir la app (el otro
+# camino real, `sync-pro-subscriptions` en modo "propio usuario" via
+# AppState, sigue intacto y sin cambios).
+#
+# Por qué GitHub Actions y no un webhook real de dLocal (auditado, ver
+# reporte de esta tarea): el checkout de dLocal Go que usa la app es un
+# link ESTÁTICO sin ningún identificador de AURAXP -- aunque llegara un
+# webhook real, igual habría que cruzarlo por email contra `profiles`
+# (exactamente lo que ya hace este polling). Un webhook ganaría latencia
+# (segundos en vez de hasta 1h) pero no simplicidad -- mismo problema de
+# atribución. Vale la pena migrar a webhook si dLocal Go alguna vez
+# soporta un `external_reference`/metadata por checkout; hasta entonces,
+# el cron es la opción más simple que ya funciona con el mecanismo
+# existente.
+#
+# Requiere un secret nuevo en este repo (Settings -> Secrets -> Actions):
+# DLOCAL_WEBHOOK_SECRET -- el MISMO valor que ya tiene que estar
+# configurado como secret de proyecto en Supabase (DLOCAL_WEBHOOK_SECRET,
+# ver dlocal-webhook/index.ts y sync-pro-subscriptions/index.ts). Sin ese
+# secret configurado acá, este workflow corre pero la función responde 401
+# y no sincroniza nada -- no hay forma de evitar ese paso manual, es un
+# secret que solo el dueño del proyecto puede generar/copiar.
+on:
+  schedule:
+    - cron: '0 * * * *'
+  # Permite dispararlo a mano desde la pestaña Actions sin esperar al cron.
+  workflow_dispatch:
+
+jobs:
+  sync:
+    name: Full sync via dLocal Go API
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call sync-pro-subscriptions (full sync mode)
+        run: |
+          curl -sS -f -X POST \
+            "${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}/functions/v1/sync-pro-subscriptions" \
+            -H "x-webhook-secret: ${{ secrets.DLOCAL_WEBHOOK_SECRET }}" \
+            -H "Content-Type: application/json" \
+            -d '{}'

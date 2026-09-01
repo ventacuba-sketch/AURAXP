@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="%LANG_ISO_CODE%">
+  <head>
+    <meta charset="utf-8" />
+    <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+    <!--
+      Overrides Expo's default web template (the stock one only had
+      `width=device-width, initial-scale=1, shrink-to-fit=no`) --
+      confirmed by reading Expo's own template source
+      (@expo/cli/static/template/index.html) and this project's actual
+      exported dist/index.html, both matched that stock content exactly.
+
+      maximum-scale=1 + user-scalable=no: the missing piece behind every
+      symptom reported (page draggable sideways, content "shifting" off
+      center, buttons feeling offset) -- an accidental pinch/double-tap
+      zoom in Safari does all of that on its own, with zero CSS overflow
+      required to explain it. viewport-fit=cover: unlocks the
+      env(safe-area-inset-*) values that react-native-safe-area-context's
+      web build reads -- ScreenContainer already wraps every screen in a
+      SafeAreaView, but without this the browser reports every inset as
+      0, so it was a no-op on real iPhones until now.
+    -->
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <title>%WEB_TITLE%</title>
+
+    <!--
+      PWA installability (R2). `display: standalone` en el manifest cubre
+      Android/Chrome; iOS Safari NO lo lee para "Añadir a pantalla de
+      inicio" -- necesita estos meta tags propios en paralelo (por eso el
+      theme-color/apple-touch-icon están duplicados acá y no solo en el
+      manifest). start_url/scope del manifest son "/" -- no interfiere con
+      /c/:token (Auth) ni con ninguna otra ruta, el deep link se resuelve
+      igual una vez la app carga, esté instalada o no (I / R9).
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#0B0B12" />
+    <link rel="icon" href="/icon-192.png" sizes="192x192" type="image/png" />
+    <link rel="icon" href="/icon-512.png" sizes="512x512" type="image/png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="AURAXP" />
+
+    <!-- The `react-native-web` recommended style reset: https://necolas.github.io/react-native-web/docs/setup/#root-element -->
+    <style id="expo-reset">
+      /*
+        box-sizing: react-native-web already sets this per-element on
+        every View/Text/TextInput it renders (confirmed in its own
+        source), so nothing inside the app's component tree needs it --
+        this covers only the plain HTML shell (html/body/#root) that
+        sits outside that tree.
+      */
+      *, *::before, *::after {
+        box-sizing: border-box;
+      }
+
+      /* These styles make the body full-height */
+      html,
+      body {
+        height: 100%;
+      }
+
+      /*
+        overflow-x here (not just on body) is the actual fix for "se
+        puede desplazar lateralmente con el dedo": Safari's elastic/
+        rubber-band pan can act on the `html` box independently of
+        `body`'s own overflow, so overflow:hidden on body alone (the
+        stock template's only defense) doesn't reliably stop it on iOS.
+        overscroll-behavior-x is a second, independent guard against the
+        same class of pan/bounce (ignored by browsers that don't support
+        it -- harmless no-op there, not load-bearing on its own).
+      */
+      html,
+      body,
+      #root {
+        width: 100%;
+        max-width: 100vw;
+        margin: 0;
+        overflow-x: hidden;
+        overscroll-behavior-x: none;
+      }
+
+      /* These styles disable body scrolling if you are using <ScrollView> */
+      body {
+        overflow: hidden;
+      }
+      /* These styles make the root element full-height */
+      #root {
+        display: flex;
+        height: 100%;
+        flex: 1;
+      }
+    </style>
+  </head>
+
+  <body>
+    <!-- Use static rendering with Expo Router to support running without JavaScript. -->
+    <noscript>
+      You need to enable JavaScript to run this app.
+    </noscript>
+    <!-- The root element for your Expo app. -->
+    <div id="root"></div>
+  </body>
+</html>

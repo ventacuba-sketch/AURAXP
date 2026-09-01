@@ -2,7 +2,7 @@ import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { colors, radius, spacing, typography } from '../theme/colors';
-import { formatXP, xpProgress } from '../utils/format';
+import { formatLevel, formatXP, xpProgress } from '../utils/format';
 
 interface Props {
   xp: number;
@@ -16,7 +16,7 @@ export function XPBar({ xp, xpToNextLevel, level }: Props) {
   return (
     <View>
       <View style={styles.labelRow}>
-        <Text style={styles.level}>Lvl {level}</Text>
+        <Text style={styles.level}>{formatLevel(level)}</Text>
         <Text style={styles.xpText}>
           {formatXP(xp)} / {formatXP(xpToNextLevel)}
         </Text>
@@ -35,7 +35,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
   },
   level: {
-    ...typography.caption,
+    ...typography.eyebrow,
     color: colors.secondary,
   },
   xpText: {

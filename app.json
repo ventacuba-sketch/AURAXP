@@ -3,6 +3,7 @@
     "name": "AURAXP",
     "slug": "auraxp",
     "version": "1.0.0",
+    "scheme": "auraxp",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -20,7 +21,18 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
-      "favicon": "./assets/favicon.png"
-    }
+      "favicon": "./assets/favicon.png",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-video",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "AURAXP necesita acceso a la cámara para grabar tu momento.",
+          "microphonePermission": "AURAXP necesita acceso al micrófono para grabar el audio de tu video."
+        }
+      ]
+    ]
   }
 }

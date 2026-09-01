@@ -6,22 +6,44 @@ import { colors, radius, spacing, typography } from '../theme/colors';
 interface Props {
   label: string;
   onPress?: () => void;
-  variant?: 'primary' | 'ghost';
+  variant?: 'primary' | 'ghost' | 'text';
+  disabled?: boolean;
 }
 
-export function PrimaryButton({ label, onPress, variant = 'primary' }: Props) {
-  const isPrimary = variant === 'primary';
+/**
+ * The one button component for every CTA in the app.
+ * - `primary`: filled accent — the main action on a screen.
+ * - `ghost`: outlined — secondary action (e.g. "SHARE RESULT").
+ * - `text`: no fill/border — tertiary/low-emphasis action (e.g. "SCAN AGAIN").
+ */
+export function PrimaryButton({ label, onPress, variant = 'primary', disabled = false }: Props) {
+  // Primary gets an unmistakable inactive look (flat grey, muted text) rather
+  // than just a dimmed accent — so "can I tap this yet" is never ambiguous.
+  const primaryDisabled = variant === 'primary' && disabled;
 
   return (
     <Pressable
-      onPress={onPress}
+      onPress={disabled ? undefined : onPress}
+      disabled={disabled}
       style={({ pressed }) => [
         styles.base,
-        isPrimary ? styles.primary : styles.ghost,
-        pressed && styles.pressed,
+        variant === 'primary' && styles.primary,
+        primaryDisabled && styles.primaryDisabled,
+        variant === 'ghost' && styles.ghost,
+        variant === 'text' && styles.text,
+        disabled && !primaryDisabled && styles.disabled,
+        pressed && !disabled && styles.pressed,
       ]}
     >
-      <Text style={[styles.label, isPrimary ? styles.labelPrimary : styles.labelGhost]}>
+      <Text
+        style={[
+          styles.label,
+          variant === 'primary' && styles.labelPrimary,
+          primaryDisabled && styles.labelPrimaryDisabled,
+          variant === 'ghost' && styles.labelGhost,
+          variant === 'text' && styles.labelText,
+        ]}
+      >
         {label}
       </Text>
     </Pressable>
@@ -39,10 +61,22 @@ const styles = StyleSheet.create({
   primary: {
     backgroundColor: colors.accent,
   },
+  primaryDisabled: {
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   ghost: {
     backgroundColor: 'transparent',
     borderWidth: 1,
     borderColor: colors.border,
+  },
+  text: {
+    backgroundColor: 'transparent',
+    paddingVertical: spacing.sm,
+  },
+  disabled: {
+    opacity: 0.4,
   },
   pressed: {
     opacity: 0.8,
@@ -51,9 +85,15 @@ const styles = StyleSheet.create({
     ...typography.subtitle,
   },
   labelPrimary: {
-    color: colors.background,
+    color: colors.onAccent,
+  },
+  labelPrimaryDisabled: {
+    color: colors.textMuted,
   },
   labelGhost: {
     color: colors.textPrimary,
+  },
+  labelText: {
+    color: colors.accent,
   },
 });

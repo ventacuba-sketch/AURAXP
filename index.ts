@@ -1,3 +1,8 @@
+// Debe importarse antes que cualquier código que use `fetch`/`URL` (incluido
+// @supabase/supabase-js) — React Native no trae una implementación completa
+// de URL, y sin este polyfill supabase-js falla en tiempo de ejecución.
+import 'react-native-url-polyfill/auto';
+
 import { registerRootComponent } from 'expo';
 
 import App from './App';
