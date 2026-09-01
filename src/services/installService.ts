@@ -1,6 +1,9 @@
 import { Platform } from 'react-native';
 
 import { logEvent } from './analyticsService';
+import { createNudgePolicy, isLaterSession } from '../utils/nudgePolicy';
+
+export { isLaterSession };
 
 /**
  * Instalabilidad de AURAXP como PWA (sección R, reescrito en el bloque de
@@ -49,11 +52,7 @@ import { logEvent } from './analyticsService';
 
 // ---- Estado persistido (localStorage, por dispositivo/navegador) ----
 const LS_INSTALLED = 'auraxp_pwa_installed';
-const LS_VALUE_SIGNAL = 'auraxp_pwa_value_signal';
-const LS_DISMISSED_COUNT = 'auraxp_pwa_dismissed_count';
-const LS_LAST_SHOWN_AT = 'auraxp_pwa_last_shown_at';
-const LS_ACTIONS_SINCE_SHOWN = 'auraxp_pwa_actions_since_shown';
-const LS_SESSION_COUNT = 'auraxp_pwa_session_count';
+const policy = createNudgePolicy('auraxp_pwa');
 
 function ls(): Storage | null {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
@@ -66,12 +65,6 @@ function ls(): Storage | null {
     // peor caso solo no recuerda que ya se mostró antes).
     return null;
   }
-}
-
-function readNumber(key: string): number {
-  const raw = ls()?.getItem(key);
-  const n = Number(raw);
-  return Number.isFinite(n) ? n : 0;
 }
 
 /**
@@ -109,75 +102,22 @@ async function markInstalled(source: 'appinstalled' | 'standalone_detected'): Pr
   await logEvent('pwa_installed', { source });
 }
 
-function hasValueSignal(): boolean {
-  return ls()?.getItem(LS_VALUE_SIGNAL) === '1';
-}
-
-// ---- Sesión: una carga de página real, no cada navegación interna ----
-// Se calcula UNA vez al importar el módulo (equivalente a "se abrió la
-// app"), no en cada render -- así "próximas sesiones" (A) significa
-// literalmente eso, nunca "volvió a la pestaña Home".
-let currentSessionCount = 1;
-if (Platform.OS === 'web' && typeof window !== 'undefined') {
-  try {
-    currentSessionCount = readNumber(LS_SESSION_COUNT) + 1;
-    window.localStorage.setItem(LS_SESSION_COUNT, String(currentSessionCount));
-  } catch {
-    // sin persistencia (ver ls()) -- se trata como primera sesión siempre.
-  }
-}
-export function isLaterSession(): boolean {
-  return currentSessionCount >= 2;
-}
-
-let shownThisSession = false;
-
 /**
  * Registra una señal de valor real -- llamar SOLO desde un momento
  * genuino (Scan completado, Challenge completado, resultado compartido),
  * nunca desde un render o una navegación de por sí. Idempotente: llamarla
  * varias veces (p. ej. cada Scan, no solo el primero) no rompe nada --
  * cada llamada también cuenta como "otra acción importante" para la
- * política de reaparición (B).
+ * política de reaparición (B). Política compartida con el recordatorio
+ * de notificaciones (ver utils/nudgePolicy.ts) -- misma mecánica, estado
+ * propio (`auraxp_pwa_*`), nunca se pisan entre sí.
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- `kind` no
 // distingue nada en la política hoy, pero queda tipado en la firma por si
 // en el futuro alguna acción debiera pesar distinto (p. ej. un Challenge
 // completado siendo una señal más fuerte que un share).
 export function recordMeaningfulAction(kind: 'scan_completed' | 'result_shared' | 'challenge_completed'): void {
-  ls()?.setItem(LS_VALUE_SIGNAL, '1');
-  ls()?.setItem(LS_ACTIONS_SINCE_SHOWN, String(readNumber(LS_ACTIONS_SINCE_SHOWN) + 1));
-  // Solo bookkeeping local -- ningún evento de analítica acá a propósito;
-  // 'pwa_install_prompt_shown' se loguea únicamente cuando el cartel
-  // REALMENTE se muestra (ver requestInstallInvite), no cada vez que se
-  // demuestra valor.
-}
-
-// Backoff por cuántas veces ya cerró el cartel (B): corto al principio,
-// más largo después de varios rechazos -- nunca un cooldown fijo único.
-function minGapMsForDismissedCount(n: number): number {
-  if (n <= 0) return 0; // primera vez -- sin piso de tiempo, solo la señal de valor importa
-  if (n <= 2) return 6 * 60 * 60 * 1000; // 6h -- básicamente "la próxima vez que abra la app"
-  if (n <= 5) return 3 * 24 * 60 * 60 * 1000; // 3 días
-  return 7 * 24 * 60 * 60 * 1000; // 7 días -- techo para quien ya rechazó muchas veces
-}
-
-const ACTIONS_NEEDED_TO_REPEAT = 2; // "después de OTRA acción importante", no la próxima inmediata
-
-function policyAllowsShowingNow(): boolean {
-  if (Platform.OS !== 'web') return false;
-  if (isStandalone() || hasInstalledFlag()) return false;
-  if (shownThisSession) return false; // máximo 1 por sesión, sin excepción
-  if (!hasValueSignal()) return false;
-
-  const dismissedCount = readNumber(LS_DISMISSED_COUNT);
-  const neededActions = dismissedCount === 0 ? 1 : ACTIONS_NEEDED_TO_REPEAT;
-  if (readNumber(LS_ACTIONS_SINCE_SHOWN) < neededActions) return false;
-
-  const gap = Date.now() - readNumber(LS_LAST_SHOWN_AT);
-  if (gap < minGapMsForDismissedCount(dismissedCount)) return false;
-
-  return true;
+  policy.recordAction();
 }
 
 type InviteListener = (variant: 'ios' | 'android') => void;
@@ -195,27 +135,30 @@ export function subscribeInstallInvite(fn: InviteListener): () => void {
 
 /**
  * Pide mostrar la invitación AHORA, en este `context` -- la política
- * decide si de verdad corresponde (ver policyAllowsShowingNow). Llamar
- * desde cualquier checkpoint real: después de un Scan/Challenge/share
- * completado, al volver a Home en una sesión posterior, o al abrir
- * Perfil. Es seguro llamarla desde varios lugares en la misma sesión --
- * el gate de "máximo 1 por sesión" hace que solo el primero que la pase
- * de verdad muestre algo.
+ * decide si de verdad corresponde. Llamar desde cualquier checkpoint
+ * real: después de un Scan/Challenge/share completado, al volver a Home
+ * en una sesión posterior, o al abrir Perfil. Es seguro llamarla desde
+ * varios lugares en la misma sesión -- el gate de "máximo 1 por sesión"
+ * hace que solo el primero que la pase de verdad muestre algo.
  */
-export function requestInstallInvite(context: string): void {
-  if (!policyAllowsShowingNow()) return;
+/** Devuelve true si de verdad mostró algo -- los checkpoints que llaman
+ * TANTO a esto como a pushService.requestNotificationInvite() usan el
+ * valor de retorno para encadenarlos (mostrar como mucho uno de los dos
+ * por checkpoint, nunca los dos compitiendo a la vez). */
+export function requestInstallInvite(context: string): boolean {
+  if (isStandalone() || hasInstalledFlag()) return false;
   const ios = isIOS();
-  if (!ios && !hasNativePrompt()) return; // nunca un botón muerto -- ni la guía de iOS tiene sentido si no es iOS
+  // nunca un botón muerto -- ni la guía de iOS tiene sentido si no es iOS
+  if (!policy.canShowNow(() => ios || hasNativePrompt())) return false;
 
-  shownThisSession = true;
-  ls()?.setItem(LS_LAST_SHOWN_AT, String(Date.now()));
-  ls()?.setItem(LS_ACTIONS_SINCE_SHOWN, '0');
+  policy.markShown();
   listener?.(ios ? 'ios' : 'android');
   logEvent('pwa_install_prompt_shown', { context });
+  return true;
 }
 
 export function markInviteDismissed(): void {
-  ls()?.setItem(LS_DISMISSED_COUNT, String(readNumber(LS_DISMISSED_COUNT) + 1));
+  policy.markDismissed();
   logEvent('pwa_install_dismissed');
 }
 

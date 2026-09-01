@@ -22,6 +22,7 @@ const STATUS_COPY: Partial<Record<ChallengePreview['status'], string>> = {
   completed: 'Este desafío ya terminó.',
   cancelled: 'Este desafío fue cancelado.',
   expired: 'Este desafío ya expiró.',
+  rejected: 'Este desafío fue rechazado.',
 };
 
 /**
@@ -68,6 +69,22 @@ export default function ChallengeLandingScreen() {
   const handleBack = canGoBack ? () => navigation.goBack() : undefined;
   const handleHome = session ? () => navigation.navigate('MainTabs') : undefined;
 
+  // Entra directo al Challenge real (E) -- sin esto, un participante
+  // autenticado que vuelve a /c/:token (típicamente desde una push:
+  // "aceptó tu desafío"/"ganaste/perdiste/empataste") se topaba con el
+  // mismo mensaje muerto pensado para un DESCONOCIDO que llega tarde a un
+  // link ya tomado ("ya fue aceptado por otra persona"/"ya terminó") --
+  // exactamente lo opuesto de lo que quiere ver: el resultado real. RLS en
+  // `challenges` (creador/oponente/target) es el límite de seguridad real
+  // acá, no este chequeo -- un `challengeToken` ajeno simplemente no
+  // resuelve nada en ChallengeScreen. `.replace`, no `.navigate`: la
+  // landing nunca debe quedar en el historial para no rebotar de vuelta
+  // acá con Atrás.
+  const shouldEnterChallenge = Boolean(session) && (preview?.status === 'accepted' || preview?.status === 'completed');
+  useEffect(() => {
+    if (shouldEnterChallenge) navigation.replace('Challenge', { challengeToken: params.token });
+  }, [shouldEnterChallenge, navigation, params.token]);
+
   async function handleAccept() {
     if (!session) {
       await setPendingChallengeToken(params.token);
@@ -103,7 +120,11 @@ export default function ChallengeLandingScreen() {
     }
   }
 
-  if (loading) {
+  if (loading || shouldEnterChallenge) {
+    // El segundo caso es el mismo spinner mientras el efecto de arriba
+    // hace el `.replace` -- nunca dejar que se vea, ni una sola vez, el
+    // mensaje de "ya fue aceptado/ya terminó" pensado para un
+    // desconocido, ni una fracción de segundo antes de redirigir.
     return (
       <ScreenContainer style={styles.center} onBack={handleBack} onHome={handleHome}>
         <ActivityIndicator color={colors.accent} size="large" />

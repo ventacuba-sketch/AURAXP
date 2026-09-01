@@ -60,7 +60,15 @@ export type AnalyticsEventName =
   | 'pwa_install_prompt_shown'
   | 'pwa_install_accepted'
   | 'pwa_install_dismissed'
-  | 'pwa_installed';
+  | 'pwa_installed'
+  // Push (bloque pre-lanzamiento, A/F) -- mismo criterio que arriba:
+  // 'push_subscribed' solo tras un `pushManager.subscribe()` + upsert en
+  // `push_subscriptions` real y exitoso, nunca solo por aceptar el
+  // permiso del browser (ver pushService.enablePush).
+  | 'push_prompt_shown'
+  | 'push_prompt_dismissed'
+  | 'push_permission_denied'
+  | 'push_subscribed';
 
 export async function logEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>): Promise<void> {
   if (!supabase) return;

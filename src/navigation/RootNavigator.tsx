@@ -12,6 +12,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { MainTabNavigator } from './MainTabNavigator';
 import { BottomNavBar } from '../components/BottomNavBar';
 import { InstallInviteHost } from '../components/InstallInviteHost';
+import { NotificationInviteHost } from '../components/NotificationInviteHost';
 import { useAuth } from '../hooks/useAuth';
 import { acceptChallenge } from '../services/challengeService';
 import { consumePendingChallengeToken } from '../services/pendingChallenge';
@@ -184,6 +185,7 @@ export function RootNavigator() {
             autenticado) -- ver installService.ts para por qué vive acá
             (sibling, no dentro de un tab) y no en HomeScreen. */}
         {authed && <InstallInviteHost navigationRef={navigationRef} />}
+        {authed && <NotificationInviteHost navigationRef={navigationRef} />}
       </View>
     </NavigationContainer>
   );

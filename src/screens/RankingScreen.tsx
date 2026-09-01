@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { useFocusEffect } from '@react-navigation/native';
 
 import { Card } from '../components/Card';
+import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useRootNavigation } from '../hooks/useRootNavigation';
@@ -16,6 +17,7 @@ import {
   LeaderboardEntry,
 } from '../services/statsService';
 import { colors, radius, spacing, typography } from '../theme/colors';
+import { shareText } from '../utils/share';
 import { formatSignedXP, formatXP } from '../utils/format';
 
 const TOP_N = 20;
@@ -71,6 +73,13 @@ export default function RankingScreen() {
     navigation.navigate('PublicProfile', { username });
   }
 
+  // K: estado vacío con CTA útil -- acá lo que falta es GENTE, no un Scan
+  // propio (el usuario puede ya tener Scans y aun así ver esto si es de
+  // los primeros), así que la acción con sentido es invitar, no escanear.
+  function handleInviteFriends() {
+    shareText('Compito por el Top Aura en AURAXP -- ¿te animas? 🏆', 'https://auravs.app');
+  }
+
   const entries = tab === 'xp' ? xpEntries : auraEntries;
   const myRank = tab === 'xp' ? myXpRank : myAuraRank;
   const inTop = user ? entries.some((e) => e.username === user.username) : false;
@@ -93,7 +102,10 @@ export default function RankingScreen() {
           <ActivityIndicator color={colors.accent} size="large" />
         </View>
       ) : entries.length === 0 ? (
-        <Text style={styles.empty}>Todavía no hay suficientes jugadores para un ranking.</Text>
+        <View style={styles.emptyBlock}>
+          <Text style={styles.empty}>Todavía no hay suficientes jugadores para un ranking.</Text>
+          <PrimaryButton label="INVITAR AMIGOS" variant="ghost" onPress={handleInviteFriends} />
+        </View>
       ) : (
         <>
           <Card style={styles.list}>
@@ -158,11 +170,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: spacing.xxl,
   },
+  emptyBlock: {
+    gap: spacing.md,
+    marginTop: spacing.xl,
+  },
   empty: {
     ...typography.body,
     color: colors.textSecondary,
     textAlign: 'center',
-    marginTop: spacing.xl,
   },
   list: {
     gap: spacing.xs,

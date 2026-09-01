@@ -14,6 +14,7 @@ import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useScanResult } from '../hooks/useScanResult';
 import { useSmartBack } from '../hooks/useSmartBack';
 import { requestInstallInvite } from '../services/installService';
+import { requestNotificationInvite } from '../services/pushService';
 import { getVideoPlaybackUrl } from '../services/scanService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { RootStackParamList } from '../types';
@@ -41,10 +42,14 @@ export default function ScanResultScreen() {
   // terminó de escanear, o está revisando un replay viejo -- ambos casos
   // son un mount real de esta pantalla con un `result` cargado, así que
   // llamarlo acá también cubre "volver a ver un replay" sin necesitar
-  // distinguir los dos casos). La política central (requestInstallInvite)
-  // decide si corresponde mostrar algo -- acá solo se pregunta.
+  // distinguir los dos casos). Cada política central decide si corresponde
+  // mostrar algo -- acá solo se pregunta, encadenado (instalar primero,
+  // notificaciones solo si instalar NO mostró nada) para que como mucho
+  // UN recordatorio compita por atención en este mismo checkpoint.
   useEffect(() => {
-    if (result) requestInstallInvite('scan_completed');
+    if (!result) return;
+    const showedInstall = requestInstallInvite('scan_completed');
+    if (!showedInstall) requestNotificationInvite('scan_completed');
   }, [result]);
 
   async function handleShare() {
@@ -187,12 +192,18 @@ export default function ScanResultScreen() {
 
       {shareNotice && <Text style={styles.shareNotice}>{shareNotice}</Text>}
 
+      {/* Orden de prioridad real (J, bloque pre-lanzamiento): compartir
+          primero (el momento "wow" recién visto es el mejor gancho viral,
+          y no depende de tener un amigo específico en mente todavía),
+          desafiar segundo, Scan nuevo al final -- antes el orden era
+          Desafiar/Compartir/Rescan, al revés de lo pedido. */}
       <View style={styles.actions}>
+        <PrimaryButton label="COMPARTIR RESULTADO" onPress={handleShare} />
         <PrimaryButton
           label="DESAFIAR A UN AMIGO"
+          variant="ghost"
           onPress={() => navigation.navigate('Challenge', { scanId: result.id })}
         />
-        <PrimaryButton label="COMPARTIR RESULTADO" variant="ghost" onPress={handleShare} />
         <PrimaryButton label="ESCANEAR DE NUEVO" variant="text" onPress={() => navigation.navigate('Upload')} />
       </View>
     </ScreenContainer>

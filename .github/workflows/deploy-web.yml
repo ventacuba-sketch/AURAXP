@@ -32,6 +32,15 @@ jobs:
         env:
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          # Clave PÚBLICA de VAPID (push notifications, ver pushService.ts)
+          # -- no es secreta por definición (el navegador la necesita para
+          # pedir la suscripción), pero igual viaja como secret de GitHub
+          # simplemente porque no hay otro lugar para guardar config del
+          # build acá. Sin este secret configurado, `isPushSupported()`
+          # devuelve false en toda la app -- no rompe nada, solo la
+          # feature de push queda invisible hasta que se configure (ver
+          # reporte de esta tarea, paso manual pendiente).
+          EXPO_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.EXPO_PUBLIC_VAPID_PUBLIC_KEY }}
         run: npx expo export --platform web
 
       - name: Add SPA fallback + caching rules (.htaccess)

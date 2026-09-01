@@ -16,6 +16,7 @@ import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useUnreadNotificationCount } from '../hooks/useUnreadNotificationCount';
 import { fetchLatestReplay } from '../services/api';
 import { isLaterSession, recordMeaningfulAction, requestInstallInvite } from '../services/installService';
+import { recordMeaningfulAction as recordPushSignal, requestNotificationInvite } from '../services/pushService';
 import { fetchFrequentRivals, fetchMyStreak, FrequentRival, StreakInfo } from '../services/statsService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { formatSignedXP, formatXP } from '../utils/format';
@@ -65,18 +66,24 @@ export default function HomeScreen() {
   // necesita valor demostrado antes -- ver R5), y la política central
   // (requestInstallInvite) filtra todo lo demás.
   useEffect(() => {
-    if (isLaterSession()) requestInstallInvite('home_revisit');
+    if (!isLaterSession()) return;
+    const showedInstall = requestInstallInvite('home_revisit');
+    if (!showedInstall) requestNotificationInvite('home_revisit');
   }, []);
 
-  // Checkpoint "challenge_completed" (A) -- se dispara UNA vez cuando
+  // Checkpoint "challenge_completed" (A/B) -- se dispara UNA vez cuando
   // `latestResult` (useLatestChallengeResult) pasa de nada a un resultado
   // real, no en cada render mientras siga siendo el mismo resultado.
+  // Encadenado igual que en ScanResultScreen: como mucho UN recordatorio
+  // por checkpoint.
   const seenLatestResultRef = useRef(false);
   useEffect(() => {
     if (latestResult && !seenLatestResultRef.current) {
       seenLatestResultRef.current = true;
       recordMeaningfulAction('challenge_completed');
-      requestInstallInvite('challenge_completed');
+      recordPushSignal();
+      const showedInstall = requestInstallInvite('challenge_completed');
+      if (!showedInstall) requestNotificationInvite('challenge_completed');
     }
   }, [latestResult]);
 

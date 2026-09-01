@@ -15,6 +15,7 @@ import { useRootNavigation } from '../hooks/useRootNavigation';
 import { signOut } from '../services/authService';
 import { hasNativePrompt, isIOS, isStandalone, promptNativeInstall, requestInstallInvite } from '../services/installService';
 import { clearPendingChallengeToken } from '../services/pendingChallenge';
+import { disablePush, enablePush, getPermissionState, PushPermissionState } from '../services/pushService';
 import { ProfileUpdateError, updateProfile, usernameCooldownDaysLeft } from '../services/profileService';
 import { fetchDailyMissions, DailyMissions } from '../services/missionsService';
 import { DailyScanStatus, fetchDailyScanStatus } from '../services/scanService';
@@ -68,6 +69,12 @@ export default function ProfileScreen() {
   // otra pestaña) puede haber pasado mientras tanto también.
   const [installVariant, setInstallVariant] = useState<'ios' | 'android' | null>(null);
   const [showInstallSheet, setShowInstallSheet] = useState(false);
+  // Fila fija "NOTIFICACIONES" en AJUSTES (F) -- estado real del browser,
+  // recalculado en cada foco por la misma razón que installVariant (el
+  // permiso pudo cambiar desde el propio pre-prompt, o desde los ajustes
+  // del sistema operativo mientras el usuario estaba en otra pantalla).
+  const [pushState, setPushState] = useState<PushPermissionState>('unsupported');
+  const [pushBusy, setPushBusy] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
@@ -81,6 +88,7 @@ export default function ProfileScreen() {
       } else {
         setInstallVariant(null);
       }
+      setPushState(getPermissionState());
       // Checkpoint "profile_open" (A) -- de los checkpoints, el de menor
       // prioridad a propósito (el usuario ya está buscando algo puntual
       // acá, no es el mejor momento para una interrupción) -- la política
@@ -169,6 +177,26 @@ export default function ProfileScreen() {
     await promptNativeInstall();
     setShowInstallSheet(false);
     setInstallVariant(hasNativePrompt() ? 'android' : null);
+  }
+
+  // F: toggle real de NOTIFICACIONES -- ACTIVAR pide el permiso nativo Y
+  // se suscribe de verdad (ver pushService.enablePush); DESACTIVAR
+  // desuscribe del browser Y revoca la fila server-side. Un 'denied' del
+  // browser no tiene botón de "activar" acá -- solo el propio usuario
+  // puede revertirlo desde los ajustes del sistema operativo, cualquier
+  // botón nuestro ahí sería un botón que no puede hacer nada.
+  async function handleTogglePush() {
+    setPushBusy(true);
+    try {
+      if (pushState === 'granted') {
+        await disablePush();
+      } else if (pushState === 'default') {
+        await enablePush();
+      }
+      setPushState(getPermissionState());
+    } finally {
+      setPushBusy(false);
+    }
   }
 
   async function handleSave() {
@@ -392,6 +420,28 @@ export default function ProfileScreen() {
                 <PrimaryButton variant="text" label="Ver PRO" onPress={() => navigation.navigate('Pro')} />
               )}
             </View>
+          )}
+
+          {/* F: fila fija NOTIFICACIONES -- estado real del browser, no
+              inventado. 'denied' sin botón a propósito: revertirlo es
+              cosa de los ajustes del navegador/SO, un botón nuestro ahí
+              no podría hacer nada real. */}
+          <View style={styles.planRow}>
+            <Text style={styles.planLabel}>
+              Notificaciones:{' '}
+              {pushState === 'granted' ? 'ACTIVADAS' : pushState === 'unsupported' ? 'NO DISPONIBLES' : 'DESACTIVADAS'}
+            </Text>
+            {(pushState === 'granted' || pushState === 'default') && (
+              <PrimaryButton
+                variant="text"
+                label={pushBusy ? '...' : pushState === 'granted' ? 'Desactivar' : 'Activar'}
+                disabled={pushBusy}
+                onPress={handleTogglePush}
+              />
+            )}
+          </View>
+          {pushState === 'denied' && (
+            <Text style={styles.installCardSubtitle}>Actívalas desde los ajustes de notificaciones de tu navegador.</Text>
           )}
 
           {confirmingLogout ? (
