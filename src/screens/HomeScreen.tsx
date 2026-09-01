@@ -1,9 +1,8 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Card } from '../components/Card';
 import { DailyScanCounter } from '../components/DailyScanCounter';
-import { InstallPrompt } from '../components/InstallPrompt';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ReplayPlaceholder } from '../components/ReplayPlaceholder';
 import { ScreenContainer } from '../components/ScreenContainer';
@@ -16,6 +15,7 @@ import { useReceivedChallengeCount } from '../hooks/useReceivedChallengeCount';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useUnreadNotificationCount } from '../hooks/useUnreadNotificationCount';
 import { fetchLatestReplay } from '../services/api';
+import { isLaterSession, recordMeaningfulAction, requestInstallInvite } from '../services/installService';
 import { fetchFrequentRivals, fetchMyStreak, FrequentRival, StreakInfo } from '../services/statsService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { formatSignedXP, formatXP } from '../utils/format';
@@ -57,14 +57,31 @@ export default function HomeScreen() {
   const showStreak = (streak?.currentStreak ?? 0) >= 2;
   const showFrequentRival = !showStreak && Boolean(topRival);
 
+  // Checkpoint "home_revisit" (A) -- Home es un tab, nunca se desmonta
+  // (ver installService.ts), así que un `useEffect` sin deps corre
+  // exactamente UNA vez por carga real de página, no en cada foco --
+  // justo la semántica de "sesión posterior" que se necesita acá.
+  // `isLaterSession()` ya filtra la primera visita (nunca de entrada, se
+  // necesita valor demostrado antes -- ver R5), y la política central
+  // (requestInstallInvite) filtra todo lo demás.
+  useEffect(() => {
+    if (isLaterSession()) requestInstallInvite('home_revisit');
+  }, []);
+
+  // Checkpoint "challenge_completed" (A) -- se dispara UNA vez cuando
+  // `latestResult` (useLatestChallengeResult) pasa de nada a un resultado
+  // real, no en cada render mientras siga siendo el mismo resultado.
+  const seenLatestResultRef = useRef(false);
+  useEffect(() => {
+    if (latestResult && !seenLatestResultRef.current) {
+      seenLatestResultRef.current = true;
+      recordMeaningfulAction('challenge_completed');
+      requestInstallInvite('challenge_completed');
+    }
+  }, [latestResult]);
+
   return (
-    <>
-      {/* R5: se auto-evalúa cada vez que Home recupera foco -- "volver a
-          Home después de demostrar valor" (Scan completado) es el
-          checkpoint elegido, ver installService.shouldShowInstallInvite.
-          Usa Modal (portal), así que no importa dónde vive en este árbol. */}
-      <InstallPrompt />
-      <ScreenContainer scroll>
+    <ScreenContainer scroll>
       <View style={styles.topRow}>
         <Text style={styles.wordmark}>AURAXP</Text>
         <Pressable onPress={() => navigation.navigate('Notifications')} style={styles.bellButton} hitSlop={8}>
@@ -183,8 +200,7 @@ export default function HomeScreen() {
           />
         </Card>
       )}
-      </ScreenContainer>
-    </>
+    </ScreenContainer>
   );
 }
 

@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { RootStackParamList } from '../types';
+import { getRootRouteName } from '../utils/navRoute';
 
 /**
  * Navegación inferior persistente (D) -- INICIO/SCAN/PERFIL, visible en
@@ -44,22 +45,6 @@ interface Props {
    * tipados contra `RootStackParamList`.
    */
   navigationRef: React.RefObject<NavigationContainerRef<RootStackParamList> | null>;
-}
-
-/**
- * Nombre de ruta del Stack.Navigator RAÍZ (MainTabs / Upload / ScanResult /
- * ...), NO `getCurrentRoute()` -- ese método del ref devuelve la ruta
- * HOJA más profunda de todo el árbol (p. ej. "Home"/"Profile", el tab
- * activo DENTRO de MainTabs), así que mientras el usuario está en
- * cualquier tab, el nombre nunca es "MainTabs" y `HIDDEN_ROUTES` jamás
- * matcheaba -- bug real encontrado en Playwright (la barra nueva se
- * duplicaba con el bottom-tabs nativo en Home/Perfil). `getState()` en
- * cambio da el estado del navigator raíz tal cual lo ve RootNavigator.
- */
-function getRootRouteName(nav: NavigationContainerRef<RootStackParamList> | null): string | undefined {
-  const state = nav?.getState();
-  if (!state) return undefined;
-  return state.routes[state.index]?.name;
 }
 
 export function BottomNavBar({ authed, navigationRef }: Props) {

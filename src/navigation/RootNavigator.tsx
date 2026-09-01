@@ -11,6 +11,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { MainTabNavigator } from './MainTabNavigator';
 import { BottomNavBar } from '../components/BottomNavBar';
+import { InstallInviteHost } from '../components/InstallInviteHost';
 import { useAuth } from '../hooks/useAuth';
 import { acceptChallenge } from '../services/challengeService';
 import { consumePendingChallengeToken } from '../services/pendingChallenge';
@@ -178,6 +179,11 @@ export function RootNavigator() {
           </Stack.Navigator>
         </View>
         <BottomNavBar authed={authed} navigationRef={navigationRef} />
+        {/* Mismo criterio que BottomNavBar: nunca chrome de la app propia
+            para un visitante sin sesión (p. ej. ChallengeLanding no
+            autenticado) -- ver installService.ts para por qué vive acá
+            (sibling, no dentro de un tab) y no en HomeScreen. */}
+        {authed && <InstallInviteHost navigationRef={navigationRef} />}
       </View>
     </NavigationContainer>
   );

@@ -13,6 +13,7 @@ import { TimelineRow } from '../components/TimelineRow';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useScanResult } from '../hooks/useScanResult';
 import { useSmartBack } from '../hooks/useSmartBack';
+import { requestInstallInvite } from '../services/installService';
 import { getVideoPlaybackUrl } from '../services/scanService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { RootStackParamList } from '../types';
@@ -34,6 +35,17 @@ export default function ScanResultScreen() {
   const [playing, setPlaying] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
+
+  // Checkpoint "scan_completed" (A) -- acá, no en AnalyzingScreen: este es
+  // el momento real en que el usuario YA VIO su resultado (recién
+  // terminó de escanear, o está revisando un replay viejo -- ambos casos
+  // son un mount real de esta pantalla con un `result` cargado, así que
+  // llamarlo acá también cubre "volver a ver un replay" sin necesitar
+  // distinguir los dos casos). La política central (requestInstallInvite)
+  // decide si corresponde mostrar algo -- acá solo se pregunta.
+  useEffect(() => {
+    if (result) requestInstallInvite('scan_completed');
+  }, [result]);
 
   async function handleShare() {
     if (!result) return;

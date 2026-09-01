@@ -393,17 +393,31 @@ export interface CreateDirectChallengeResult {
   ok: boolean;
   shareToken?: string;
   /** Del servidor (RPC): 'not_authenticated' | 'target_not_found' |
-   * 'cannot_challenge_self' | 'invalid_scan'. Del cliente: 'not_configured'
-   * (Supabase no configurado), 'network' (el fetch no llegó), 'rpc_error'
-   * (Postgres devolvió un error no esperado -- ver el log crudo en consola). */
+   * 'cannot_challenge_self' | 'invalid_scan'. Un Challenge 'pending' ya
+   * existente hacia el mismo target (doble tap / reintento) NO es un
+   * error: el RPC devuelve `ok: true` con el share_token del que ya
+   * existe (ver la migración de hardening, idempotencia). Del cliente:
+   * 'not_configured' (Supabase no configurado), 'network' (el fetch no
+   * llegó), 'rpc_error' (Postgres devolvió un error no esperado -- ver el
+   * log crudo en consola, incluye rpc_error.code/message/details/hint). */
   errorCode?: string;
 }
 
 export async function createDirectChallenge(sourceScanId: string, targetUsername: string): Promise<CreateDirectChallengeResult> {
   if (!supabase) return { ok: false, errorCode: 'not_configured' };
 
+  // Diagnóstico real (F) -- authenticated_user_id explícito acá (no solo
+  // "hay sesión sí/no"): si esto alguna vez difiere de lo esperado (p.
+  // ej. una sesión stale) tiene que verse en el log, no adivinarse.
+  const session = await getSession();
   console.log(
-    JSON.stringify({ src: 'createDirectChallenge', event: 'request', sourceScanId, targetUsername }),
+    JSON.stringify({
+      src: 'createDirectChallenge',
+      event: 'request',
+      authenticated_user_id: session?.user.id ?? null,
+      source_scan_id: sourceScanId,
+      target_username: targetUsername,
+    }),
   );
 
   const { data, error } = await supabase.rpc('create_direct_challenge', {
@@ -422,27 +436,40 @@ export async function createDirectChallenge(sourceScanId: string, targetUsername
     // cosas colapsaban antes en el mismo 'rpc_error' genérico.
     const message = error.message ?? String(error);
     const isNetwork = /network|fetch|failed to fetch/i.test(message);
+    // rpc_error.code/message explícitos (F) -- esto es EXACTAMENTE lo que
+    // hace falta para diferenciar, la próxima vez que esto falle en
+    // producción, entre un constraint que faltó, un tipo mal castado, RLS,
+    // o lo que sea -- sin esto, "rpc_error" no dice nada accionable.
     console.error(
       JSON.stringify({
         src: 'createDirectChallenge',
         event: 'rpc_error',
-        sourceScanId,
-        targetUsername,
-        isNetwork,
-        message,
-        details: (error as { details?: string }).details ?? null,
-        hint: (error as { hint?: string }).hint ?? null,
-        code: (error as { code?: string }).code ?? null,
+        source_scan_id: sourceScanId,
+        target_username: targetUsername,
+        is_network: isNetwork,
+        'rpc_error.message': message,
+        'rpc_error.details': (error as { details?: string }).details ?? null,
+        'rpc_error.hint': (error as { hint?: string }).hint ?? null,
+        'rpc_error.code': (error as { code?: string }).code ?? null,
       }),
     );
     return { ok: false, errorCode: isNetwork ? 'network' : 'rpc_error' };
   }
 
   const row = Array.isArray(data) ? data[0] : data;
-  if (!row) return { ok: false, errorCode: 'rpc_error' };
+  if (!row) {
+    console.error(JSON.stringify({ src: 'createDirectChallenge', event: 'empty_response', rpc_data: data }));
+    return { ok: false, errorCode: 'rpc_error' };
+  }
 
   console.log(
-    JSON.stringify({ src: 'createDirectChallenge', event: 'response', ok: row.ok, errorCode: row.error_code ?? null }),
+    JSON.stringify({
+      src: 'createDirectChallenge',
+      event: 'response',
+      rpc_data: row,
+      ok: row.ok,
+      error_code: row.error_code ?? null,
+    }),
   );
 
   if (row.ok) logEvent('challenge_direct_created');

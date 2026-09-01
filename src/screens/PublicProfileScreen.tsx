@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import { RouteProp, useRoute } from '@react-navigation/native';
 
@@ -45,6 +45,14 @@ export default function PublicProfileScreen() {
   const [notFound, setNotFound] = useState(false);
   const [challenging, setChallenging] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Guard de doble tap (J) SINCRÓNICO -- a diferencia de `challenging`
+  // (estado de React, solo se refleja en el render SIGUIENTE), un ref se
+  // lee/escribe inmediatamente: dos toques que lleguen antes de que React
+  // repinte el botón disabled igual no pueden disparar dos RPCs. La
+  // idempotencia real (mismo target + 'pending' -> devuelve el existente)
+  // vive en el RPC (ver migración de hardening) -- esto es la primera
+  // línea de defensa, no la única.
+  const challengingRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,11 +103,26 @@ export default function PublicProfileScreen() {
    * válido del usuario autenticado.
    */
   async function handleChallengeDirect() {
+    if (challengingRef.current) return; // doble tap (J) -- ver comentario del ref arriba
+    challengingRef.current = true;
     setChallenging(true);
     setNotice(null);
     try {
       const scanId = await fetchMyLatestValidScanId();
-      console.log(JSON.stringify({ src: 'handleChallengeDirect', event: 'scan_resolved', scanId, targetUsername: params.username }));
+      // scan_status/scan_owner ya están implícitos acá (F): fetchMyLatestValidScanId
+      // filtra exactamente por status='done' AND user_id=auth.uid() -- un
+      // scanId no-null que salió de ahí YA es, por construcción, done y
+      // del usuario actual, no hace falta un segundo round-trip para
+      // loguear lo que la propia query ya garantizó.
+      console.log(
+        JSON.stringify({
+          src: 'handleChallengeDirect',
+          event: 'scan_resolved',
+          source_scan_id: scanId,
+          scan_status: scanId ? 'done' : null,
+          target_username: params.username,
+        }),
+      );
       if (!scanId) {
         setNotice('__NEEDS_SCAN__');
         return;
@@ -109,28 +132,35 @@ export default function PublicProfileScreen() {
         navigation.navigate('Challenge', { challengeToken: result.shareToken });
         return;
       }
-      // Mensajes útiles según error_code (N) -- nunca el texto crudo de
+      // Mensajes útiles según error_code (I) -- nunca el texto crudo de
       // Postgres (eso queda solo en la consola, ver createDirectChallenge).
       switch (result.errorCode) {
         case 'cannot_challenge_self':
           setNotice('No puedes desafiarte a ti mismo.');
           break;
         case 'target_not_found':
-          setNotice('Este usuario ya no está disponible.');
+          setNotice('No encontramos a este usuario.');
           break;
         case 'invalid_scan':
           setNotice('__NEEDS_SCAN__');
+          break;
+        case 'not_authenticated':
+          setNotice('Tu sesión expiró. Vuelve a iniciar sesión.');
           break;
         case 'network':
           setNotice('No pudimos conectar. Intenta de nuevo.');
           break;
         default:
+          // 'unexpected backend' (I): mensaje neutro al usuario, el detalle
+          // técnico (rpc_error.code/message) ya quedó en la consola --
+          // ver createDirectChallenge.
           setNotice('No pudimos crear el desafío. Intenta de nuevo.');
       }
     } catch (e) {
       console.error(JSON.stringify({ src: 'handleChallengeDirect', event: 'unexpected_error', message: String(e) }));
       setNotice('No pudimos crear el desafío. Intenta de nuevo.');
     } finally {
+      challengingRef.current = false;
       setChallenging(false);
     }
   }

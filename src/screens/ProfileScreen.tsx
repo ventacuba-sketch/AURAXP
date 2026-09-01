@@ -13,7 +13,7 @@ import { XPBar } from '../components/XPBar';
 import { useCurrentUser } from '../hooks/useCurrentUser';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { signOut } from '../services/authService';
-import { hasNativePrompt, isIOS, isStandalone, promptNativeInstall } from '../services/installService';
+import { hasNativePrompt, isIOS, isStandalone, promptNativeInstall, requestInstallInvite } from '../services/installService';
 import { clearPendingChallengeToken } from '../services/pendingChallenge';
 import { ProfileUpdateError, updateProfile, usernameCooldownDaysLeft } from '../services/profileService';
 import { fetchDailyMissions, DailyMissions } from '../services/missionsService';
@@ -61,10 +61,11 @@ export default function ProfileScreen() {
   const [streak, setStreak] = useState<StreakInfo | null>(null);
   const [topRival, setTopRival] = useState<FrequentRival | null>(null);
   const [missions, setMissions] = useState<DailyMissions | null>(null);
-  // Instalación manual (R7) -- null si ya está instalada o no hay ninguna
-  // acción real posible (nunca un botón muerto, ver InstallPrompt). Se
-  // recalcula en cada foco: `beforeinstallprompt` puede llegar mientras
-  // el usuario estaba en otra pantalla.
+  // Card fija "📲 Instalar AURAXP" (N) -- null si ya está instalada o no
+  // hay ninguna acción real posible (nunca un botón muerto). Se recalcula
+  // en cada foco: `beforeinstallprompt` puede llegar mientras el usuario
+  // estaba en otra pantalla, y una instalación real (Ajustes del OS,
+  // otra pestaña) puede haber pasado mientras tanto también.
   const [installVariant, setInstallVariant] = useState<'ios' | 'android' | null>(null);
   const [showInstallSheet, setShowInstallSheet] = useState(false);
 
@@ -80,6 +81,15 @@ export default function ProfileScreen() {
       } else {
         setInstallVariant(null);
       }
+      // Checkpoint "profile_open" (A) -- de los checkpoints, el de menor
+      // prioridad a propósito (el usuario ya está buscando algo puntual
+      // acá, no es el mejor momento para una interrupción) -- la política
+      // central ya lo trata igual que cualquier otro, solo se llama desde
+      // más lugares para darle más oportunidades de aparecer en un
+      // momento razonable sin mostrarse en todos a la vez (N2: esto es
+      // independiente de la card fija de abajo, que no pasa por la
+      // política -- son dos mecanismos complementarios).
+      requestInstallInvite('profile_open');
       fetchDailyScanStatus().then((result) => {
         if (!cancelled && result) setPlanStatus(result);
       });
@@ -143,7 +153,9 @@ export default function ProfileScreen() {
     }
   }
 
-  // R7: "quien declinó al principio" puede volver más tarde a buscarlo acá.
+  // N: acceso fijo, independiente del recordatorio automático -- "quien
+  // declinó al principio" (o nunca lo vio) puede volver más tarde a
+  // buscarlo acá, sin depender de que aparezca un popup (N2).
   async function handleManualInstall() {
     if (installVariant === 'android') {
       await promptNativeInstall();
@@ -345,6 +357,25 @@ export default function ProfileScreen() {
         </Card>
       </Pressable>
 
+      {/* Acceso fijo a instalar (N) -- deliberadamente FUERA del gate de
+          isSupabaseConfigured de abajo: instalar la PWA no depende del
+          backend para nada, a diferencia de plan/logout. Chica, propia,
+          sin competir con Editar perfil/Mis desafíos/Plan/Cerrar sesión
+          (N3) -- mismo estilo que las otras link cards, nunca una
+          pantalla aparte. Oculta entera si ya está instalada o si no hay
+          ninguna acción real posible (N1/nunca un botón muerto). */}
+      {installVariant && (
+        <Pressable onPress={handleManualInstall}>
+          <Card style={styles.linkCard}>
+            <View style={styles.installCardInfo}>
+              <Text style={styles.linkCardLabel}>📲 Instalar AURAXP</Text>
+              <Text style={styles.installCardSubtitle}>Acceso directo en tu teléfono</Text>
+            </View>
+            <Text style={styles.linkCardArrow}>›</Text>
+          </Card>
+        </Pressable>
+      )}
+
       {/* Sin Supabase configurado (modo mock/dev) ni plan ni cerrar sesión
           significan algo real -- se oculta entero en vez de mostrar un
           "FREE" inventado o un botón que no puede hacer nada. */}
@@ -361,15 +392,6 @@ export default function ProfileScreen() {
                 <PrimaryButton variant="text" label="Ver PRO" onPress={() => navigation.navigate('Pro')} />
               )}
             </View>
-          )}
-
-          {/* R7: quien declinó la invitación automática (o nunca la vio,
-              p. ej. entró directo por link) puede instalar desde acá
-              cuando quiera -- oculto entero si ya está instalada o si no
-              hay ninguna acción real posible (browser sin
-              beforeinstallprompt y no-iOS), nunca un botón muerto. */}
-          {installVariant && (
-            <PrimaryButton variant="text" label="INSTALAR AURAXP" onPress={handleManualInstall} />
           )}
 
           {confirmingLogout ? (
@@ -502,6 +524,14 @@ const styles = StyleSheet.create({
   linkCardArrow: {
     ...typography.title,
     color: colors.textMuted,
+  },
+  installCardInfo: {
+    flex: 1,
+  },
+  installCardSubtitle: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   settingsSection: {
     marginTop: spacing.xl,

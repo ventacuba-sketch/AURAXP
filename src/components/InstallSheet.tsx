@@ -1,6 +1,7 @@
 import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { canShareForInstall, shareForInstall } from '../services/installService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { PrimaryButton } from './PrimaryButton';
 
@@ -12,14 +13,15 @@ interface Props {
 }
 
 /**
- * Contenido visual puro de la invitación a instalar (R3/R4) -- sin
- * lógica de CUÁNDO mostrarse; eso vive en cada caller:
- * - InstallPrompt: el trigger automático de Home (R5/R6).
- * - ProfileScreen (AJUSTES -> "INSTALAR AURAXP", R7): el trigger manual,
- *   sin cooldown ni "value signal" -- alguien que entra a buscarlo a
- *   propósito no debería tener que cumplir ninguna condición.
+ * Contenido visual puro de la invitación a instalar (C/D/N) -- sin lógica
+ * de CUÁNDO mostrarse; eso vive en cada caller:
+ * - InstallInviteHost: el trigger automático centralizado (A/B), montado
+ *   una sola vez a nivel raíz.
+ * - ProfileScreen (card fija "📲 Instalar AURAXP", N): el trigger manual,
+ *   sin política ni cooldown -- alguien que entra a buscarlo a propósito
+ *   no debería tener que cumplir ninguna condición.
  * Ambos comparten el mismo componente para que la invitación se vea y
- * lea exactamente igual sin importar por dónde se llegó.
+ * lea exactamente igual sin importar por dónde se llegó (N2).
  */
 export function InstallSheet({ visible, variant, onInstall, onDismiss }: Props) {
   return (
@@ -36,14 +38,33 @@ export function InstallSheet({ visible, variant, onInstall, onDismiss }: Props) 
             </>
           ) : (
             <>
-              <Text style={styles.title}>LLEVA AURAXP CONTIGO ⚡</Text>
-              <Text style={styles.subtitle}>Instálala en tu iPhone y entra con un toque.</Text>
+              <Text style={styles.title}>LLEVA AURAXP A TU INICIO ⚡</Text>
+              <Text style={styles.subtitle}>Entra con un toque, como una app.</Text>
               <View style={styles.steps}>
-                <Step n={1} icon="⬆️" text="Toca Compartir" />
+                <Step n={1} icon="⬆️" text="Toca COMPARTIR" />
                 <Step n={2} icon="➕" text='Selecciona "Añadir a pantalla de inicio"' />
                 <Step n={3} icon="✅" text='Confirma "Añadir"' />
               </View>
-              <PrimaryButton label="ENTENDIDO" onPress={onDismiss} />
+              {/* (C) navigator.share NO puede seleccionar "Añadir a
+                  pantalla de inicio" por su cuenta -- ninguna API web
+                  puede. Esto solo le ahorra al usuario tener que ENCONTRAR
+                  el botón Compartir de Safari; el resto de los pasos los
+                  sigue haciendo él. Si el browser no soporta
+                  navigator.share (Safari viejo, o no-Safari en iOS),
+                  ENTENDIDO ocupa todo el ancho -- la guía sigue siendo
+                  correcta igual, solo sin el atajo. */}
+              {canShareForInstall() ? (
+                <View style={styles.iosButtonsRow}>
+                  <View style={styles.iosButtonHalf}>
+                    <PrimaryButton label="COMPARTIR ⬆️" variant="ghost" onPress={shareForInstall} />
+                  </View>
+                  <View style={styles.iosButtonHalf}>
+                    <PrimaryButton label="ENTENDIDO" onPress={onDismiss} />
+                  </View>
+                </View>
+              ) : (
+                <PrimaryButton label="ENTENDIDO" onPress={onDismiss} />
+              )}
             </>
           )}
         </View>
@@ -118,6 +139,13 @@ const styles = StyleSheet.create({
   stepText: {
     ...typography.body,
     color: colors.textPrimary,
+    flex: 1,
+  },
+  iosButtonsRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  iosButtonHalf: {
     flex: 1,
   },
 });

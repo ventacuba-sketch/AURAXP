@@ -1,6 +1,7 @@
 import { Platform, Share } from 'react-native';
 
 import { logEvent } from '../services/analyticsService';
+import { recordMeaningfulAction, requestInstallInvite } from '../services/installService';
 import { copyToClipboard, shareImageOnWeb, shareOnWeb, ShareOutcome } from './webShare';
 
 export type { ShareOutcome };
@@ -23,6 +24,13 @@ export type { ShareOutcome };
  */
 export async function shareText(text: string, url?: string): Promise<ShareOutcome> {
   logEvent('share', { kind: 'text' });
+  // (A) "compartió algo" es una señal de valor real. Este es el único
+  // punto de paso para un share de TEXTO (directo, o el fallback nativo
+  // de shareImage cuando no hay imagen real que compartir) -- el share
+  // CON imagen en web tiene su propio call site, ver shareImage abajo,
+  // para no depender de que pase por acá.
+  recordMeaningfulAction('result_shared');
+  requestInstallInvite('result_shared');
   if (Platform.OS === 'web') {
     return shareOnWeb(text, url);
   }
@@ -52,6 +60,8 @@ export async function shareText(text: string, url?: string): Promise<ShareOutcom
 export async function shareImage(blob: Blob | null, filename: string, text: string, url?: string): Promise<ShareOutcome> {
   if (Platform.OS === 'web' && blob) {
     logEvent('share', { kind: 'image' });
+    recordMeaningfulAction('result_shared');
+    requestInstallInvite('result_shared');
     return shareImageOnWeb(blob, filename, text, url);
   }
   // El fallback nativo pasa por shareText(), que ya loguea 'share' --

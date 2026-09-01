@@ -8,7 +8,7 @@ import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { SCAN_DURATION_MS, submitScan } from '../services/api';
 import { logScanMilestone } from '../services/analyticsService';
-import { markValueSignal } from '../services/installService';
+import { recordMeaningfulAction } from '../services/installService';
 import { checkScanStatus, ScanStatusCheck, subscribeToScan } from '../services/scanService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
@@ -144,7 +144,13 @@ export default function AnalyzingScreen() {
       if (pollTimer) clearInterval(pollTimer);
       unsubscribeRealtime();
       logScanMilestone();
-      markValueSignal(); // R5: señal de valor real -- completó un Scan
+      // (A) Solo registra la señal acá -- la invitación en sí se pide
+      // desde ScanResultScreen, no acá: esta pantalla es una animación de
+      // transición de pocos segundos, mostrar un modal ENCIMA justo
+      // cuando el usuario está viendo por primera vez cuánta Aura tiene
+      // sería exactamente el tipo de interrupción fuera de lugar que este
+      // bloque vino a corregir.
+      recordMeaningfulAction('scan_completed');
 
       // Anima rápido desde el progreso real actual (no desde 0, no un
       // salto instantáneo) hasta 100%, y recién ahí navega -- la curva
