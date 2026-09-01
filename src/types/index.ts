@@ -64,6 +64,16 @@ export type RootStackParamList = {
   /** Perfil público de OTRO usuario (o el propio, visto desde afuera) --
    * ver PublicProfileScreen/get_public_profile. */
   PublicProfile: { username: string };
+  /** Saldo + historial de Coins -- ver WalletScreen/walletService. */
+  Wallet: undefined;
+  /** Tienda (comprar) + Inventario (equipar) en pestañas -- ver StoreScreen. */
+  Store: undefined;
+  /** FAQ/ayuda -- ver HelpScreen. */
+  Help: undefined;
+  /** Reportar bug/sugerencia -- ver BugReportScreen. */
+  BugReport: undefined;
+  /** Código de referido propio + CTA de invitar -- ver InviteScreen. */
+  Invite: undefined;
 };
 
 export interface User {

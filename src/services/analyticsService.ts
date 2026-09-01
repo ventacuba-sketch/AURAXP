@@ -68,7 +68,32 @@ export type AnalyticsEventName =
   | 'push_prompt_shown'
   | 'push_prompt_dismissed'
   | 'push_permission_denied'
-  | 'push_subscribed';
+  | 'push_subscribed'
+  // Wallet/Coins/Social (bloque economía) -- la mayoría de estos se
+  // loguean SERVER-SIDE (ver las migraciones 20260905*, mismo criterio
+  // que challenge_completed: son hechos que pasan sin depender de que el
+  // cliente relevante siga conectado -- wallet_created, coins_earned/
+  // coins_spent, mission_completed, referral_activated, item_purchased,
+  // gift_sent/gift_received, follow). Los que sí son un solo toque
+  // presente del usuario (nunca pueden "perderse") quedan del lado del
+  // cliente: referral_sent, store_viewed, item_equipped, unfollow,
+  // help_opened, bug_reported, onboarding_completed.
+  | 'wallet_created'
+  | 'coins_earned'
+  | 'coins_spent'
+  | 'mission_completed'
+  | 'referral_sent'
+  | 'referral_activated'
+  | 'store_viewed'
+  | 'item_purchased'
+  | 'item_equipped'
+  | 'gift_sent'
+  | 'gift_received'
+  | 'follow'
+  | 'unfollow'
+  | 'help_opened'
+  | 'bug_reported'
+  | 'onboarding_completed';
 
 export async function logEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>): Promise<void> {
   if (!supabase) return;
