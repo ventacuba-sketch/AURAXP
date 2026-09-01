@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { RouteProp, useRoute } from '@react-navigation/native';
+import * as Crypto from 'expo-crypto';
 
 import { Card } from '../components/Card';
 import { PrimaryButton } from '../components/PrimaryButton';
@@ -11,6 +12,8 @@ import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useSmartBack } from '../hooks/useSmartBack';
 import { logEvent } from '../services/analyticsService';
 import { createDirectChallenge } from '../services/challengeService';
+import { FollowStats, fetchFollowStats, followUser, unfollowUser } from '../services/followService';
+import { sendGift } from '../services/giftService';
 import { fetchMyLatestValidScanId } from '../services/scanService';
 import {
   fetchPublicProfile,
@@ -21,6 +24,7 @@ import {
 } from '../services/statsService';
 import { colors, spacing, typography } from '../theme/colors';
 import { RootStackParamList } from '../types';
+import { fetchPublicEquipped, fetchStoreItems, PublicEquippedItem, StoreItem } from '../services/walletService';
 import { formatLevel, formatRelativeTime, formatSignedXP, formatXP } from '../utils/format';
 
 type PublicProfileRoute = RouteProp<RootStackParamList, 'PublicProfile'>;
@@ -45,6 +49,20 @@ export default function PublicProfileScreen() {
   const [notFound, setNotFound] = useState(false);
   const [challenging, setChallenging] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Follow (bloque social) -- null mientras carga, igual que el resto de
+  // este screen: nunca muestra "0 seguidores" como si fuera un dato real
+  // antes de confirmarlo.
+  const [followStats, setFollowStats] = useState<FollowStats | null>(null);
+  const [followBusy, setFollowBusy] = useState(false);
+  // Cosméticos equipados de ESTA persona (bloque cosméticos) -- vía
+  // get_public_equipped, nunca un id crudo (ver walletService).
+  const [equippedBySlot, setEquippedBySlot] = useState<Partial<Record<PublicEquippedItem['slot'], PublicEquippedItem>>>({});
+  // Regalos (bloque social) -- solo los items category='gift' de la
+  // tienda, misma fuente de verdad que StoreScreen (nunca un precio
+  // hardcodeado acá aparte).
+  const [giftItems, setGiftItems] = useState<StoreItem[]>([]);
+  const [sendingGiftKey, setSendingGiftKey] = useState<string | null>(null);
+  const [giftNotice, setGiftNotice] = useState<string | null>(null);
   // Guard de doble tap (J) SINCRÓNICO -- a diferencia de `challenging`
   // (estado de React, solo se refleja en el render SIGUIENTE), un ref se
   // lee/escribe inmediatamente: dos toques que lleguen antes de que React
@@ -74,12 +92,76 @@ export default function PublicProfileScreen() {
       }
       setLoading(false);
     });
+    fetchPublicEquipped(params.username).then((result) => {
+      if (cancelled) return;
+      const bySlot: Partial<Record<PublicEquippedItem['slot'], PublicEquippedItem>> = {};
+      for (const item of result) bySlot[item.slot] = item;
+      setEquippedBySlot(bySlot);
+    });
     return () => {
       cancelled = true;
     };
   }, [params.username]);
 
   const isMe = me?.username === params.username;
+
+  // Follow/Gifts (bloque social) -- separados del efecto de arriba porque
+  // dependen también de `isMe` (nunca tiene sentido seguirse/regalarse a
+  // uno mismo, ver follows_no_self/gifts_no_self server-side) y no deben
+  // re-disparar cuando cambia solo `me` sin cambiar el username de ruta.
+  useEffect(() => {
+    if (isMe) return;
+    let cancelled = false;
+    fetchFollowStats(params.username).then((result) => {
+      if (!cancelled) setFollowStats(result);
+    });
+    fetchStoreItems().then((items) => {
+      if (!cancelled) setGiftItems(items.filter((i) => i.category === 'gift'));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [params.username, isMe]);
+
+  async function handleFollowToggle() {
+    if (!followStats || followBusy) return;
+    setFollowBusy(true);
+    try {
+      if (followStats.isFollowing) {
+        const ok = await unfollowUser(params.username);
+        if (ok) {
+          logEvent('unfollow', { username: params.username });
+          setFollowStats((prev) => (prev ? { ...prev, isFollowing: false, followersCount: Math.max(0, prev.followersCount - 1) } : prev));
+        }
+      } else {
+        const ok = await followUser(params.username);
+        if (ok) {
+          setFollowStats((prev) => (prev ? { ...prev, isFollowing: true, followersCount: prev.followersCount + 1 } : prev));
+        }
+      }
+    } finally {
+      setFollowBusy(false);
+    }
+  }
+
+  async function handleSendGift(item: StoreItem) {
+    if (sendingGiftKey) return;
+    setSendingGiftKey(item.itemKey);
+    setGiftNotice(null);
+    try {
+      const idempotencyKey = Crypto.randomUUID();
+      const result = await sendGift(params.username, item.itemKey, idempotencyKey);
+      if (result.ok) {
+        setGiftNotice(`Le mandaste ${item.assetRef} ${item.name} a @${params.username} 🎉`);
+      } else if (result.errorCode === 'insufficient_funds') {
+        setGiftNotice('No te alcanzan los Coins para este regalo.');
+      } else {
+        setGiftNotice('No pudimos mandar el regalo. Intenta de nuevo.');
+      }
+    } finally {
+      setSendingGiftKey(null);
+    }
+  }
   const winRate = profile && profile.challengesCompleted > 0 ? Math.round((profile.wins / profile.challengesCompleted) * 100) : null;
 
   /**
@@ -184,13 +266,37 @@ export default function PublicProfileScreen() {
   return (
     <ScreenContainer scroll onBack={goBack}>
       <View style={styles.avatarBlock}>
-        <Text style={styles.avatar}>{profile.avatarEmoji}</Text>
+        <View style={[styles.avatarRing, equippedBySlot.profile_frame && styles.avatarRingEquipped]}>
+          <Text style={styles.avatar}>{profile.avatarEmoji}</Text>
+          {equippedBySlot.profile_frame && <Text style={styles.avatarFrameTag}>{equippedBySlot.profile_frame.assetRef}</Text>}
+        </View>
         <Text style={styles.username}>@{profile.username}</Text>
+        {equippedBySlot.badge && (
+          <Text style={styles.equippedBadgeText}>
+            {equippedBySlot.badge.assetRef} {equippedBySlot.badge.name}
+          </Text>
+        )}
         <Text style={styles.level}>
           {formatLevel(profile.level)} · {formatXP(profile.xp)}
           {rank != null ? ` · #${rank} en el ranking` : ''}
         </Text>
+        {/* Contadores de Follow (bloque social) -- ocultos hasta confirmar
+            (followStats null) para no mostrar "0" como si fuera real. */}
+        {!isMe && followStats && (
+          <Text style={styles.followCounts}>
+            {followStats.followersCount} seguidores · {followStats.followingCount} siguiendo
+          </Text>
+        )}
       </View>
+
+      {!isMe && followStats && (
+        <PrimaryButton
+          variant={followStats.isFollowing ? 'ghost' : 'text'}
+          label={followBusy ? '...' : followStats.isFollowing ? 'SIGUIENDO ✓' : `SEGUIR A @${profile.username}`}
+          disabled={followBusy}
+          onPress={handleFollowToggle}
+        />
+      )}
 
       {profile.bestAuraScore != null && (
         <Card style={styles.bestAuraCard}>
@@ -223,6 +329,32 @@ export default function PublicProfileScreen() {
             onPress={handleChallengeDirect}
           />
         )
+      )}
+
+      {/* Regalos con Coins (bloque social) -- se mandan directo desde acá,
+          nunca quedan en el inventario propio del que los manda (ver
+          send_gift/StoreScreen). Nunca convierten en Aura/XP/votos. */}
+      {!isMe && giftItems.length > 0 && (
+        <View style={styles.giftSection}>
+          <Text style={styles.recentTitle}>MANDAR UN REGALO</Text>
+          {giftNotice && <Text style={styles.notice}>{giftNotice}</Text>}
+          <View style={styles.giftRow}>
+            {giftItems.map((item) => (
+              <Pressable
+                key={item.itemKey}
+                style={styles.giftOption}
+                disabled={sendingGiftKey === item.itemKey}
+                onPress={() => handleSendGift(item)}
+              >
+                <Text style={styles.giftEmoji}>{item.assetRef}</Text>
+                <Text style={styles.giftName}>{item.name}</Text>
+                <Text style={styles.giftPrice}>
+                  {sendingGiftKey === item.itemKey ? '...' : `${item.priceCoins.toLocaleString('es')} Coins`}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+        </View>
       )}
 
       {recentResults.length > 0 && (
@@ -263,7 +395,31 @@ const styles = StyleSheet.create({
   },
   avatar: {
     fontSize: 56,
+  },
+  avatarRing: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: spacing.sm,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  avatarRingEquipped: {
+    borderColor: colors.accent,
+    borderWidth: 3,
+  },
+  avatarFrameTag: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    fontSize: 20,
+  },
+  equippedBadgeText: {
+    ...typography.caption,
+    color: colors.secondary,
+    fontWeight: '700',
   },
   username: {
     ...typography.title,
@@ -273,6 +429,11 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.textSecondary,
     textAlign: 'center',
+  },
+  followCounts: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginTop: spacing.xs,
   },
   bestAuraCard: {
     alignItems: 'center',
@@ -306,6 +467,37 @@ const styles = StyleSheet.create({
   notFound: {
     ...typography.body,
     color: colors.textSecondary,
+  },
+  giftSection: {
+    marginTop: spacing.xl,
+  },
+  giftRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  giftOption: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  giftEmoji: {
+    fontSize: 28,
+    marginBottom: spacing.xs,
+  },
+  giftName: {
+    ...typography.caption,
+    color: colors.textPrimary,
+    textAlign: 'center',
+  },
+  giftPrice: {
+    ...typography.caption,
+    color: colors.accent,
+    fontWeight: '700',
+    marginTop: 2,
   },
   recentSection: {
     marginTop: spacing.xl,

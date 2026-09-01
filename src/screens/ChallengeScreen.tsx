@@ -22,6 +22,7 @@ import {
 import { getChallengeReplayUrl } from '../services/scanService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { Challenge, ChallengeParticipant, RootStackParamList } from '../types';
+import { fetchMyEquipped, PublicEquippedItem } from '../services/walletService';
 import { formatSignedXP } from '../utils/format';
 import { copyLink, shareImage, shareText } from '../utils/share';
 import { generateChallengeShareCardBlob } from '../utils/shareCard';
@@ -97,8 +98,23 @@ export default function ChallengeScreen() {
   const [cancelling, setCancelling] = useState(false);
   const [responding, setResponding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Efecto visual de VS (bloque cosméticos) -- si tengo un `vs_effect`
+  // equipado, se ve de verdad en la pantalla de resultado (ver más abajo),
+  // no solo en la Tienda.
+  const [vsEffect, setVsEffect] = useState<PublicEquippedItem | null>(null);
 
   const hasCreatedRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchMyEquipped().then((items) => {
+      if (cancelled) return;
+      setVsEffect(items.find((i) => i.slot === 'vs_effect') ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Crea el Challenge una sola vez si llegamos con scanId (creador nuevo)
   // -- el guard evita crear dos veces si el efecto corre de nuevo.
@@ -325,7 +341,8 @@ export default function ChallengeScreen() {
 
         <View style={styles.versusRow}>
           <ParticipantColumn participant={me} isMe highlight={iWon} />
-          <View style={styles.vsBadge}>
+          <View style={[styles.vsBadge, vsEffect && styles.vsBadgeWithEffect]}>
+            {vsEffect && <Text style={styles.vsEffectGlyph}>{vsEffect.assetRef}</Text>}
             <Text style={styles.vsText}>VS</Text>
           </View>
           <ParticipantColumn
@@ -576,6 +593,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginHorizontal: spacing.sm,
+  },
+  vsBadgeWithEffect: {
+    width: 56,
+    height: 56,
+    borderColor: '#FFD700',
+    borderWidth: 2,
+  },
+  vsEffectGlyph: {
+    position: 'absolute',
+    top: -18,
+    fontSize: 18,
   },
   vsText: {
     ...typography.caption,

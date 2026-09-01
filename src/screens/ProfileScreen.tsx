@@ -28,6 +28,17 @@ import {
   StreakInfo,
 } from '../services/statsService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
+import {
+  claimMissionReward,
+  EquipSlot,
+  fetchClaimedMissionsToday,
+  fetchMyEquipped,
+  fetchWallet,
+  MISSION_COINS,
+  MissionKey,
+  PublicEquippedItem,
+  Wallet,
+} from '../services/walletService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { formatLevel, formatSignedXP } from '../utils/format';
 
@@ -62,6 +73,17 @@ export default function ProfileScreen() {
   const [streak, setStreak] = useState<StreakInfo | null>(null);
   const [topRival, setTopRival] = useState<FrequentRival | null>(null);
   const [missions, setMissions] = useState<DailyMissions | null>(null);
+  // Coins/Wallet (bloque economía) -- saldo cacheado solo para mostrar acá;
+  // el número real y auditable siempre es WalletScreen (historial completo).
+  const [wallet, setWallet] = useState<Wallet | null>(null);
+  const [claimedMissions, setClaimedMissions] = useState<Record<MissionKey, boolean>>({
+    scan: false,
+    challenge: false,
+    share: false,
+    streak: false,
+  });
+  const [claimingKey, setClaimingKey] = useState<MissionKey | null>(null);
+  const [equippedBySlot, setEquippedBySlot] = useState<Partial<Record<EquipSlot, PublicEquippedItem>>>({});
   // Card fija "📲 Instalar AURAXP" (N) -- null si ya está instalada o no
   // hay ninguna acción real posible (nunca un botón muerto). Se recalcula
   // en cada foco: `beforeinstallprompt` puede llegar mientras el usuario
@@ -113,11 +135,39 @@ export default function ProfileScreen() {
       fetchDailyMissions().then((result) => {
         if (!cancelled) setMissions(result);
       });
+      fetchWallet().then((result) => {
+        if (!cancelled) setWallet(result);
+      });
+      fetchClaimedMissionsToday().then((result) => {
+        if (!cancelled) setClaimedMissions(result);
+      });
+      fetchMyEquipped().then((result) => {
+        if (cancelled) return;
+        const bySlot: Partial<Record<EquipSlot, PublicEquippedItem>> = {};
+        for (const item of result) bySlot[item.slot] = item;
+        setEquippedBySlot(bySlot);
+      });
       return () => {
         cancelled = true;
       };
     }, []),
   );
+
+  /** Reclamar una misión (o la racha) -- re-valida todo server-side (ver
+   * claim_mission_reward), esto solo dispara el RPC y refleja el resultado
+   * real devuelto: nunca asume localmente cuántos Coins ganó. */
+  async function handleClaimMission(key: MissionKey) {
+    setClaimingKey(key);
+    try {
+      const result = await claimMissionReward(key);
+      if (result.ok) {
+        setClaimedMissions((prev) => ({ ...prev, [key]: true }));
+        setWallet((prev) => (prev ? { balance: prev.balance + result.coinsAwarded } : prev));
+      }
+    } finally {
+      setClaimingKey(null);
+    }
+  }
 
   // Reset the form to the current profile every time edit mode opens (not
   // on every render) so a discarded edit never leaks into the next one.
@@ -291,9 +341,22 @@ export default function ProfileScreen() {
       />
       <ScreenContainer scroll>
       <View style={styles.avatarBlock}>
-        <Text style={styles.avatar}>{user?.avatarEmoji ?? '🙂'}</Text>
+        {/* Cosméticos equipados (bloque cosméticos) -- profile_frame como
+            anillo real alrededor del avatar (no solo un texto en algún
+            lado): ver equippedBySlot, viene de public_equipped_items. */}
+        <View style={[styles.avatarRing, equippedBySlot.profile_frame && styles.avatarRingEquipped]}>
+          <Text style={styles.avatar}>{user?.avatarEmoji ?? '🙂'}</Text>
+          {equippedBySlot.profile_frame && (
+            <Text style={styles.avatarFrameTag}>{equippedBySlot.profile_frame.assetRef}</Text>
+          )}
+        </View>
         <Text style={styles.username}>@{user?.username ?? 'you'}</Text>
-        {user && <Badge label={`FOUNDER #${user.founderNumber}`} tone="accent" />}
+        <View style={styles.badgeRow}>
+          {user && <Badge label={`FOUNDER #${user.founderNumber}`} tone="accent" />}
+          {equippedBySlot.badge && (
+            <Badge label={`${equippedBySlot.badge.assetRef} ${equippedBySlot.badge.name}`} tone="secondary" />
+          )}
+        </View>
         {user?.bio && <Text style={styles.bio}>{user.bio}</Text>}
         <PrimaryButton variant="ghost" label="EDITAR PERFIL" onPress={() => setEditing(true)} />
       </View>
@@ -301,6 +364,19 @@ export default function ProfileScreen() {
       <Card style={styles.card}>
         <XPBar xp={user?.xp ?? 0} xpToNextLevel={user?.xpToNextLevel ?? 1} level={user?.level ?? 1} />
       </Card>
+
+      {/* Saldo de Coins (bloque Wallet/Economía) -- tarjeta propia bien
+          visible, arriba de todo lo demás: es la puerta de entrada a
+          Wallet/Tienda, no un dato escondido en Ajustes. */}
+      <Pressable onPress={() => navigation.navigate('Wallet')}>
+        <Card style={styles.coinsCard}>
+          <View>
+            <Text style={styles.coinsLabel}>💰 MIS COINS</Text>
+            <Text style={styles.coinsValue}>{wallet ? wallet.balance.toLocaleString('es') : '···'}</Text>
+          </View>
+          <Text style={styles.linkCardArrow}>›</Text>
+        </Card>
+      </Pressable>
 
       <View style={styles.statsRow}>
         {/* Racha real (H) -- reemplaza el `streakDays` de User, que
@@ -316,15 +392,49 @@ export default function ProfileScreen() {
 
       <DailyScanCounter />
 
-      {/* Misiones diarias simples (I) -- solo visuales, sin XP (ver
-          missionsService.ts). Cada check sale de un evento real ya
-          existente, nunca inventado. */}
+      {/* Misiones diarias con premio real en Coins (bloque misiones+Coins) --
+          cada check sigue saliendo de un evento real ya existente (ver
+          missionsService.ts); el premio se reclama con claim_mission_reward,
+          que vuelve a validar la condición server-side (nunca confía en
+          este estado del cliente) y es idempotente por día (mission_claims). */}
       {missions && (
         <View style={styles.socialStatsSection}>
           <Text style={styles.settingsTitle}>MISIONES DE HOY</Text>
-          <MissionRow done={missions.scanDone} label="Hacé 1 Scan" />
-          <MissionRow done={missions.challengeCompletedToday} label="Completa 1 Challenge" />
-          <MissionRow done={missions.sharedToday} label="Comparte 1 resultado" />
+          <MissionRow
+            done={missions.scanDone}
+            claimed={claimedMissions.scan}
+            busy={claimingKey === 'scan'}
+            label="Hacé 1 Scan"
+            coins={MISSION_COINS.scan}
+            onClaim={() => handleClaimMission('scan')}
+          />
+          <MissionRow
+            done={missions.challengeCompletedToday}
+            claimed={claimedMissions.challenge}
+            busy={claimingKey === 'challenge'}
+            label="Completa 1 Challenge"
+            coins={MISSION_COINS.challenge}
+            onClaim={() => handleClaimMission('challenge')}
+          />
+          <MissionRow
+            done={missions.sharedToday}
+            claimed={claimedMissions.share}
+            busy={claimingKey === 'share'}
+            label="Comparte 1 resultado"
+            coins={MISSION_COINS.share}
+            onClaim={() => handleClaimMission('share')}
+          />
+          {streak && streak.currentStreak > 0 && (
+            <MissionRow
+              done
+              claimed={claimedMissions.streak}
+              busy={claimingKey === 'streak'}
+              label={`Bono de racha (${streak.currentStreak} día${streak.currentStreak === 1 ? '' : 's'})`}
+              coins={Math.min(streak.currentStreak, 5) * 10}
+              onClaim={() => handleClaimMission('streak')}
+            />
+          )}
+          <Text style={styles.missionCap}>Hasta ~400 Coins por día.</Text>
         </View>
       )}
 
@@ -381,6 +491,27 @@ export default function ProfileScreen() {
       <Pressable onPress={() => navigation.navigate('Ranking')}>
         <Card style={styles.linkCard}>
           <Text style={styles.linkCardLabel}>TOP AURA 🏆</Text>
+          <Text style={styles.linkCardArrow}>›</Text>
+        </Card>
+      </Pressable>
+
+      <Pressable onPress={() => navigation.navigate('Store')}>
+        <Card style={styles.linkCard}>
+          <Text style={styles.linkCardLabel}>TIENDA 🛍️</Text>
+          <Text style={styles.linkCardArrow}>›</Text>
+        </Card>
+      </Pressable>
+
+      <Pressable onPress={() => navigation.navigate('Invite')}>
+        <Card style={styles.linkCard}>
+          <Text style={styles.linkCardLabel}>INVITAR AMIGOS 🎉</Text>
+          <Text style={styles.linkCardArrow}>›</Text>
+        </Card>
+      </Pressable>
+
+      <Pressable onPress={() => navigation.navigate('Help')}>
+        <Card style={styles.linkCard}>
+          <Text style={styles.linkCardLabel}>AYUDA ❓</Text>
           <Text style={styles.linkCardArrow}>›</Text>
         </Card>
       </Pressable>
@@ -475,11 +606,32 @@ export default function ProfileScreen() {
   );
 }
 
-function MissionRow({ done, label }: { done: boolean; label: string }) {
+function MissionRow({
+  done,
+  claimed,
+  busy,
+  label,
+  coins,
+  onClaim,
+}: {
+  done: boolean;
+  claimed: boolean;
+  busy: boolean;
+  label: string;
+  coins: number;
+  onClaim: () => void;
+}) {
   return (
     <View style={styles.missionRow}>
       <Text style={[styles.missionCheck, done && styles.missionCheckDone]}>{done ? '✅' : '⬜'}</Text>
-      <Text style={[styles.missionLabel, done && styles.missionLabelDone]}>{label}</Text>
+      <View style={styles.missionInfo}>
+        <Text style={[styles.missionLabel, done && styles.missionLabelDone]}>{label}</Text>
+        <Text style={styles.missionCoins}>+{coins} Coins</Text>
+      </View>
+      {done && !claimed && (
+        <PrimaryButton variant="ghost" label={busy ? '...' : 'RECLAMAR'} disabled={busy} onPress={onClaim} />
+      )}
+      {claimed && <Text style={styles.missionClaimedTag}>COBRADO ✅</Text>}
     </View>
   );
 }
@@ -493,7 +645,32 @@ const styles = StyleSheet.create({
   },
   avatar: {
     fontSize: 56,
+  },
+  avatarRing: {
+    width: 92,
+    height: 92,
+    borderRadius: 46,
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: spacing.sm,
+    borderWidth: 2,
+    borderColor: 'transparent',
+  },
+  avatarRingEquipped: {
+    borderColor: colors.accent,
+    borderWidth: 3,
+  },
+  avatarFrameTag: {
+    position: 'absolute',
+    bottom: -2,
+    right: -2,
+    fontSize: 20,
+  },
+  badgeRow: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
   },
   username: {
     ...typography.title,
@@ -508,6 +685,22 @@ const styles = StyleSheet.create({
   },
   card: {
     marginBottom: spacing.lg,
+  },
+  coinsCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.lg,
+    borderColor: colors.accent,
+  },
+  coinsLabel: {
+    ...typography.eyebrow,
+    color: colors.textMuted,
+    marginBottom: spacing.xs,
+  },
+  coinsValue: {
+    ...typography.title,
+    color: colors.accent,
   },
   statsRow: {
     flexDirection: 'row',
@@ -531,6 +724,9 @@ const styles = StyleSheet.create({
   missionCheckDone: {
     opacity: 1,
   },
+  missionInfo: {
+    flex: 1,
+  },
   missionLabel: {
     ...typography.body,
     color: colors.textSecondary,
@@ -538,6 +734,21 @@ const styles = StyleSheet.create({
   missionLabelDone: {
     color: colors.textMuted,
     textDecorationLine: 'line-through',
+  },
+  missionCoins: {
+    ...typography.caption,
+    color: colors.accent,
+    marginTop: 1,
+  },
+  missionClaimedTag: {
+    ...typography.caption,
+    color: colors.success,
+    fontWeight: '700',
+  },
+  missionCap: {
+    ...typography.caption,
+    color: colors.textMuted,
+    marginTop: spacing.xs,
   },
   rivalCardAvatar: {
     fontSize: 28,

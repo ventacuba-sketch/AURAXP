@@ -18,6 +18,7 @@ import { requestNotificationInvite } from '../services/pushService';
 import { getVideoPlaybackUrl } from '../services/scanService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { RootStackParamList } from '../types';
+import { fetchMyEquipped, PublicEquippedItem } from '../services/walletService';
 import { formatSignedXP } from '../utils/format';
 import { shareText } from '../utils/share';
 
@@ -36,6 +37,22 @@ export default function ScanResultScreen() {
   const [playing, setPlaying] = useState(false);
   const [playbackError, setPlaybackError] = useState<string | null>(null);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
+  // Efecto visual de resultado (bloque cosméticos) -- si tengo un
+  // `result_effect` equipado (ver walletService/StoreScreen), se ve de
+  // verdad acá, no solo en la Tienda: borde dorado + una fila del emoji
+  // del efecto arriba del puntaje.
+  const [resultEffect, setResultEffect] = useState<PublicEquippedItem | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchMyEquipped().then((items) => {
+      if (cancelled) return;
+      setResultEffect(items.find((i) => i.slot === 'result_effect') ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Checkpoint "scan_completed" (A) -- acá, no en AnalyzingScreen: este es
   // el momento real en que el usuario YA VIO su resultado (recién
@@ -132,7 +149,12 @@ export default function ScanResultScreen() {
   return (
     <ScreenContainer scroll onBack={goBack}>
       {/* The shareable "poster" — everything a Story/TikTok export would need. */}
-      <Card style={styles.heroCard}>
+      <Card style={StyleSheet.flatten([styles.heroCard, resultEffect && styles.heroCardWithEffect])}>
+        {resultEffect && (
+          <Text style={styles.resultEffectRow}>
+            {resultEffect.assetRef} {resultEffect.assetRef} {resultEffect.assetRef}
+          </Text>
+        )}
         <Text style={styles.eyebrow}>AURA REPLAY</Text>
         <Badge label={result.verdictTag} tone="accent" style={styles.verdictBadge} />
         <Text style={styles.score}>{formatSignedXP(result.auraScore)} AURA</Text>
@@ -221,6 +243,14 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     borderColor: colors.secondary,
     alignItems: 'center',
+  },
+  heroCardWithEffect: {
+    borderColor: '#FFD700',
+    borderWidth: 2,
+  },
+  resultEffectRow: {
+    fontSize: 22,
+    marginBottom: spacing.xs,
   },
   eyebrow: {
     ...typography.eyebrow,
