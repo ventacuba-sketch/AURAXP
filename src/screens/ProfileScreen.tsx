@@ -15,7 +15,15 @@ import { useRootNavigation } from '../hooks/useRootNavigation';
 import { signOut } from '../services/authService';
 import { hasNativePrompt, isIOS, isStandalone, promptNativeInstall, requestInstallInvite } from '../services/installService';
 import { clearPendingChallengeToken } from '../services/pendingChallenge';
-import { disablePush, enablePush, getPermissionState, getPushUiStatus, PushPermissionState, PushUiStatus } from '../services/pushService';
+import {
+  disablePush,
+  enablePush,
+  EnablePushFailureStep,
+  getPermissionState,
+  getPushUiStatus,
+  PushPermissionState,
+  PushUiStatus,
+} from '../services/pushService';
 import { ProfileUpdateError, updateProfile, usernameCooldownDaysLeft } from '../services/profileService';
 import { fetchDailyMissions, DailyMissions } from '../services/missionsService';
 import { DailyScanStatus, fetchDailyScanStatus } from '../services/scanService';
@@ -47,6 +55,29 @@ import { formatLevel, formatSignedXP } from '../utils/format';
 const AVATAR_EMOJI_OPTIONS = [
   '🙂', '😎', '🔥', '🦋', '✨', '👾', '🐉', '🌈', '💀', '🎯', '🚀', '🍀',
 ];
+
+// Segundo bug confirmado (auditoría Push) -- "No se pudo activar: <motivo>".
+// Texto corto y en español para la persona -- el detalle técnico exacto
+// (error real del navegador o de Supabase) NUNCA se muestra acá, queda
+// solo en la consola (ver pushService.enablePush, evento 'enablePush').
+function pushErrorReason(step: EnablePushFailureStep | undefined): string {
+  switch (step) {
+    case 'permission_denied':
+      return 'el navegador no dio permiso.';
+    case 'sw_not_ready':
+      return 'el Service Worker no está listo.';
+    case 'subscribe_failed':
+      return 'el navegador rechazó la suscripción.';
+    case 'invalid_subscription':
+      return 'la suscripción quedó incompleta.';
+    case 'upsert_failed':
+      return 'no se pudo guardar en el servidor.';
+    case 'no_session':
+      return 'no hay sesión activa.';
+    default:
+      return 'ocurrió un error inesperado.';
+  }
+}
 
 export default function ProfileScreen() {
   const { user, refetch } = useCurrentUser();
@@ -104,6 +135,13 @@ export default function ProfileScreen() {
   // sincronía con `push_subscriptions`, nunca solo el permiso del SO.
   const [pushUiStatus, setPushUiStatus] = useState<PushUiStatus>('unsupported');
   const [pushBusy, setPushBusy] = useState(false);
+  // Segundo bug confirmado (auditoría) -- ACTIVAR podía fallar en
+  // silencio (SW no listo, subscribe() rechazado, upsert rechazado) sin
+  // ninguna pista visible más allá de "sigue en REQUIERE REACTIVAR".
+  // Temporal, mientras se termina de diagnosticar en el dispositivo real
+  // -- mensaje corto, nunca el detalle técnico completo (ver
+  // pushErrorMessage más abajo).
+  const [pushError, setPushError] = useState<string | null>(null);
 
   const refreshPushStatus = useCallback(() => {
     setPushState(getPermissionState());
@@ -257,11 +295,17 @@ export default function ProfileScreen() {
   // inmediato), solo crea/repara la suscripción real que faltaba.
   async function handleTogglePush() {
     setPushBusy(true);
+    setPushError(null);
     try {
       if (pushUiStatus === 'on') {
         await disablePush();
       } else if (pushUiStatus === 'off' || pushUiStatus === 'requires_reactivation') {
-        await enablePush();
+        const result = await enablePush();
+        // Segundo bug confirmado (auditoría) -- antes esto se perdía en
+        // silencio (enablePush devolvía un boolean plano). Mensaje corto
+        // y genérico por paso -- el detalle técnico exacto (error real
+        // del navegador/Supabase) queda en la consola, ver pushService.
+        if (!result.ok) setPushError(`No se pudo activar: ${pushErrorReason(result.step)}`);
       }
       refreshPushStatus();
     } finally {
@@ -617,6 +661,11 @@ export default function ProfileScreen() {
           {pushState === 'denied' && (
             <Text style={styles.installCardSubtitle}>Actívalas desde los ajustes de notificaciones de tu navegador.</Text>
           )}
+          {/* Segundo bug confirmado (auditoría) -- temporal, mientras se
+              termina de diagnosticar en el dispositivo real (ver
+              pushService.enablePush). Se limpia solo al volver a tocar
+              Activar/Desactivar. */}
+          {pushError && <Text style={styles.pushErrorText}>{pushError}</Text>}
 
           {confirmingLogout ? (
             <View style={styles.logoutConfirm}>
@@ -841,6 +890,11 @@ const styles = StyleSheet.create({
   installCardSubtitle: {
     ...typography.caption,
     color: colors.textSecondary,
+    marginTop: 2,
+  },
+  pushErrorText: {
+    ...typography.caption,
+    color: colors.danger,
     marginTop: 2,
   },
   settingsSection: {

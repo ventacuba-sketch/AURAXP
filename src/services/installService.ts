@@ -212,13 +212,28 @@ export async function promptNativeInstall(): Promise<'accepted' | 'dismissed' | 
 /** Registra el service worker (R10) -- SOLO existe para cumplir el
  * criterio de instalabilidad de Android/Chrome (manifest + SW con fetch
  * handler); ver public/sw.js -- no cachea nada, cero riesgo de datos
- * viejos. Llamar una vez al boot de la app (App.tsx). */
+ * viejos. Llamar una vez al boot de la app (App.tsx).
+ *
+ * Diagnóstico (auditoría Push, segundo bug) -- este `.catch()` era 100%
+ * silencioso: si el registro fallaba (red, scope inválido, lo que sea),
+ * no quedaba NINGÚN rastro en ningún lado, y `enablePush()` depende por
+ * completo de que este registro haya funcionado (`navigator.
+ * serviceWorker.ready` nunca resuelve sin un SW activo). Sigue siendo
+ * best-effort -- nunca rompe nada -- pero ahora el éxito/fallo queda en
+ * consola para poder confirmar o descartar esto como causa. */
 export function registerServiceWorker(): void {
   if (Platform.OS !== 'web' || typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.register('/sw.js').catch(() => {
-    // Best-effort: sin SW, la app sigue funcionando igual, solo sin la
-    // mejora de instalabilidad en Android -- nunca debe romper nada.
-  });
+  navigator.serviceWorker
+    .register('/sw.js')
+    .then((registration) => {
+      console.log(JSON.stringify({ src: 'registerServiceWorker', event: 'registered', scope: registration.scope }));
+    })
+    .catch((e) => {
+      // Best-effort: sin SW, la app sigue funcionando igual, solo sin la
+      // mejora de instalabilidad en Android (y sin Push -- ver
+      // pushService.enablePush) -- nunca debe romper nada.
+      console.error(JSON.stringify({ src: 'registerServiceWorker', event: 'register_failed', message: String(e) }));
+    });
 }
 
 /** Llamar una vez al boot (App.tsx): confirma instalación real vía

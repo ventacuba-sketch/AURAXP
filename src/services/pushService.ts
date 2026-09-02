@@ -193,6 +193,38 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
 }
 
 /**
+ * Segundo bug confirmado (auditoría) -- REQUIERE REACTIVAR se queda en
+ * REQUIERE REACTIVAR después de tocar Activar, con 0 filas en
+ * push_subscriptions. `enablePush()` devolvía un boolean plano: ni la
+ * consola ni la UI decían EN QUÉ PASO fallaba (SW no listo, subscribe()
+ * rechazado, upsert rechazado por RLS/red, etc.) -- imposible diagnosticar
+ * sin acceso a un iPhone real. `step` es diagnóstico interno (nunca se le
+ * muestra tal cual a la persona -- ver ProfileScreen, que lo traduce a un
+ * texto corto); `detail` es el mensaje técnico exacto para consola/logs,
+ * SIN secretos (nunca p256dh/auth -- son las claves de cifrado de la
+ * suscripción -- ni la VAPID key completa, ni el endpoint completo).
+ */
+export type EnablePushFailureStep =
+  | 'not_supported'
+  | 'no_session'
+  | 'permission_denied'
+  | 'sw_not_ready'
+  | 'subscribe_failed'
+  | 'invalid_subscription'
+  | 'upsert_failed'
+  | 'unexpected_error';
+
+export interface EnablePushResult {
+  ok: boolean;
+  step?: EnablePushFailureStep;
+  detail?: string;
+}
+
+function logPush(event: string, data: Record<string, unknown> = {}): void {
+  console.log(JSON.stringify({ src: 'enablePush', event, ...data }));
+}
+
+/**
  * Flujo real de activación (F): pedir el permiso nativo del browser Y,
  * si lo concede, suscribirse de verdad (PushManager + guardar la
  * suscripción en `push_subscriptions`) -- las dos cosas cuentan como una
@@ -204,24 +236,29 @@ function urlBase64ToUint8Array(base64: string): Uint8Array {
  * endpoint del navegador ya pertenece a OTRO usuario (alguien más se
  * suscribió antes desde el mismo browser/dispositivo y no cerró sesión
  * limpiamente), el upsert puede fallar por RLS (cada quien administra
- * solo sus propias filas, ver la migración) -- caso de borde real, no
- * resuelto acá; se loguea y se trata como fallo silencioso, nunca rompe
- * el resto de la app.
+ * solo sus propias filas, ver la migración) -- caso de borde real,
+ * ahora SÍ visible como 'upsert_failed' en vez de perderse en silencio.
  */
-export async function enablePush(): Promise<boolean> {
-  if (!isPushSupported() || !supabase) return false;
+export async function enablePush(): Promise<EnablePushResult> {
+  if (!isPushSupported()) return { ok: false, step: 'not_supported' };
+  if (!supabase) return { ok: false, step: 'not_supported', detail: 'Supabase no configurado' };
+
   const session = await getSession();
-  if (!session) return false;
+  if (!session) return { ok: false, step: 'no_session' };
 
   try {
     const permission = await Notification.requestPermission();
     if (permission !== 'granted') {
       logEvent('push_permission_denied');
-      return false;
+      return { ok: false, step: 'permission_denied' };
     }
 
+    logPush('sw_ready_wait');
     const registration = await navigator.serviceWorker.ready;
+    logPush('sw_ready_ok', { scope: registration.scope });
+
     let existing = await registration.pushManager.getSubscription();
+    logPush('get_subscription_result', { found: Boolean(existing) });
 
     // Punto 5 (auditoría) -- nunca reutilizar ciegamente una suscripción
     // vieja atada a otra VAPID key: el push service la rechaza para
@@ -229,24 +266,61 @@ export async function enablePush(): Promise<boolean> {
     // ver auditoría) y nadie se entera. Se da de baja acá y se fuerza una
     // suscripción nueva con la key ACTUAL.
     if (existing && !subscriptionMatchesCurrentVapidKey(existing)) {
+      logPush('stale_vapid_key_detected');
       await existing.unsubscribe().catch(() => {});
       existing = null;
     }
 
-    const subscription =
-      existing ??
-      (await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        // as BufferSource: los tipos DOM de TS son más estrictos que el
-        // runtime real acá (Uint8Array<ArrayBufferLike> vs el
-        // ArrayBufferView<ArrayBuffer> que exige el lib.dom.d.ts más
-        // nuevo) -- todo browser real acepta un Uint8Array plano sin
-        // problema, es un desajuste de tipos, no de comportamiento.
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource,
-      }));
+    let subscription: PushSubscription;
+    if (existing) {
+      subscription = existing;
+    } else {
+      // applicationServerKey se construye SIEMPRE acá, a partir de
+      // EXPO_PUBLIC_VAPID_PUBLIC_KEY -- si esa variable llegó vacía o mal
+      // formada al build, esto es lo que revienta (y ahora queda
+      // registrado como 'subscribe_failed', nunca silencioso). No se
+      // loguea el valor -- no es secreto (es la clave PÚBLICA), pero no
+      // aporta nada al diagnóstico y es ruido -- solo su longitud, para
+      // confirmar que efectivamente llegó algo al build.
+      let applicationServerKey: BufferSource;
+      try {
+        applicationServerKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource;
+        logPush('application_server_key_built', { vapidPublicKeyLength: VAPID_PUBLIC_KEY.length });
+      } catch (e) {
+        logPush('application_server_key_build_failed', { message: String(e) });
+        return { ok: false, step: 'subscribe_failed', detail: 'VAPID key inválida (no se pudo decodificar)' };
+      }
+
+      try {
+        subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          // as BufferSource: los tipos DOM de TS son más estrictos que el
+          // runtime real acá (Uint8Array<ArrayBufferLike> vs el
+          // ArrayBufferView<ArrayBuffer> que exige el lib.dom.d.ts más
+          // nuevo) -- todo browser real acepta un Uint8Array plano sin
+          // problema, es un desajuste de tipos, no de comportamiento.
+          applicationServerKey,
+        });
+        logPush('subscribe_ok');
+      } catch (e) {
+        // Error EXACTO del navegador -- p. ej. DOMException 'AbortError'
+        // (VAPID key rechazada) o 'NotAllowedError'. Nunca se pierde en
+        // el catch genérico de más abajo.
+        const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+        logPush('subscribe_failed', { detail });
+        return { ok: false, step: 'subscribe_failed', detail };
+      }
+    }
 
     const json = subscription.toJSON();
-    if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) return false;
+    if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
+      logPush('invalid_subscription_json', {
+        hasEndpoint: Boolean(json.endpoint),
+        hasP256dh: Boolean(json.keys?.p256dh),
+        hasAuth: Boolean(json.keys?.auth),
+      });
+      return { ok: false, step: 'invalid_subscription' };
+    }
 
     const { error } = await supabase.from('push_subscriptions').upsert(
       {
@@ -262,15 +336,18 @@ export async function enablePush(): Promise<boolean> {
     );
 
     if (error) {
-      console.error(JSON.stringify({ src: 'enablePush', event: 'upsert_failed', message: error.message }));
-      return false;
+      // Error EXACTO del upsert (mensaje/código de Postgres/RLS vía
+      // supabase-js) -- nunca solo "falló". Nunca incluye p256dh/auth.
+      console.error(JSON.stringify({ src: 'enablePush', event: 'upsert_failed', message: error.message, code: error.code }));
+      return { ok: false, step: 'upsert_failed', detail: error.message };
     }
 
     logEvent('push_subscribed');
-    return true;
+    return { ok: true };
   } catch (e) {
-    console.error(JSON.stringify({ src: 'enablePush', event: 'error', message: String(e) }));
-    return false;
+    const detail = e instanceof Error ? `${e.name}: ${e.message}` : String(e);
+    console.error(JSON.stringify({ src: 'enablePush', event: 'unexpected_error', detail }));
+    return { ok: false, step: 'unexpected_error', detail };
   }
 }
 
