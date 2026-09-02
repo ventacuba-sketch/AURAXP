@@ -11,7 +11,15 @@ import { colors, spacing, typography } from '../theme/colors';
 const SUPPORT_EMAIL = 'soporte@auravs.app';
 
 const FAQ: { q: string; a: string }[] = [
-  { q: '¿Qué es Aura?', a: 'Tu puntaje real, calculado por IA a partir de un video corto: presencia, actitud y energía.' },
+  {
+    q: '¿Qué es Aura?',
+    // Punto 18 (auditoría post-iPhone): "puntaje real" sonaba a que la IA
+    // mide algo objetivo/verdadero sobre la persona -- nunca fue la
+    // intención (ver _shared/scoring.ts: es una fórmula social/de
+    // entretenimiento, no una medición seria). Mismo tono divertido, sin
+    // esa afirmación.
+    a: 'Tu puntuación de Aura, calculada por IA a partir de un video corto: presencia, actitud y energía.',
+  },
   { q: '¿Cómo funciona XP?', a: 'Ganas XP por cada Scan y por Challenges completados -- sube tu nivel y tu posición en el ranking.' },
   {
     q: '¿Cómo funcionan los Coins?',
@@ -27,11 +35,11 @@ const FAQ: { q: string; a: string }[] = [
   },
   {
     q: '¿Cómo funcionan las misiones diarias?',
-    a: 'Cada día podés reclamar Coins por hacer un Scan, completar un Challenge y compartir un resultado -- hasta ~400 Coins/día. Se reinician a la medianoche (UTC).',
+    a: 'Cada día puedes reclamar Coins por hacer un Scan, completar un Challenge y compartir un resultado -- hasta ~400 Coins/día. Se reinician a la medianoche (UTC).',
   },
   {
     q: '¿Cómo funcionan los referidos?',
-    a: 'Compartí tu código desde "Invitar amigos". Cuando la persona invitada completa su primer Scan, vos ganás 5.000 Coins y ella 2.500 -- nunca por solo registrarse.',
+    a: 'Comparte tu código desde "Invitar amigos". Cuando la persona invitada completa su primer Scan, tú ganas 5.000 Coins y ella 2.500 -- nunca por solo registrarse.',
   },
   {
     q: '¿Cómo funcionan los Challenges?',
@@ -41,7 +49,7 @@ const FAQ: { q: string; a: string }[] = [
     q: '¿Qué es PRO?',
     a: 'Una suscripción con beneficios extra, incluyendo un bono mensual de Coins -- se administra desde tu perfil, es independiente de la economía normal de Coins.',
   },
-  { q: '¿Cómo instalo AURA VS en mi teléfono?', a: 'Desde Perfil, tocá "Instalar AURA VS" y seguí la guía según tu dispositivo.' },
+  { q: '¿Cómo instalo AURA VS en mi teléfono?', a: 'Desde Perfil, toca "Instalar AURA VS" y sigue la guía según tu dispositivo.' },
   {
     q: 'Privacidad',
     a: 'Tu email, plan y videos son privados. Lo único público de tu perfil es username, avatar, nivel, XP y tus stats de Challenge.',

@@ -15,7 +15,6 @@ import {
   cancelChallenge,
   challengeShareUrl,
   ChallengeListFilter,
-  createChallenge,
   listMyChallenges,
   respondDirectChallenge,
 } from '../services/challengeService';
@@ -153,18 +152,13 @@ export default function MyChallengesScreen() {
     }
   }
 
-  async function handleRematch(item: ChallengeListItem) {
-    if (!item.myScanId) return;
-    setBusyId(item.id);
-    try {
-      const newToken = await createChallenge(item.myScanId);
-      navigation.navigate('Challenge', { challengeToken: newToken });
-    } catch (e) {
-      console.warn('rematch createChallenge failed', e);
-      setNotice('No pudimos crear la revancha.');
-    } finally {
-      setBusyId(null);
-    }
+  // CORRECCIÓN (auditoría post-iPhone, punto 9): ver la misma corrección
+  // en ChallengeScreen.handleRematch -- ya no reusa `item.myScanId` (el
+  // scan de la batalla anterior), exige un Scan nuevo antes de crear el
+  // Challenge.
+  function handleRematch(item: ChallengeListItem) {
+    if (!item.rival?.username) return;
+    navigation.navigate('Upload', { rematchTargetUsername: item.rival.username });
   }
 
   // COMPARTIR RESULTADO de un Challenge completado -- mismo generador de

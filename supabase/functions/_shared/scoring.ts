@@ -46,6 +46,18 @@ export interface GeminiResult {
   verdict: { headline: string };
   moderation: { flagged: boolean; reason: string | null };
   modelConfidence: number;
+  /**
+   * Duración aproximada del clip en segundos, según lo que Gemini
+   * observó directamente en el archivo -- no el `duration_ms` que manda
+   * el cliente al crear el scan (ese es un dato auto-reportado, nunca
+   * verificado). Server-side hardening del límite de 8s (ver auditoría
+   * post-iPhone): el cliente ya lo valida antes de subir, esto es la
+   * validación real del contenido, imposible de saltear editando el JS
+   * del cliente. Opcional (0 = Gemini no lo reportó) para no romper nada
+   * si algún día falta -- process-scan simplemente omite el chequeo en
+   * ese caso, nunca rechaza sobre un dato ausente.
+   */
+  observedDurationSec?: number;
 }
 
 export interface TimelineBeat {

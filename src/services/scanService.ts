@@ -79,6 +79,11 @@ interface ScanRow {
   moderation_flagged: boolean;
   created_at: string;
   video_path: string | null;
+  /** item_key del consumible que process-scan encontró ARMADO y consumió
+   * para ESTE resultado (p. ej. 'confetti_boost') -- null si no había
+   * ninguno activado. Lo decide el server, nunca el cliente (ver
+   * activate_consumable/process-scan). */
+  consumable_effect_key: string | null;
 }
 
 export function mapScanRowToScanResult(row: ScanRow): ScanResult {
@@ -93,6 +98,7 @@ export function mapScanRowToScanResult(row: ScanRow): ScanResult {
     stats: row.stats ?? { confidence: 0, style: 0, timing: 0, cringeRisk: 0 },
     createdAt: row.created_at,
     videoPath: row.video_path ?? null,
+    consumableEffectKey: row.consumable_effect_key ?? null,
   };
 }
 

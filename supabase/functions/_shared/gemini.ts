@@ -68,6 +68,10 @@ sujeto claro, ilegible), marcá hasClearAction=false y dejá moments=[].
 Moderación: marcá flagged=true si el contenido es sexual, violento,
 ilegal, o pone en riesgo real a alguien — con una razón breve.
 
+Además, reportá en observedDurationSec la duración aproximada real del
+clip en segundos (tu propia lectura del archivo, no un dato que te
+pasen) -- es un chequeo de integridad, no afecta tu análisis de aura.
+
 Devolvé ÚNICAMENTE el JSON del schema, sin texto adicional.`;
 
 export const RESPONSE_SCHEMA = {
@@ -129,8 +133,9 @@ export const RESPONSE_SCHEMA = {
       required: ['flagged', 'reason'],
     },
     modelConfidence: { type: 'NUMBER' },
+    observedDurationSec: { type: 'NUMBER' },
   },
-  required: ['signals', 'scores', 'moments', 'verdict', 'moderation', 'modelConfidence'],
+  required: ['signals', 'scores', 'moments', 'verdict', 'moderation', 'modelConfidence', 'observedDurationSec'],
 };
 
 interface AnalyzeVideoParams {
@@ -471,4 +476,12 @@ function validateGeminiResult(result: GeminiResult): void {
       (m.polarity === 'positive' || m.polarity === 'negative') &&
       [1, 2, 3].includes(m.intensity),
   );
+
+  // Defensivo (F): un valor no-numérico o negativo se trata como "no
+  // reportado" (0) en vez de romper el scan -- process-scan solo actúa
+  // sobre este campo cuando es > 0, así que 0 equivale a "sin chequeo".
+  result.observedDurationSec =
+    typeof result.observedDurationSec === 'number' && Number.isFinite(result.observedDurationSec) && result.observedDurationSec > 0
+      ? result.observedDurationSec
+      : 0;
 }

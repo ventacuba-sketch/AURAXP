@@ -73,7 +73,12 @@ function NativeCameraRecorder() {
   const stopRequestedRef = useRef(false);
 
   function goToUpload(recordedUri?: string, recordedDurationMs?: number) {
-    navigation.navigate('Upload', { challengeToken: params?.challengeToken, recordedUri, recordedDurationMs });
+    navigation.navigate('Upload', {
+      challengeToken: params?.challengeToken,
+      rematchTargetUsername: params?.rematchTargetUsername,
+      recordedUri,
+      recordedDurationMs,
+    });
   }
 
   // Pide cámara + micrófono apenas se entra a la pantalla -- grabar video

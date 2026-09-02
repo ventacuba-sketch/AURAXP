@@ -105,7 +105,7 @@ export default function HomeScreen() {
         <Pressable onPress={() => navigation.navigate('MyChallenges')}>
           <Card style={styles.urgentCard}>
             <Text style={styles.urgentText}>
-              ⚔️ Te desafiaron -- tenés {receivedCount} respuesta{receivedCount === 1 ? '' : 's'} pendiente{receivedCount === 1 ? '' : 's'}
+              ⚔️ Te desafiaron -- tienes {receivedCount} respuesta{receivedCount === 1 ? '' : 's'} pendiente{receivedCount === 1 ? '' : 's'}
             </Text>
             <Text style={styles.urgentArrow}>Responder ›</Text>
           </Card>
@@ -116,7 +116,7 @@ export default function HomeScreen() {
           <Pressable onPress={() => navigation.navigate('MyChallenges')}>
             <Card style={styles.urgentCard}>
               <Text style={styles.urgentText}>
-                ⚔️ Tenés {myTurnCount} desafío{myTurnCount === 1 ? '' : 's'} esperando tu Scan
+                ⚔️ Tienes {myTurnCount} desafío{myTurnCount === 1 ? '' : 's'} esperando tu Scan
               </Text>
               <Text style={styles.urgentArrow}>Continuar ›</Text>
             </Card>

@@ -65,7 +65,7 @@ export default function BugReportScreen() {
 
       <TextInput
         style={styles.input}
-        placeholder="Contanos qué pasó..."
+        placeholder="Cuéntanos qué pasó..."
         placeholderTextColor={colors.textMuted}
         value={message}
         onChangeText={setMessage}

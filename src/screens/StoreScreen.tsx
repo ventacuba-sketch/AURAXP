@@ -9,6 +9,7 @@ import { ScreenContainer } from '../components/ScreenContainer';
 import { useSmartBack } from '../hooks/useSmartBack';
 import { logEvent } from '../services/analyticsService';
 import {
+  activateConsumable,
   EquipSlot,
   equipItem,
   fetchInventory,
@@ -80,9 +81,31 @@ export default function StoreScreen() {
         setNotice(`Compraste ${item.name} ✅`);
         load();
       } else if (result.errorCode === 'insufficient_funds') {
-        setNotice('No te alcanzan los Coins para esto.');
+        setNotice('SALDO INSUFICIENTE. No te alcanzan los Coins para esto.');
       } else {
         setNotice('No pudimos completar la compra. Intenta de nuevo.');
+      }
+    } finally {
+      setBusyKey(null);
+    }
+  }
+
+  // CORRECCIÓN (auditoría post-iPhone, punto 3/4): antes un consumible
+  // (equipSlot null) no tenía NINGÚN botón en "Mis ítems" -- se compraba
+  // y quedaba ahí para siempre, sin forma de activarlo. Ahora arma el
+  // efecto para el próximo Scan (ver activate_consumable/process-scan);
+  // el consumo real de la unidad pasa server-side cuando ESE Scan
+  // termina, nunca acá.
+  async function handleActivate(inv: InventoryItem) {
+    setBusyKey(inv.inventoryItemId);
+    setNotice(null);
+    try {
+      const result = await activateConsumable(inv.inventoryItemId);
+      if (result.ok) {
+        setNotice(`${inv.name} activado -- se aplica en tu próximo resultado ✅`);
+        load();
+      } else {
+        setNotice('No pudimos activar este ítem. Intenta de nuevo.');
       }
     } finally {
       setBusyKey(null);
@@ -150,26 +173,35 @@ export default function StoreScreen() {
           </View>
         ))
       ) : inventory.length === 0 ? (
-        <Text style={styles.empty}>Todavía no compraste nada. Mirá la tienda.</Text>
+        <Text style={styles.empty}>Todavía no compraste nada. Mira la tienda.</Text>
       ) : (
         <View style={styles.section}>
           {inventory.map((inv) => {
             const isEquipped = inv.equipSlot != null && equippedBySlot[inv.equipSlot] === inv.inventoryItemId;
+            const isArmed = inv.armedAt != null;
             return (
               <Card key={inv.inventoryItemId} style={styles.itemCard}>
                 <Text style={styles.itemEmoji}>{inv.assetRef}</Text>
                 <View style={styles.itemInfo}>
                   <Text style={styles.itemName}>{inv.name}</Text>
                   {isEquipped && <Text style={styles.equippedTag}>EQUIPADO</Text>}
+                  {isArmed && <Text style={styles.equippedTag}>ACTIVADO -- se aplica en tu próximo Scan</Text>}
                 </View>
-                {inv.equipSlot && (
+                {inv.equipSlot ? (
                   <PrimaryButton
                     label={busyKey === inv.inventoryItemId ? '...' : isEquipped ? 'QUITAR' : 'EQUIPAR'}
                     variant={isEquipped ? 'text' : 'ghost'}
                     disabled={busyKey === inv.inventoryItemId}
                     onPress={() => handleEquipToggle(inv)}
                   />
-                )}
+                ) : inv.itemType === 'consumable' ? (
+                  <PrimaryButton
+                    label={busyKey === inv.inventoryItemId ? '...' : isArmed ? 'ACTIVADO' : 'USAR'}
+                    variant={isArmed ? 'text' : 'ghost'}
+                    disabled={busyKey === inv.inventoryItemId || isArmed}
+                    onPress={() => handleActivate(inv)}
+                  />
+                ) : null}
               </Card>
             );
           })}

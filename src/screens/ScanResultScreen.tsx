@@ -6,6 +6,7 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { AuraScanner } from '../components/AuraScanner';
 import { Badge } from '../components/Badge';
 import { Card } from '../components/Card';
+import { ConfettiBurst } from '../components/ConfettiBurst';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { StatMeter } from '../components/StatMeter';
@@ -48,6 +49,21 @@ export default function ScanResultScreen() {
   // Wallet justo cuando ya tienen sentido (recién vio su primer resultado
   // real), sin sumar una pantalla ni un paso más al flujo.
   const [showFirstResultHighlight, setShowFirstResultHighlight] = useState(false);
+  // Boost de Confeti (bloque tienda/consumibles, punto 3/4 de la
+  // auditoría post-iPhone) -- lo decide el SERVER (process-scan sabe si
+  // había un consumible armado y lo consumió justo para este scan, ver
+  // scanService.ts), nunca el cliente.
+  const [showConfetti, setShowConfetti] = useState(false);
+  // `result` llega async (useScanResult) -- este effect dispara el
+  // confeti UNA sola vez apenas el resultado real está disponible, sin
+  // volver a hacerlo si la pantalla se re-renderiza por otro motivo
+  // (scanId no cambia entre renders de la misma pantalla).
+  const confettiTriggeredRef = React.useRef(false);
+  useEffect(() => {
+    if (!result || confettiTriggeredRef.current) return;
+    confettiTriggeredRef.current = true;
+    if (result.consumableEffectKey === 'confetti_boost') setShowConfetti(true);
+  }, [result]);
 
   useEffect(() => {
     let cancelled = false;
@@ -166,7 +182,9 @@ export default function ScanResultScreen() {
   return (
     <ScreenContainer scroll onBack={goBack}>
       {/* The shareable "poster" — everything a Story/TikTok export would need. */}
-      <Card style={StyleSheet.flatten([styles.heroCard, resultEffect && styles.heroCardWithEffect])}>
+      <View style={styles.heroWrap}>
+        {showConfetti && <ConfettiBurst onDone={() => setShowConfetti(false)} />}
+        <Card style={StyleSheet.flatten([styles.heroCard, resultEffect && styles.heroCardWithEffect])}>
         {resultEffect && (
           <Text style={styles.resultEffectRow}>
             {resultEffect.assetRef} {resultEffect.assetRef} {resultEffect.assetRef}
@@ -200,7 +218,8 @@ export default function ScanResultScreen() {
         {playbackError && <Text style={styles.playbackErrorText}>{playbackError}</Text>}
 
         <Text style={styles.disclaimer}>Puntuamos lo que hiciste, no cómo te ves.</Text>
-      </Card>
+        </Card>
+      </View>
 
       {result.xpAwarded > 0 && (
         // Tappable a propósito -- parte del loop de retención (Scan ->
@@ -282,6 +301,11 @@ const styles = StyleSheet.create({
   center: {
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  heroWrap: {
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: radius.lg,
   },
   heroCard: {
     marginTop: spacing.lg,

@@ -178,8 +178,29 @@ function buildParticipant(userId: string, profile: PublicProfileRow, scan: ScanS
  * legible una vez `status === 'completed'` (ver migración) -- antes de eso
  * simplemente llega `null` en esos campos, sin error.
  */
+/**
+ * Punto 8 (auditoría post-iPhone): un Challenge pendiente ya tiene un
+ * `expires_at` a 72h (ver 20260829120000) y `accept_challenge` ya lo
+ * corta lazy -- pero SOLO si alguien intenta aceptarlo. Si nadie lo hace,
+ * se queda 'pending' para siempre y sigue apareciendo como activo en
+ * RECIBIDOS/ENVIADOS. Este RPC aplica ese mismo corte a los Challenges
+ * del usuario actual -- se llama antes de cada lectura (abajo) para que
+ * la lista ya venga al día, sin necesitar un cron. Best-effort a
+ * propósito: si falla (red, no autenticado) la lectura sigue igual, en
+ * el peor caso con datos un toque más viejos, nunca rompe la pantalla.
+ */
+async function ensureChallengesFresh(): Promise<void> {
+  if (!supabase) return;
+  try {
+    await supabase.rpc('expire_stale_challenges');
+  } catch {
+    // best-effort, ver comentario de arriba.
+  }
+}
+
 export async function getChallenge(shareToken: string): Promise<Challenge | null> {
   if (!supabase) return null;
+  await ensureChallengesFresh();
 
   const { data: row, error } = await supabase
     .from('challenges')
@@ -191,11 +212,16 @@ export async function getChallenge(shareToken: string): Promise<Challenge | null
 
   if (error || !row) return null;
 
-  const [creatorProfile, opponentProfile, creatorScan, opponentScan] = await Promise.all([
+  // targetProfile (punto 10, auditoría post-iPhone): solo hace falta
+  // mientras el Challenge sigue 'pending' sin oponente todavía -- una vez
+  // aceptado, opponentProfile ya cubre lo mismo (opponent_user_id ===
+  // target_user_id en ese caso), así que no vale la pena pedirlo de nuevo.
+  const [creatorProfile, opponentProfile, creatorScan, opponentScan, targetProfile] = await Promise.all([
     fetchPublicProfile(row.from_user_id),
     row.opponent_user_id ? fetchPublicProfile(row.opponent_user_id) : Promise.resolve(null),
     fetchScanSummary(row.source_scan_id),
     row.target_scan_id ? fetchScanSummary(row.target_scan_id) : Promise.resolve(null),
+    row.target_user_id && !row.opponent_user_id ? fetchPublicProfile(row.target_user_id) : Promise.resolve(null),
   ]);
 
   if (!creatorProfile) return null;
@@ -207,6 +233,7 @@ export async function getChallenge(shareToken: string): Promise<Challenge | null
     creator: buildParticipant(row.from_user_id, creatorProfile, creatorScan),
     opponent: row.opponent_user_id && opponentProfile ? buildParticipant(row.opponent_user_id, opponentProfile, opponentScan) : null,
     targetUserId: row.target_user_id,
+    targetUsername: targetProfile?.username ?? null,
     winnerUserId: row.winner_user_id,
     isTie: row.is_tie,
     creatorXpAwarded: row.creator_xp_awarded,
@@ -281,6 +308,7 @@ export async function listMyChallenges(
   const session = await getSession();
   if (!session) return { items: [], hasMore: false };
   const uid = session.user.id;
+  await ensureChallengesFresh();
 
   let query = supabase
     .from('challenges')
@@ -371,6 +399,7 @@ export async function countReceivedChallenges(): Promise<number> {
   if (!supabase) return 0;
   const session = await getSession();
   if (!session) return 0;
+  await ensureChallengesFresh();
 
   const { count, error } = await supabase
     .from('challenges')

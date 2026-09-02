@@ -36,12 +36,21 @@ export type RootStackParamList = {
         /** Vuelta desde Record con un video recién grabado (ver RecordScreen). */
         recordedUri?: string;
         recordedDurationMs?: number;
+        /** Revancha (punto 9, auditoría post-iPhone): username del rival
+         * ya conocido -- viaja igual que `challengeToken` hasta Analyzing,
+         * que al terminar el Scan nuevo crea el Challenge directo real
+         * hacia esta persona (nunca reusando un scan viejo). Mutuamente
+         * excluyente con `challengeToken` en la práctica (un caso es
+         * "aceptando un Challenge ajeno", el otro es "creando la
+         * revancha yo"). */
+        rematchTargetUsername?: string;
       }
     | undefined;
-  Record: { challengeToken?: string } | undefined;
+  Record: { challengeToken?: string; rematchTargetUsername?: string } | undefined;
   /** `challengeToken` viaja hasta acá para que Analyzing sepa, al terminar,
-   * si tiene que resolver un Challenge en vez de ir al Aura Replay normal. */
-  Analyzing: { scanId?: string; challengeToken?: string } | undefined;
+   * si tiene que resolver un Challenge en vez de ir al Aura Replay normal.
+   * `rematchTargetUsername` -- ver Upload arriba. */
+  Analyzing: { scanId?: string; challengeToken?: string; rematchTargetUsername?: string } | undefined;
   ScanResult: { scanId?: string } | undefined;
   /** Exactamente uno de los dos: `scanId` (creando un Challenge nuevo desde
    * tu propio scan) o `challengeToken` (viendo/esperando uno ya existente,
@@ -146,6 +155,10 @@ export interface ScanResult {
    * reproducirlo (ver getVideoPlaybackUrl en scanService.ts). null en modo
    * mock o si el scan no tiene video asociado. */
   videoPath: string | null;
+  /** item_key del consumible que se activó y consumió justo para este
+   * resultado (p. ej. 'confetti_boost') -- ver ConfettiBurst/StoreScreen.
+   * null si no había ninguno armado. */
+  consumableEffectKey: string | null;
 }
 
 /** A chain of friends who've passed a challenge along. */
@@ -192,6 +205,12 @@ export interface Challenge {
    * aceptar/rechazar mientras sigue 'pending'. null en el Challenge
    * clásico por link (cualquiera que lo reciba puede aceptarlo). */
   targetUserId: string | null;
+  /** username de `targetUserId`, resuelto para mostrar "Esperando a
+   * @username" (punto 10, auditoría post-iPhone) en vez del genérico
+   * "Esperando rival" en un Challenge DIRIGIDO que todavía nadie aceptó.
+   * null si no es un Challenge dirigido, o si el perfil no se pudo
+   * resolver. */
+  targetUsername: string | null;
   winnerUserId: string | null;
   isTie: boolean;
   creatorXpAwarded: number | null;

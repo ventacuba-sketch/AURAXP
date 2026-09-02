@@ -67,6 +67,7 @@ export const mockScanResult: ScanResult = {
   // Sin backend real no hay ningún video que reproducir -- el botón de
   // play en AURA REPLAY queda deshabilitado en modo mock.
   videoPath: null,
+  consumableEffectKey: null,
 };
 
 export const mockAuraChain: AuraChain = {

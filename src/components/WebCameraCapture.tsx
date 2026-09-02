@@ -104,7 +104,12 @@ export function WebCameraCapture() {
   const stopRequestedRef = useRef(false);
 
   function goToUpload(recordedUri?: string, recordedDurationMs?: number) {
-    navigation.navigate('Upload', { challengeToken: params?.challengeToken, recordedUri, recordedDurationMs });
+    navigation.navigate('Upload', {
+      challengeToken: params?.challengeToken,
+      rematchTargetUsername: params?.rematchTargetUsername,
+      recordedUri,
+      recordedDurationMs,
+    });
   }
 
   function clearTimers() {

@@ -166,8 +166,13 @@ export interface InventoryItem {
   assetRef: string | null;
   equipSlot: EquipSlot | null;
   category: StoreItem['category'];
+  itemType: StoreItem['itemType'];
   acquiredAt: string;
   consumedAt: string | null;
+  /** No-null mientras está preparado para el próximo Scan (ver
+   * activate_consumable) -- lo usa StoreScreen para mostrar "ACTIVADO"
+   * en vez de "USAR". */
+  armedAt: string | null;
 }
 
 interface InventoryStoreItemRow {
@@ -176,6 +181,7 @@ interface InventoryStoreItemRow {
   asset_ref: string | null;
   equip_slot: EquipSlot | null;
   category: StoreItem['category'];
+  item_type: StoreItem['itemType'];
 }
 
 export async function fetchInventory(): Promise<InventoryItem[]> {
@@ -184,7 +190,13 @@ export async function fetchInventory(): Promise<InventoryItem[]> {
   if (!session) return [];
   const { data, error } = await supabase
     .from('inventory_items')
-    .select('id, acquired_at, consumed_at, store_items(item_key, name, asset_ref, equip_slot, category)')
+    .select('id, acquired_at, consumed_at, armed_at, store_items(item_key, name, asset_ref, equip_slot, category, item_type)')
+    // CORRECCIÓN (auditoría post-iPhone, punto 3/4): un consumible ya
+    // usado se queda afuera de "Mis ítems" -- antes se mostraba para
+    // siempre (nunca se filtraba por consumed_at), aunque ya no hubiera
+    // ninguna acción posible sobre él. Un permanente nunca tiene
+    // consumed_at seteado, así que este filtro no le afecta.
+    .is('consumed_at', null)
     .eq('user_id', session.user.id)
     .order('acquired_at', { ascending: false });
   if (error || !data) return [];
@@ -200,10 +212,29 @@ export async function fetchInventory(): Promise<InventoryItem[]> {
         assetRef: item.asset_ref,
         equipSlot: item.equip_slot,
         category: item.category,
+        itemType: item.item_type,
         acquiredAt: r.acquired_at,
         consumedAt: r.consumed_at,
+        armedAt: (r as { armed_at: string | null }).armed_at,
       };
     });
+}
+
+/**
+ * Activa un consumible (p. ej. Boost de Confeti) -- lo deja ARMADO para
+ * el próximo Scan que termine con éxito. NO lo consume acá: eso lo hace
+ * process-scan, y solo si el análisis realmente termina bien (nunca si
+ * falla, se rechaza por moderación, o el usuario abandona antes de
+ * subir) -- ver activate_consumable() en la migración y process-scan/
+ * index.ts. Solo puede haber UN consumible armado a la vez por usuario;
+ * activar uno nuevo desarma cualquier otro que hubiera quedado pendiente.
+ */
+export async function activateConsumable(inventoryItemId: string): Promise<{ ok: boolean; errorCode?: string }> {
+  if (!supabase) return { ok: false, errorCode: 'not_configured' };
+  const { data, error } = await supabase.rpc('activate_consumable', { p_inventory_item_id: inventoryItemId });
+  if (error) return { ok: false, errorCode: 'rpc_error' };
+  const row = Array.isArray(data) ? data[0] : data;
+  return { ok: Boolean(row?.ok), errorCode: row?.error_code ?? undefined };
 }
 
 export async function equipItem(inventoryItemId: string): Promise<boolean> {

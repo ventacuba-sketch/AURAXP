@@ -65,7 +65,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
         <View style={styles.container}>
           <Text style={styles.emoji}>⚠️</Text>
           <Text style={styles.title}>Algo salió mal</Text>
-          <Text style={styles.body}>Tuvimos un problema inesperado. Probá de nuevo.</Text>
+          <Text style={styles.body}>Tuvimos un problema inesperado. Intenta de nuevo.</Text>
           <PrimaryButton label="RECARGAR" onPress={this.handleReload} />
         </View>
       );

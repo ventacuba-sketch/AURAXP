@@ -37,13 +37,13 @@ export default function InviteScreen() {
   async function handleInvite() {
     if (!info) return;
     logEvent('referral_sent');
-    await shareText('Te invito a AURA VS -- medí tu Aura y ganá Coins con tu primer Scan ⚡', info.shareUrl);
+    await shareText('Te invito a AURA VS -- mide tu Aura y gana Coins con tu primer Scan ⚡', info.shareUrl);
   }
 
   return (
     <ScreenContainer scroll onBack={goBack}>
       <Text style={styles.title}>INVITAR AMIGOS</Text>
-      <Text style={styles.subtitle}>Vos ganás 5.000 Coins y tu amigo 2.500, apenas haga su primer Scan.</Text>
+      <Text style={styles.subtitle}>Tú ganas 5.000 Coins y tu amigo 2.500, apenas haga su primer Scan.</Text>
 
       {info && (
         <Card style={styles.codeCard}>

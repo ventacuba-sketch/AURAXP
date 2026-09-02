@@ -27,6 +27,14 @@ const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY')!;
 
+// Límite real de 8s (auditoría post-iPhone, punto 14): el cliente ya lo
+// valida ANTES de subir (UploadScreen/RecordScreen), pero eso nunca
+// alcanza solo -- nada impide pegarle directo al insert de `scans` con
+// un video más largo. 8.5s en vez de 8.0 le da margen a la lectura de
+// Gemini (aproximada, no un decoder cuadro a cuadro) sin arriesgar
+// rechazar un clip válido grabado justo en el límite.
+const MAX_SERVER_DURATION_SEC = 8.5;
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
@@ -283,6 +291,28 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: true, rejected: true });
     }
 
+    // ── Límite de 8s, validado server-side (punto 14, auditoría post-
+    // iPhone) ──────────────────────────────────────────────────────────
+    // `observedDurationSec` es la lectura de Gemini sobre el archivo
+    // real, no el `duration_ms` que mandó el cliente al crear el scan --
+    // ese es auto-reportado y nunca se verificaba. 0 significa "Gemini no
+    // lo reportó" (ver validateGeminiResult): en ese caso NUNCA se
+    // rechaza sobre un dato ausente, se deja pasar como antes.
+    if (gemini.observedDurationSec && gemini.observedDurationSec > MAX_SERVER_DURATION_SEC) {
+      await admin
+        .from('scans')
+        .update({
+          status: 'rejected',
+          gemini_raw: gemini,
+          gemini_usage_metadata: geminiUsage.value ?? null,
+          error_message: 'duration_exceeded_server_check',
+          xp_awarded: 0,
+          analyzed_at: new Date().toISOString(),
+        })
+        .eq('id', scanId);
+      return jsonResponse({ ok: true, rejected: true });
+    }
+
     // ── Sin acción reconocible: -50 Aura fijo, 0 XP, no consume cupo ────
     const outcome = gemini.signals.hasClearAction
       ? computeAuraScore(gemini)
@@ -306,6 +336,40 @@ Deno.serve(async (req: Request) => {
         .eq('day', today);
     }
 
+    // ── Consumibles armados (puntos 3/4, auditoría post-iPhone) ─────────
+    // Justo acá, y no antes: este es el primer punto donde el Scan
+    // realmente va a terminar 'done' -- si Gemini hubiera fallado, o el
+    // scan se hubiera rechazado por moderación/duración arriba, nunca se
+    // llega hasta acá y el consumible se queda armado (nunca se
+    // consume). `admin` ignora RLS a propósito -- es el mismo cliente
+    // service_role que ya escribe status/xp en `scans`.
+    let consumableEffectKey: string | null = null;
+    const { data: armed } = await admin
+      .from('inventory_items')
+      .select('id, store_items(item_key)')
+      .eq('user_id', user.id)
+      .not('armed_at', 'is', null)
+      .is('consumed_at', null)
+      .order('armed_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (armed) {
+      const raw = armed.store_items as { item_key: string } | { item_key: string }[] | null;
+      const itemKey = Array.isArray(raw) ? raw[0]?.item_key : raw?.item_key;
+      // `.is('consumed_at', null)` en el UPDATE + `.select('id')` para
+      // saber si REALMENTE actualizó algo: guard contra una carrera
+      // improbable (dos Scans del mismo usuario terminando casi a la
+      // vez) -- si ya lo consumió el otro, esto no actualiza ninguna
+      // fila y consumableEffectKey se queda null.
+      const { data: consumedRows, error: consumeErr } = await admin
+        .from('inventory_items')
+        .update({ consumed_at: new Date().toISOString(), armed_at: null })
+        .eq('id', armed.id)
+        .is('consumed_at', null)
+        .select('id');
+      if (!consumeErr && consumedRows && consumedRows.length > 0) consumableEffectKey = itemKey ?? null;
+    }
+
     await admin
       .from('scans')
       .update({
@@ -318,6 +382,7 @@ Deno.serve(async (req: Request) => {
         verdict_tag: outcome.verdictTag,
         aura_score: outcome.auraScore,
         xp_awarded: xpAwarded,
+        consumable_effect_key: consumableEffectKey,
         analyzed_at: new Date().toISOString(),
       })
       .eq('id', scanId);

@@ -397,7 +397,7 @@ export default function ProfileScreen() {
       {streak && (
         <Text style={styles.streakMilestoneText}>
           {streak.currentStreak === 0
-            ? 'Hacé un Scan hoy para arrancar tu racha 🔥'
+            ? 'Haz un Scan hoy para arrancar tu racha 🔥'
             : streak.currentStreak < 5
               ? `Bono de racha sube hasta el día 5 -- ${5 - streak.currentStreak} día${5 - streak.currentStreak === 1 ? '' : 's'} más para el máximo`
               : `Próximo hito de racha: ${streak.currentStreak - (streak.currentStreak % 5) + 5} días`}
@@ -418,7 +418,7 @@ export default function ProfileScreen() {
             done={missions.scanDone}
             claimed={claimedMissions.scan}
             busy={claimingKey === 'scan'}
-            label="Hacé 1 Scan"
+            label="Haz 1 Scan"
             coins={MISSION_COINS.scan}
             onClaim={() => handleClaimMission('scan')}
           />
