@@ -292,7 +292,25 @@ export interface DailyScanStatus {
 export async function fetchDailyScanStatus(): Promise<DailyScanStatus | null> {
   if (!supabase) return null;
   const { data, error } = await supabase.functions.invoke('get-daily-scan-status');
-  if (error || !data || data.error) return null;
+  // Diagnóstico (bug separado, auditoría PRO) -- "Plan actual" desaparece
+  // entero en Perfil cada vez que esto devuelve null, y hasta ahora eso
+  // pasaba en silencio total (ni un log) -- imposible saber si era un
+  // error de red, la función caída, o `data.error`. Mismo criterio que
+  // los diagnósticos ya agregados a pushService/send-push: nunca cambia
+  // el comportamiento (sigue devolviendo null en los tres casos, tal
+  // cual antes), solo dice POR QUÉ en consola.
+  if (error || !data || data.error) {
+    console.warn(
+      JSON.stringify({
+        src: 'fetchDailyScanStatus',
+        event: 'get-daily-scan-status_failed',
+        invokeError: error?.message ?? null,
+        hasData: Boolean(data),
+        dataError: data?.error ?? null,
+      }),
+    );
+    return null;
+  }
   return data as DailyScanStatus;
 }
 
