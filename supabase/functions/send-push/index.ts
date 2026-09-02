@@ -38,6 +38,25 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 
 const WEB_ORIGIN = 'https://auravs.app';
 
+// Prueba end-to-end aislada (auditoría) -- @Cubanito tiene una
+// PushSubscription real (web.push.apple.com confirmado), notification
+// INSERT/trigger/pg_net/send-push todos ok, pero el push nunca llegó al
+// dispositivo. HTTP 200 no sirve de indicador (esta función devuelve 200
+// incluso con sent:0) -- logging temporal por intento, nunca secretos
+// (nunca VAPID_PRIVATE_KEY, p256dh, ni auth). Se puede quitar una vez
+// diagnosticado.
+function logSendPush(event: string, data: Record<string, unknown> = {}): void {
+  console.log(JSON.stringify({ src: 'send-push', event, ...data }));
+}
+
+function endpointHost(endpoint: string): string | null {
+  try {
+    return new URL(endpoint).host;
+  } catch {
+    return null;
+  }
+}
+
 interface NotificationRow {
   id: string;
   user_id: string;
@@ -102,6 +121,24 @@ Deno.serve(async (req: Request) => {
     const { notification_id } = (await req.json()) as { notification_id?: string };
     if (!notification_id) return jsonResponse({ error: 'notification_id requerido' }, 400);
 
+    // Punto 2 (auditoría, prueba end-to-end aislada) -- confirma que
+    // AMBAS claves VAPID llegaron como secret a esta función (nunca su
+    // valor -- ni siquiera la pública, no aporta nada al diagnóstico
+    // acá). Un par válido de P-256: pública base64url ~87 caracteres,
+    // privada ~43. Si la longitud no encaja con eso, es una pista real
+    // de una key mal copiada/truncada. NO confirma por sí solo que
+    // ambas formen el MISMO par (eso requeriría derivar la pública desde
+    // la privada) -- para eso, cruzar esta longitud de la pública contra
+    // 'vapidPublicKeyLength' que ya loguea el cliente (pushService.ts,
+    // evento 'application_server_key_built') -- deberían coincidir
+    // exactamente, ambas vienen del mismo par generado una sola vez.
+    logSendPush('request_received', {
+      notification_id,
+      vapidPublicKeyLength: VAPID_PUBLIC_KEY.length,
+      vapidPrivateKeyLength: VAPID_PRIVATE_KEY.length,
+      vapidSubject: VAPID_SUBJECT,
+    });
+
     const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const { data: notification } = await admin
@@ -124,23 +161,52 @@ Deno.serve(async (req: Request) => {
     ]);
 
     if (!subscriptions || subscriptions.length === 0) {
+      logSendPush('no_subscriptions', { notification_id, user_id: notification.user_id });
       return jsonResponse({ ok: true, sent: 0, reason: 'no_subscriptions' });
     }
 
     const { title, body } = buildMessage(notification, rivalProfile?.username ?? 'alguien');
     const url = notification.challenge_share_token ? `${WEB_ORIGIN}/c/${notification.challenge_share_token}` : WEB_ORIGIN;
     const payload = JSON.stringify({ title, body, url, kind: notification.kind });
+    // Payload real -- no lleva ningún dato sensible (título/cuerpo del
+    // mensaje son texto ya público en la notification in-app), seguro
+    // de loguear entero tal cual se manda.
+    logSendPush('sending', {
+      notification_id,
+      kind: notification.kind,
+      payloadBytes: payload.length,
+      subscriptionCount: subscriptions.length,
+      // TTL/urgency: no se pasan opciones acá -- sendNotification() usa
+      // los defaults de la librería web-push (TTL 2419200s ~4 semanas,
+      // sin Urgency explícito). Se deja constancia acá porque el pedido
+      // fue confirmar esto, no porque haga falta cambiarlo.
+      ttl: 'default (2419200s, no override)',
+      urgency: 'default (sin override)',
+    });
 
     let sent = 0;
     let revoked = 0;
     await Promise.all(
       subscriptions.map(async (sub) => {
+        const host = endpointHost(sub.endpoint);
         try {
-          await webpush.sendNotification(
+          // Punto 1/4/5 (auditoría) -- sendNotification() de la librería
+          // web-push resuelve con { statusCode, body, headers } cuando
+          // el push service (acá, Apple) ACEPTA el envío -- antes se
+          // descartaba entero. Loguearlo es la única forma real de
+          // confirmar qué respondió Apple, no solo "no tiró error".
+          const result = (await webpush.sendNotification(
             { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
             payload,
-          );
+          )) as { statusCode?: number; body?: string; headers?: Record<string, string> } | undefined;
           sent += 1;
+          logSendPush('send_ok', {
+            notification_id,
+            subscriptionId: sub.id,
+            provider: host,
+            statusCode: result?.statusCode ?? null,
+            responseBody: result?.body || null,
+          });
         } catch (err) {
           // 404/410: el navegador ya no reconoce ese endpoint (usuario
           // desinstaló/revocó el permiso desde el OS/browser) -- marcar
@@ -148,17 +214,28 @@ Deno.serve(async (req: Request) => {
           // la fila (ver comentario en la migración). Cualquier OTRO error
           // (red, 5xx del push service) solo se loguea -- una falla
           // transitoria no debe apagar una suscripción real.
-          const status = (err as { statusCode?: number })?.statusCode;
+          const status = (err as { statusCode?: number })?.statusCode ?? null;
+          const errBody = (err as { body?: string })?.body ?? null;
+          const message = err instanceof Error ? err.message : String(err);
           if (status === 404 || status === 410) {
             await admin.from('push_subscriptions').update({ revoked_at: new Date().toISOString() }).eq('id', sub.id);
             revoked += 1;
+            logSendPush('send_revoked', { notification_id, subscriptionId: sub.id, provider: host, statusCode: status });
           } else {
-            console.log(JSON.stringify({ src: 'send-push', event: 'send_failed', subscriptionId: sub.id, status, message: String(err) }));
+            logSendPush('send_failed', {
+              notification_id,
+              subscriptionId: sub.id,
+              provider: host,
+              statusCode: status,
+              message,
+              responseBody: errBody,
+            });
           }
         }
       }),
     );
 
+    logSendPush('done', { notification_id, sent, revoked, total: subscriptions.length });
     return jsonResponse({ ok: true, sent, revoked, total: subscriptions.length });
   } catch (e) {
     console.error(JSON.stringify({ src: 'send-push', event: 'unexpected_error', message: String(e) }));
