@@ -103,7 +103,7 @@ export default function NotificationsScreen() {
         <View style={styles.empty}>
           <Text style={styles.emptyText}>Sin notificaciones todavía.</Text>
           <Text style={styles.emptySubtext}>
-            Cuando alguien acepte tu desafío o termine una batalla, aparece acá.
+            Cuando alguien acepte tu desafío o termine una batalla, aparece aquí.
           </Text>
           <PrimaryButton label="MIS DESAFÍOS" variant="ghost" onPress={() => navigation.navigate('MyChallenges')} />
         </View>

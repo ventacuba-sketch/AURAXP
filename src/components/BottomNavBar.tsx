@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { NavigationContainerRef } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { fetchUnreadNotificationCount } from '../services/notificationService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { RootStackParamList } from '../types';
 import { getRootRouteName } from '../utils/navRoute';
@@ -57,13 +58,24 @@ export function BottomNavBar({ authed, navigationRef }: Props) {
   // archivo. El ref, en cambio, expone `getState()`/`addListener` sin
   // depender de contexto -- funciona desde cualquier lugar del árbol.
   const [routeName, setRouteName] = useState<string | undefined>(() => getRootRouteName(navigationRef.current));
+  // Punto 3 (revisión post-iPhone): un puntito sobre "Inicio" cuando hay
+  // notificaciones sin leer, visible incluso SIN estar ya en Home (donde
+  // vive el badge real con el número, sobre la campana -- ver
+  // HomeScreen.tsx). NO usa useUnreadNotificationCount/useFocusEffect: ese
+  // hook depende de NavigationContext, y este componente es un SIBLING del
+  // Stack.Navigator, no un descendiente (ver el comentario de arriba sobre
+  // useNavigationState) -- se refresca en el mismo listener de `state` que
+  // ya existe para `routeName`, sin agregar una segunda suscripción.
+  const [hasUnread, setHasUnread] = useState(false);
 
   useEffect(() => {
     const nav = navigationRef.current;
     if (!nav) return;
     setRouteName(getRootRouteName(nav));
+    fetchUnreadNotificationCount().then((count) => setHasUnread(count > 0));
     const unsubscribe = nav.addListener('state', () => {
       setRouteName(getRootRouteName(nav));
+      fetchUnreadNotificationCount().then((count) => setHasUnread(count > 0));
     });
     return unsubscribe;
   }, [navigationRef]);
@@ -100,7 +112,7 @@ export function BottomNavBar({ authed, navigationRef }: Props) {
 
   return (
     <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, spacing.xs) }]}>
-      <NavButton icon="🏠" label="Inicio" onPress={goHome} />
+      <NavButton icon="🏠" label="Inicio" onPress={goHome} showDot={hasUnread} />
       <Pressable onPress={goScan} style={styles.scanButton} hitSlop={6}>
         <View style={styles.scanBadge}>
           <Text style={styles.scanIcon}>🎯</Text>
@@ -112,10 +124,25 @@ export function BottomNavBar({ authed, navigationRef }: Props) {
   );
 }
 
-function NavButton({ icon, label, onPress }: { icon: string; label: string; onPress: () => void }) {
+function NavButton({
+  icon,
+  label,
+  onPress,
+  showDot,
+}: {
+  icon: string;
+  label: string;
+  onPress: () => void;
+  /** Punto 3 (revisión post-iPhone): puntito de "hay algo nuevo", sin
+   * número -- el conteo real vive en el badge de la campana en Home. */
+  showDot?: boolean;
+}) {
   return (
     <Pressable onPress={onPress} style={styles.navButton} hitSlop={6}>
-      <Text style={styles.navIcon}>{icon}</Text>
+      <View>
+        <Text style={styles.navIcon}>{icon}</Text>
+        {showDot && <View style={styles.navDot} />}
+      </View>
       <Text style={styles.navLabel}>{label}</Text>
     </Pressable>
   );
@@ -138,6 +165,15 @@ const styles = StyleSheet.create({
   },
   navIcon: {
     fontSize: 20,
+  },
+  navDot: {
+    position: 'absolute',
+    top: -1,
+    right: -3,
+    width: 8,
+    height: 8,
+    borderRadius: radius.pill,
+    backgroundColor: colors.danger,
   },
   navLabel: {
     ...typography.caption,
