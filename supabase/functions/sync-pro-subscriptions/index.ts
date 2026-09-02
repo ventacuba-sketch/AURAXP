@@ -5,7 +5,8 @@
  * referencia propia: el checkout es un link fijo, no lleva ningún
  * identificador de AURAXP).
  *
- * TRES MODOS, cada uno con su propio alcance de escritura:
+ * CUATRO MODOS, cada uno con su propio alcance de escritura (el 4 es de
+ * solo lectura -- nunca escribe nada):
  *
  * 1) Con JWT de usuario (Authorization: Bearer <access_token> normal) --
  *    lo llama el propio cliente, típicamente al volver a la app después
@@ -37,7 +38,20 @@
  *    nueva. Pensado para usarse a mano, una vez por caso real, nunca
  *    automatizado.
  *
- * Idempotente en los tres modos: re-sincronizar (o reconciliar) una
+ * 4) Con el mismo secret compartido, con body JSON `{ diagnostic: true,
+ *    email_filter?, since?, until? }` -- diagnóstico de SOLO LECTURA,
+ *    nunca activa ni toca ninguna cuenta. Caso real (auditoría): el id
+ *    que alguien tenía a mano para reconciliar (modo 3) resultó ser un
+ *    transaction/payment ID de dLocal, no el `subscription.id` real --
+ *    este modo lista las suscripciones ACTIVAS del plan (opcionalmente
+ *    filtradas por email parcial y/o rango de `created_at`) para poder
+ *    ubicar a mano cuál es la del pago real, antes de reconciliar. Nunca
+ *    devuelve token/tarjeta/nada sensible -- listAllSubscriptions() ni
+ *    siquiera lo trae -- y el email siempre sale enmascarado (ver
+ *    maskEmail()). Temporal: se puede quitar una vez que ya no haga
+ *    falta ubicar pagos a mano así.
+ *
+ * Idempotente en los modos 1-3: re-sincronizar (o reconciliar) una
  * cuenta ya PRO con la misma suscripción activa vuelve a escribir los
  * mismos valores (no-op real); `pro_started_at` se fija UNA sola vez
  * (solo cuando está en null) así que nunca se pisa la fecha real de alta
@@ -70,6 +84,23 @@ const DLOCAL_API_SECRET = Deno.env.get('DLOCAL_API_SECRET') ?? '';
 
 function log(event: string, data: Record<string, unknown> = {}) {
   console.log(JSON.stringify({ src: 'sync-pro-subscriptions', event, ...data }));
+}
+
+/** Modo 4 (diagnóstico) -- enmascara un email para mostrarlo sin
+ * exponerlo entero: conserva los primeros 2 caracteres del local-part y
+ * el dominio completo (el dominio ayuda a reconocer de un vistazo si es
+ * el checkout correcto, sin identificar a la persona por sí solo). Un
+ * local-part de 1-2 caracteres se enmascara igual, sin quedar 100%
+ * al descubierto. */
+function maskEmail(email: string | null): string | null {
+  if (!email) return null;
+  const at = email.indexOf('@');
+  if (at <= 0) return '***';
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  const visibleLength = Math.min(2, local.length - 1 || 1);
+  const visible = local.slice(0, visibleLength);
+  return `${visible}${'*'.repeat(Math.max(1, local.length - visibleLength))}@${domain}`;
 }
 
 type AdminClient = ReturnType<typeof createClient>;
@@ -129,19 +160,79 @@ Deno.serve(async (req: Request) => {
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-  // ── Secret compartido: modo 3 (reconciliación manual) o modo 2 (sync
-  // completa) -- el body decide cuál de los dos, ver más abajo.
+  // ── Secret compartido: modo 4 (diagnóstico), modo 3 (reconciliación
+  // manual), o modo 2 (sync completa) -- el body decide cuál de los tres.
   const providedSecret = req.headers.get('x-webhook-secret') ?? new URL(req.url).searchParams.get('secret') ?? '';
   if (SHARED_SECRET && providedSecret === SHARED_SECRET) {
     // El body se lee UNA sola vez acá (Request.body no se puede leer dos
     // veces) -- si no es JSON válido o viene vacío (la sync completa de
     // siempre no manda body), reconcileBody queda `{}` y cae directo al
     // modo 2, sin romper el comportamiento existente.
-    let reconcileBody: { profile_id?: string; username?: string; subscription_id?: string } = {};
+    let reconcileBody: {
+      profile_id?: string;
+      username?: string;
+      subscription_id?: string;
+      diagnostic?: boolean;
+      email_filter?: string;
+      since?: string;
+      until?: string;
+    } = {};
     try {
       reconcileBody = (await req.json()) as typeof reconcileBody;
     } catch {
       reconcileBody = {};
+    }
+
+    // ── Modo 4: diagnóstico de solo lectura -- localizar a mano una
+    // suscripción real sin activar nada ────────────────────────────────
+    // Caso real (auditoría): el subscription_id que se intentó reconciliar
+    // en el modo 3 era en realidad un transaction/payment ID de dLocal,
+    // no el `subscription.id` que devuelve listAllSubscriptions() -- este
+    // modo existe para poder ver, filtrado, cuál de las suscripciones
+    // reales del plan es la del pago recién hecho, SIN tocar ninguna
+    // cuenta. Nunca devuelve token/tarjeta/nada de eso -- listAllSubscriptions()
+    // ni siquiera lo trae (ver DlocalGoSubscription: id/status/active/
+    // client_email/created_at/updated_at, nada más). client_email sale
+    // siempre enmascarado -- ver maskEmail() más abajo. Temporal: se
+    // puede quitar una vez ubicada la suscripción real.
+    if (reconcileBody.diagnostic === true) {
+      try {
+        const subscriptions = await listAllSubscriptions(dlocalConfig);
+        const emailFilter = reconcileBody.email_filter?.toLowerCase().trim() || null;
+        const sinceMs = reconcileBody.since ? Date.parse(reconcileBody.since) : null;
+        const untilMs = reconcileBody.until ? Date.parse(reconcileBody.until) : null;
+
+        const rows = subscriptions
+          .filter((s) => s.active)
+          .filter((s) => {
+            if (emailFilter && !(s.client_email ?? '').toLowerCase().includes(emailFilter)) return false;
+            const createdMs = s.created_at ? Date.parse(s.created_at) : NaN;
+            if (sinceMs !== null && !Number.isNaN(sinceMs) && (Number.isNaN(createdMs) || createdMs < sinceMs)) return false;
+            if (untilMs !== null && !Number.isNaN(untilMs) && (Number.isNaN(createdMs) || createdMs > untilMs)) return false;
+            return true;
+          })
+          .map((s) => ({
+            subscription_id: s.id,
+            client_email: maskEmail(s.client_email),
+            created_at: s.created_at ?? null,
+            status: s.status,
+            active: s.active,
+          }));
+
+        // Nunca el email_filter en claro en los logs -- podría ser un
+        // email real de alguien.
+        log('diagnostic_list', {
+          totalActive: subscriptions.filter((s) => s.active).length,
+          matched: rows.length,
+          hasEmailFilter: Boolean(emailFilter),
+          since: reconcileBody.since ?? null,
+          until: reconcileBody.until ?? null,
+        });
+        return jsonResponse({ ok: true, count: rows.length, subscriptions: rows });
+      } catch (e) {
+        log('diagnostic_failed', { error: String(e) });
+        return jsonResponse({ ok: false, error: 'diagnostic_failed' }, 502);
+      }
     }
 
     // ── Modo 3: reconciliación manual de UN pago puntual ──────────────
