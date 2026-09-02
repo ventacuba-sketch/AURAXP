@@ -20,6 +20,9 @@ const TYPE_LABEL: Record<string, string> = {
   pro_monthly_bonus: 'PRO mensual',
   store_purchase: 'Compra en tienda',
   gift_sent: 'Regalo enviado',
+  // Punto 2 (auditoría post-iPhone): saldo de prueba para QA (ver
+  // migración 20260906010000) -- nunca aparece para una cuenta real.
+  test_credit: 'Saldo de prueba (QA)',
 };
 
 /** Saldo + historial (bloque Wallet/Economía) -- de solo lectura: acá no
