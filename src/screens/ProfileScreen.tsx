@@ -15,7 +15,7 @@ import { useRootNavigation } from '../hooks/useRootNavigation';
 import { signOut } from '../services/authService';
 import { hasNativePrompt, isIOS, isStandalone, promptNativeInstall, requestInstallInvite } from '../services/installService';
 import { clearPendingChallengeToken } from '../services/pendingChallenge';
-import { disablePush, enablePush, getPermissionState, PushPermissionState } from '../services/pushService';
+import { disablePush, enablePush, getPermissionState, getPushUiStatus, PushPermissionState, PushUiStatus } from '../services/pushService';
 import { ProfileUpdateError, updateProfile, usernameCooldownDaysLeft } from '../services/profileService';
 import { fetchDailyMissions, DailyMissions } from '../services/missionsService';
 import { DailyScanStatus, fetchDailyScanStatus } from '../services/scanService';
@@ -96,7 +96,19 @@ export default function ProfileScreen() {
   // permiso pudo cambiar desde el propio pre-prompt, o desde los ajustes
   // del sistema operativo mientras el usuario estaba en otra pantalla).
   const [pushState, setPushState] = useState<PushPermissionState>('unsupported');
+  // BUG CONFIRMADO (auditoría) -- `pushState` de arriba (Notification.
+  // permission crudo) YA NO decide qué se pinta: se queda solo para el
+  // hint de 'denied' de más abajo. `pushUiStatus` (getPushUiStatus) es la
+  // fuente real de ACTIVADAS/DESACTIVADAS/REQUIERE REACTIVAR/NO
+  // DISPONIBLES -- confirma permiso + PushSubscription real del browser +
+  // sincronía con `push_subscriptions`, nunca solo el permiso del SO.
+  const [pushUiStatus, setPushUiStatus] = useState<PushUiStatus>('unsupported');
   const [pushBusy, setPushBusy] = useState(false);
+
+  const refreshPushStatus = useCallback(() => {
+    setPushState(getPermissionState());
+    getPushUiStatus().then(setPushUiStatus);
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
@@ -110,7 +122,7 @@ export default function ProfileScreen() {
       } else {
         setInstallVariant(null);
       }
-      setPushState(getPermissionState());
+      refreshPushStatus();
       // Checkpoint "profile_open" (A) -- de los checkpoints, el de menor
       // prioridad a propósito (el usuario ya está buscando algo puntual
       // acá, no es el mejor momento para una interrupción) -- la política
@@ -235,15 +247,23 @@ export default function ProfileScreen() {
   // browser no tiene botón de "activar" acá -- solo el propio usuario
   // puede revertirlo desde los ajustes del sistema operativo, cualquier
   // botón nuestro ahí sería un botón que no puede hacer nada.
+  //
+  // BUG CONFIRMADO (auditoría) -- la rama ahora es sobre `pushUiStatus`,
+  // no sobre el permiso crudo: 'on' es el ÚNICO estado que dispara
+  // DESACTIVAR. 'requires_reactivation' entra por la rama de ACTIVAR
+  // (junto con 'off') -- el permiso del SO ya está concedido en ese
+  // caso, así que enablePush() ni siquiera vuelve a pedirlo
+  // (Notification.requestPermission() resuelve solo con 'granted' de
+  // inmediato), solo crea/repara la suscripción real que faltaba.
   async function handleTogglePush() {
     setPushBusy(true);
     try {
-      if (pushState === 'granted') {
+      if (pushUiStatus === 'on') {
         await disablePush();
-      } else if (pushState === 'default') {
+      } else if (pushUiStatus === 'off' || pushUiStatus === 'requires_reactivation') {
         await enablePush();
       }
-      setPushState(getPermissionState());
+      refreshPushStatus();
     } finally {
       setPushBusy(false);
     }
@@ -567,19 +587,28 @@ export default function ProfileScreen() {
             </View>
           )}
 
-          {/* F: fila fija NOTIFICACIONES -- estado real del browser, no
-              inventado. 'denied' sin botón a propósito: revertirlo es
-              cosa de los ajustes del navegador/SO, un botón nuestro ahí
-              no podría hacer nada real. */}
+          {/* F: fila fija NOTIFICACIONES -- estado real (BUG CONFIRMADO,
+              auditoría: `pushUiStatus`, no el permiso crudo del browser --
+              'ACTIVADAS' exige permiso + PushSubscription real +
+              sincronía con push_subscriptions, ver pushService.
+              getPushUiStatus). 'denied' sin botón a propósito:
+              revertirlo es cosa de los ajustes del navegador/SO, un
+              botón nuestro ahí no podría hacer nada real. */}
           <View style={styles.planRow}>
             <Text style={styles.planLabel}>
               Notificaciones:{' '}
-              {pushState === 'granted' ? 'ACTIVADAS' : pushState === 'unsupported' ? 'NO DISPONIBLES' : 'DESACTIVADAS'}
+              {pushUiStatus === 'on'
+                ? 'ACTIVADAS'
+                : pushUiStatus === 'unsupported'
+                  ? 'NO DISPONIBLES'
+                  : pushUiStatus === 'requires_reactivation'
+                    ? 'REQUIERE REACTIVAR'
+                    : 'DESACTIVADAS'}
             </Text>
-            {(pushState === 'granted' || pushState === 'default') && (
+            {pushUiStatus !== 'unsupported' && pushState !== 'denied' && (
               <PrimaryButton
                 variant="text"
-                label={pushBusy ? '...' : pushState === 'granted' ? 'Desactivar' : 'Activar'}
+                label={pushBusy ? '...' : pushUiStatus === 'on' ? 'Desactivar' : 'Activar'}
                 disabled={pushBusy}
                 onPress={handleTogglePush}
               />

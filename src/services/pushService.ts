@@ -71,6 +71,118 @@ export function getPermissionState(): PushPermissionState {
   return Notification.permission as PushPermissionState;
 }
 
+// ============================================================
+// BUG CONFIRMADO -- Gestión de Push en Perfil (ver auditoría previa)
+// ============================================================
+// `getPermissionState()` de arriba SOLO lee `Notification.permission` --
+// un permiso del SO, sticky para siempre hasta que la persona lo cambie
+// a mano desde Ajustes de iOS. Perfil lo usaba solo a ESO para decidir
+// "ACTIVADAS", sin verificar que existiera una PushSubscription real ni
+// que estuviera sincronizada con `push_subscriptions` -- por eso
+// @Cubanito veía "ACTIVADAS" con 0 filas reales en la tabla, y tocar
+// DESACTIVAR no cambiaba nada visible (desuscribe del browser, pero el
+// permiso del SO -- lo único que leía la UI -- nunca se mueve).
+//
+// `getPushUiStatus()` es el reemplazo: el ÚNICO estado que debe pintar
+// Perfil de acá en adelante. 'on' exige las TRES cosas a la vez --
+// permiso, PushSubscription real en el browser, Y (best-effort) que esa
+// suscripción esté sincronizada server-side -- nunca solo el permiso.
+export type PushUiStatus = 'unsupported' | 'off' | 'requires_reactivation' | 'on';
+
+/** Suscripción real del browser, si existe -- null en cualquier otro
+ * caso (no soportado, SW no listo, sin suscripción). Nunca lanza. */
+async function getBrowserSubscription(): Promise<PushSubscription | null> {
+  if (!isPushSupported()) return null;
+  try {
+    const registration = await navigator.serviceWorker.ready;
+    return await registration.pushManager.getSubscription();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Punto 5 (auditoría) -- una suscripción creada con una VAPID key vieja
+ * (de antes de que EXPO_PUBLIC_VAPID_PUBLIC_KEY existiera en el build, o
+ * de una rotación de claves) queda atascada para siempre si simplemente
+ * se reutiliza: el push service la rechaza (403) y `send-push` no tiene
+ * forma de distinguir eso de un error transitorio, así que nunca se
+ * revoca sola (ver auditoría de send-push). Comparación best-effort:
+ * `PushSubscriptionOptions.applicationServerKey` no está disponible en
+ * TODOS los browsers -- si no se puede leer, no bloquea (nunca romper
+ * algo que hoy funciona por no poder verificarlo), asume que coincide.
+ */
+function subscriptionMatchesCurrentVapidKey(subscription: PushSubscription): boolean {
+  try {
+    const key = subscription.options?.applicationServerKey;
+    if (!key || !VAPID_PUBLIC_KEY) return true;
+    const current = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+    const keyBytes = new Uint8Array(key as ArrayBuffer);
+    if (keyBytes.length !== current.length) return false;
+    for (let i = 0; i < keyBytes.length; i++) {
+      if (keyBytes[i] !== current[i]) return false;
+    }
+    return true;
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Punto 1 ("preferiblemente sincronizada con push_subscriptions") --
+ * confirma que la suscripción del browser tiene una fila ACTIVA
+ * (revoked_at null) del usuario logueado. Best-effort real: sin sesión,
+ * sin Supabase, o si la query falla (red), devuelve `null` ("no se pudo
+ * verificar") en vez de `false` -- un hiccup de red nunca debe hacer que
+ * alguien vea "REQUIERE REACTIVAR" con una suscripción en realidad sana.
+ */
+async function isSubscriptionSyncedServerSide(endpoint: string): Promise<boolean | null> {
+  if (!supabase) return null;
+  const session = await getSession();
+  if (!session) return null;
+  try {
+    const { data, error } = await supabase
+      .from('push_subscriptions')
+      .select('id')
+      .eq('endpoint', endpoint)
+      .eq('user_id', session.user.id)
+      .is('revoked_at', null)
+      .maybeSingle();
+    if (error) return null;
+    return Boolean(data);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Estado real para pintar Perfil -- reemplaza a `getPermissionState()`
+ * como fuente de "ACTIVADAS/DESACTIVADAS/REQUIERE REACTIVAR/NO
+ * DISPONIBLES" (punto 1/4 de la auditoría). 'on' exige permiso +
+ * PushSubscription real + sincronía server-side confirmada -- si
+ * cualquiera de las tres falta, nunca es 'on'.
+ *
+ * 'requires_reactivation' (punto 4) es el caso puntual reportado: permiso
+ * ya concedido por el SO, pero sin una suscripción real detrás (nunca se
+ * completó, se perdió, o quedó atada a una VAPID key vieja -- punto 5).
+ * Se distingue de 'off' (permiso ni pedido, o denegado) porque ahí SÍ
+ * alcanza con tocar "Activar" de nuevo -- no hace falta re-pedir permiso
+ * nativo, `enablePush()` lo resuelve solo.
+ */
+export async function getPushUiStatus(): Promise<PushUiStatus> {
+  if (!isPushSupported()) return 'unsupported';
+  if (Notification.permission !== 'granted') return 'off';
+
+  const subscription = await getBrowserSubscription();
+  if (!subscription) return 'requires_reactivation';
+  if (!subscriptionMatchesCurrentVapidKey(subscription)) return 'requires_reactivation';
+
+  const synced = await isSubscriptionSyncedServerSide(subscription.endpoint);
+  if (synced === false) return 'requires_reactivation';
+
+  return 'on';
+}
+
 function urlBase64ToUint8Array(base64: string): Uint8Array {
   const padding = '='.repeat((4 - (base64.length % 4)) % 4);
   const safe = (base64 + padding).replace(/-/g, '+').replace(/_/g, '/');
@@ -109,7 +221,18 @@ export async function enablePush(): Promise<boolean> {
     }
 
     const registration = await navigator.serviceWorker.ready;
-    const existing = await registration.pushManager.getSubscription();
+    let existing = await registration.pushManager.getSubscription();
+
+    // Punto 5 (auditoría) -- nunca reutilizar ciegamente una suscripción
+    // vieja atada a otra VAPID key: el push service la rechaza para
+    // siempre (403, indistinguible de un error transitorio en send-push,
+    // ver auditoría) y nadie se entera. Se da de baja acá y se fuerza una
+    // suscripción nueva con la key ACTUAL.
+    if (existing && !subscriptionMatchesCurrentVapidKey(existing)) {
+      await existing.unsubscribe().catch(() => {});
+      existing = null;
+    }
+
     const subscription =
       existing ??
       (await registration.pushManager.subscribe({
@@ -154,17 +277,31 @@ export async function enablePush(): Promise<boolean> {
 /** Perfil -> Ajustes -> NOTIFICACIONES: DESACTIVAR real (no solo dejar de
  * mostrar el recordatorio) -- desuscribe del browser Y marca la fila
  * revocada server-side, para que send-push deje de intentarle de
- * inmediato en vez de esperar a que el navegador devuelva 404/410. */
+ * inmediato en vez de esperar a que el navegador devuelva 404/410.
+ *
+ * Punto 2 (auditoría) -- además de revocar por `endpoint` (caso normal),
+ * revoca TODAS las filas activas del usuario logueado como red de
+ * seguridad: si por lo que sea el browser ya no tiene la suscripción
+ * pero quedó una fila server-side huérfana (el caso inverso al bug
+ * reportado, nunca observado pero posible), DESACTIVAR converge igual a
+ * "sin filas activas" -- nunca deja algo a medias. */
 export async function disablePush(): Promise<void> {
   if (!isPushSupported()) return;
   try {
     const registration = await navigator.serviceWorker.ready;
     const subscription = await registration.pushManager.getSubscription();
     if (subscription) {
-      const endpoint = subscription.endpoint;
       await subscription.unsubscribe();
-      if (supabase) {
-        await supabase.from('push_subscriptions').update({ revoked_at: new Date().toISOString() }).eq('endpoint', endpoint);
+    }
+
+    if (supabase) {
+      const session = await getSession();
+      if (session) {
+        await supabase
+          .from('push_subscriptions')
+          .update({ revoked_at: new Date().toISOString() })
+          .eq('user_id', session.user.id)
+          .is('revoked_at', null);
       }
     }
   } catch (e) {
