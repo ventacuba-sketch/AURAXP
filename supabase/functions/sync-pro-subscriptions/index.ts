@@ -269,7 +269,15 @@ Deno.serve(async (req: Request) => {
         // (no se inventa un endpoint nuevo de dLocal Go sin la misma
         // investigación que respalda al resto de este archivo).
         const subscriptions = await listAllSubscriptions(dlocalConfig);
-        const target = subscriptions.find((s) => s.id === reconcileBody.subscription_id);
+        // Bug confirmado (auditoría) -- dLocal devuelve `id` como número
+        // (165746), no string, aunque DlocalGoSubscription.id está
+        // tipado como string -- la comparación estricta de antes
+        // (s.id === reconcileBody.subscription_id) nunca podía matchear
+        // un subscription_id real, incluso pasando el correcto (modo 4
+        // confirmado). String() en ambos lados lo normaliza sin asumir
+        // cuál de los dos viene "mal" -- funciona igual si algún día
+        // dLocal empieza a devolver el id ya como string.
+        const target = subscriptions.find((s) => String(s.id) === String(reconcileBody.subscription_id));
 
         if (!target) {
           log('reconcile_subscription_not_found', { profileId, subscription_id: reconcileBody.subscription_id });
@@ -280,14 +288,20 @@ Deno.serve(async (req: Request) => {
           return jsonResponse({ ok: false, error_code: 'subscription_not_active' }, 409);
         }
 
+        // subscriptionId normalizado a string explícito -- lo que se
+        // guarda en profiles.pro_subscription_id (vía activateProfile)
+        // y lo que se devuelve/loguea son siempre el mismo string, nunca
+        // el número crudo que pudo haber venido de dLocal.
+        const subscriptionId = String(target.id);
+
         // activateProfile() es el mismo camino que usa el modo 2 para
         // cada suscripción activa que sí matchea por email -- ya es
         // idempotente por su cuenta (ver el comentario de esa función):
         // repetir esta misma llamada nunca duplica el crédito de Coins
         // ni pisa pro_started_at una segunda vez. Acá también.
-        await activateProfile(admin, profileId, target.id);
-        log('reconcile_activated', { profileId, subscription_id: target.id });
-        return jsonResponse({ ok: true, activated: true, profileId, subscriptionId: target.id });
+        await activateProfile(admin, profileId, subscriptionId);
+        log('reconcile_activated', { profileId, subscription_id: subscriptionId });
+        return jsonResponse({ ok: true, activated: true, profileId, subscriptionId });
       } catch (e) {
         log('reconcile_failed', { error: String(e) });
         return jsonResponse({ ok: false, error: 'reconcile_failed' }, 502);
