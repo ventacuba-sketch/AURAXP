@@ -322,36 +322,63 @@ export async function enablePush(): Promise<EnablePushResult> {
       return { ok: false, step: 'invalid_subscription' };
     }
 
-    // Tercer bug confirmado (auditoría) -- ChatGPT revisó los logs de la
-    // API de Supabase durante un intento real: el navegador SÍ creaba la
-    // PushSubscription (endpoint real de web.push.apple.com), pero este
-    // upsert devolvía HTTP 400. Causa: la constraint única real en
-    // producción es `push_subscriptions_user_id_endpoint_key UNIQUE
-    // (user_id, endpoint)` -- NO `UNIQUE (endpoint)` sola (que es lo que
-    // decía la migración de este repo, desalineada con producción, mismo
-    // patrón de drift ya visto en otras tablas de este proyecto). Un
-    // onConflict que nombra una columna que no coincide con ninguna
-    // constraint única real es justo lo que PostgREST rechaza con 400.
-    // NO se toca la constraint (la de producción es la correcta -- evita
-    // colisiones entre usuarios), solo se alinea el onConflict acá.
-    const { error } = await supabase.from('push_subscriptions').upsert(
-      {
-        user_id: session.user.id,
-        endpoint: json.endpoint,
-        p256dh: json.keys.p256dh,
-        auth: json.keys.auth,
-        platform: 'web',
-        last_seen: new Date().toISOString(),
-        revoked_at: null,
-      },
-      { onConflict: 'user_id,endpoint' },
-    );
+    // Cuarto bug confirmado (auditoría) -- con el onConflict ya
+    // corregido (user_id,endpoint), el upsert seguía en 400. Causa real:
+    // el payload mandaba `platform` y `last_seen` -- dos columnas que
+    // NO EXISTEN en la tabla real de producción (esquema real
+    // confirmado: id/user_id/endpoint/p256dh/auth/created_at/updated_at/
+    // revoked_at -- sin platform, sin last_seen). Misma migración de
+    // este repo (20260904000000) las declara, pero producción quedó
+    // aplicada distinto -- mismo patrón de drift ya documentado en otras
+    // tablas de este proyecto. PostgREST rechaza con 400 cualquier
+    // columna que no exista en su schema cache -- exactamente el error
+    // reportado. `updated_at` no se manda: no hay forma de confirmar
+    // desde acá si tiene un trigger propio que la actualiza sola (lo más
+    // común en Supabase) o si espera un valor explícito -- mandar un
+    // valor inventado sin saberlo sería peor que omitirlo, y la columna
+    // no es NOT NULL según el esquema real que se confirmó.
+    const payload = {
+      user_id: session.user.id,
+      endpoint: json.endpoint,
+      p256dh: json.keys.p256dh,
+      auth: json.keys.auth,
+      revoked_at: null as string | null,
+    };
+    // Payload exacto que se intenta guardar -- p256dh/auth NUNCA en
+    // claro, solo si están presentes y su longitud (para confirmar que
+    // llegó algo real sin exponer las claves de cifrado).
+    logPush('upsert_payload', {
+      user_id: payload.user_id,
+      endpointHost: (() => {
+        try {
+          return new URL(payload.endpoint).host;
+        } catch {
+          return null;
+        }
+      })(),
+      p256dhPresent: Boolean(payload.p256dh),
+      p256dhLength: payload.p256dh?.length ?? 0,
+      authPresent: Boolean(payload.auth),
+      authLength: payload.auth?.length ?? 0,
+    });
+
+    const { error } = await supabase.from('push_subscriptions').upsert(payload, { onConflict: 'user_id,endpoint' });
 
     if (error) {
-      // Error EXACTO del upsert (mensaje/código de Postgres/RLS vía
-      // supabase-js) -- nunca solo "falló". Nunca incluye p256dh/auth.
-      console.error(JSON.stringify({ src: 'enablePush', event: 'upsert_failed', message: error.message, code: error.code }));
-      return { ok: false, step: 'upsert_failed', detail: error.message };
+      // Error EXACTO del upsert -- message/code/details/hint completos
+      // de PostgREST/Postgres. Nunca incluye p256dh/auth.
+      console.error(
+        JSON.stringify({
+          src: 'enablePush',
+          event: 'upsert_failed',
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+        }),
+      );
+      const detail = [error.code, error.message].filter(Boolean).join(': ') || 'error desconocido';
+      return { ok: false, step: 'upsert_failed', detail };
     }
 
     logEvent('push_subscribed');
