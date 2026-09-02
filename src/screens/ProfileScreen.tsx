@@ -622,8 +622,12 @@ export default function ProfileScreen() {
 
           {planStatus && (
             <View style={styles.planRow}>
+              {/* Limpieza pre-lanzamiento: antes decía "PRUEBA (ilimitado)"
+                  -- la cuenta de prueba (UNLIMITED_TEST_USER_IDS, ver
+                  dailyLimit.ts) sigue funcionando exactamente igual server-
+                  side, pero ningún texto visible debe delatarla como tal. */}
               <Text style={styles.planLabel}>
-                Plan actual: {planStatus.unlimited ? 'PRUEBA (ilimitado)' : planStatus.plan === 'pro' ? 'PRO' : 'FREE'}
+                Plan actual: {planStatus.unlimited ? 'ILIMITADO' : planStatus.plan === 'pro' ? 'PRO' : 'FREE'}
               </Text>
               {!planStatus.unlimited && planStatus.plan !== 'pro' && (
                 <PrimaryButton variant="text" label="Ver PRO" onPress={() => navigation.navigate('Pro')} />

@@ -394,7 +394,7 @@ export function WebCameraCapture() {
   if (!supported) {
     return (
       <View style={[styles.center, { paddingTop: insets.top + spacing.lg }]}>
-        <Text style={styles.permissionTitle}>Grabar no está disponible acá</Text>
+        <Text style={styles.permissionTitle}>Grabar no está disponible aquí</Text>
         <Text style={styles.permissionText}>
           Este navegador no soporta grabar video directo. Usa SUBIR VIDEO para elegir un archivo.
         </Text>
