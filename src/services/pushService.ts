@@ -322,6 +322,18 @@ export async function enablePush(): Promise<EnablePushResult> {
       return { ok: false, step: 'invalid_subscription' };
     }
 
+    // Tercer bug confirmado (auditoría) -- ChatGPT revisó los logs de la
+    // API de Supabase durante un intento real: el navegador SÍ creaba la
+    // PushSubscription (endpoint real de web.push.apple.com), pero este
+    // upsert devolvía HTTP 400. Causa: la constraint única real en
+    // producción es `push_subscriptions_user_id_endpoint_key UNIQUE
+    // (user_id, endpoint)` -- NO `UNIQUE (endpoint)` sola (que es lo que
+    // decía la migración de este repo, desalineada con producción, mismo
+    // patrón de drift ya visto en otras tablas de este proyecto). Un
+    // onConflict que nombra una columna que no coincide con ninguna
+    // constraint única real es justo lo que PostgREST rechaza con 400.
+    // NO se toca la constraint (la de producción es la correcta -- evita
+    // colisiones entre usuarios), solo se alinea el onConflict acá.
     const { error } = await supabase.from('push_subscriptions').upsert(
       {
         user_id: session.user.id,
@@ -332,7 +344,7 @@ export async function enablePush(): Promise<EnablePushResult> {
         last_seen: new Date().toISOString(),
         revoked_at: null,
       },
-      { onConflict: 'endpoint' },
+      { onConflict: 'user_id,endpoint' },
     );
 
     if (error) {
