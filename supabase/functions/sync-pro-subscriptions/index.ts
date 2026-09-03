@@ -58,6 +58,17 @@
  * en una renovación; una suscripción inactiva SOLO puede bajar a un
  * perfil que ya tenía exactamente ese pro_subscription_id -- nunca toca
  * una cuenta por una coincidencia de email vieja/ajena.
+ *
+ * Ownership de subscription_id (bug real confirmado, auditoría) -- una
+ * misma suscripción de dLocal solo puede pertenecer a UN perfil de
+ * AURAXP. Los modos 1 y 2 verifican esto antes de activar (ver
+ * isSubscriptionClaimedByAnotherProfile()): si `pro_subscription_id` ya
+ * está tomado por otro perfil, no se activa aunque el email matchee --
+ * sin esto, una segunda cuenta con el mismo email que quien pagó
+ * terminaba PRO real (no visual) con solo abrir ProScreen, aunque esa
+ * suscripción ya estuviera reconciliada a otra persona. El índice único
+ * parcial sobre profiles.pro_subscription_id (ver migración) refuerza el
+ * mismo invariante a nivel de base de datos.
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
@@ -104,6 +115,33 @@ function maskEmail(email: string | null): string | null {
 }
 
 type AdminClient = ReturnType<typeof createClient>;
+
+/** Fix de ownership (bug real confirmado, auditoría): un `subscription_id`
+ * de dLocal debe pertenecer como máximo a UN perfil de AURAXP. Antes de
+ * este fix, los modos 1 y 2 activaban PRO en CUALQUIER cuenta cuya sesión
+ * tuviera el mismo email que `client_email` -- si esa suscripción ya
+ * estaba reconciliada (a mano, modo 3, o por un sync anterior) a OTRO
+ * perfil distinto, una segunda cuenta con el mismo email igual la
+ * reclamaba: caso real, una cuenta de pruebas de referidos terminó con
+ * `plan='pro'` real (no solo visual) y un crédito de Coins indebido,
+ * compartiendo la MISMA suscripción activa (165746) ya asociada a
+ * @Cubanito. `String()` en ambos lados (mismo criterio que ya usa el
+ * modo 3, ver ese comentario): dLocal devuelve `id` como número, así que
+ * comparar sin normalizar nunca matchearía. */
+async function isSubscriptionClaimedByAnotherProfile(
+  admin: AdminClient,
+  subscriptionId: string,
+  profileId: string,
+): Promise<boolean> {
+  const { data } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('pro_subscription_id', subscriptionId)
+    .neq('id', profileId)
+    .limit(1)
+    .maybeSingle();
+  return Boolean(data);
+}
 
 /** Activa/refresca PRO para un perfil puntual -- misma lógica sea cual sea
  * el modo que la llame. Dos UPDATEs a propósito: el primero es seguro de
@@ -319,7 +357,16 @@ Deno.serve(async (req: Request) => {
           if (!sub.client_email) continue;
           const { data: profileId } = await admin.rpc('find_profile_id_by_email', { p_email: sub.client_email });
           if (!profileId) continue;
-          await activateProfile(admin, profileId as string, sub.id);
+          const subscriptionId = String(sub.id);
+          // Ownership guard (bug real confirmado, auditoría) -- ver el
+          // comentario de isSubscriptionClaimedByAnotherProfile(). Un
+          // match por email nunca debe poder robarle a otro perfil una
+          // suscripción que ya es suya.
+          if (await isSubscriptionClaimedByAnotherProfile(admin, subscriptionId, profileId as string)) {
+            log('full_sync_subscription_claimed_by_other', { profileId, subscription_id: subscriptionId });
+            continue;
+          }
+          await activateProfile(admin, profileId as string, subscriptionId);
           activated++;
         } else {
           const { error, count } = await admin
@@ -362,7 +409,19 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: true, activated: false });
     }
 
-    await activateProfile(admin, user.id, mine.id);
+    const subscriptionId = String(mine.id);
+    // Ownership guard (bug real confirmado, auditoría) -- ver el
+    // comentario de isSubscriptionClaimedByAnotherProfile(). Sin esto,
+    // cualquier cuenta cuya sesión comparta email con `client_email` de
+    // una suscripción YA reconciliada a otra persona podía auto-activarse
+    // PRO con solo abrir ProScreen -- caso real reproducido con una
+    // cuenta de pruebas y la suscripción 165746 (@Cubanito).
+    if (await isSubscriptionClaimedByAnotherProfile(admin, subscriptionId, user.id)) {
+      log('self_sync_subscription_claimed_by_other', { userId: user.id, subscription_id: subscriptionId });
+      return jsonResponse({ ok: true, activated: false });
+    }
+
+    await activateProfile(admin, user.id, subscriptionId);
     log('self_sync_activated', { userId: user.id });
     return jsonResponse({ ok: true, activated: true });
   } catch (e) {
