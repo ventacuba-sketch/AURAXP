@@ -15,6 +15,20 @@ import { supabase } from './supabaseClient';
  */
 const STORAGE_KEY = 'auraxp_pending_referral_code';
 
+/** Lectura síncrona de `?ref=` en la URL actual (web) -- separado de
+ * `captureReferralFromUrl()` (que persiste en AsyncStorage, async) porque
+ * AuthScreen la necesita YA en su primer render para decidir el modo
+ * inicial (Entrar vs Crear cuenta), sin esperar una promesa. Mismo
+ * parseo, ningún side-effect. */
+export function hasReferralCodeInUrl(): boolean {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
+  try {
+    return Boolean(new URLSearchParams(window.location.search).get('ref'));
+  } catch {
+    return false;
+  }
+}
+
 /** Captura `?ref=CODE` de la URL apenas carga la app (web) -- solo si
  * todavía no hay uno guardado, para no pisar el código real de una
  * visita anterior con una navegación interna sin ese param. Llamar una

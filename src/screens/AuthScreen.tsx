@@ -12,6 +12,7 @@ import {
   signIn,
   signUp,
 } from '../services/authService';
+import { hasReferralCodeInUrl } from '../services/referralService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 
 type Mode = 'signIn' | 'signUp' | 'forgotPassword';
@@ -29,7 +30,11 @@ export default function AuthScreen() {
   // primera pantalla (visita directa), no hay historial in-app y no
   // ofrecemos un botón que no lleve a ningún lado.
   const canGoBack = navigation.canGoBack();
-  const [mode, setMode] = useState<Mode>('signIn');
+  // Link de referido (?ref=CODE, ver InviteScreen/referralService): debe
+  // abrir directo en Crear cuenta -- el código en sí sigue capturándose
+  // aparte (captureReferralFromUrl en App.tsx, boot), esto solo decide
+  // el modo inicial de ESTA pantalla, una sola vez, sin tocar esa lógica.
+  const [mode, setMode] = useState<Mode>(() => (hasReferralCodeInUrl() ? 'signUp' : 'signIn'));
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
