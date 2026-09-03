@@ -52,16 +52,22 @@ export default function StoreScreen() {
   const [balance, setBalance] = useState<number | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // P1-1 (auditoría pre-lanzamiento): un rechazo real de red en el
+  // Promise.all de abajo se comía el .then() entero -- acá no había
+  // spinner que quedara pegado, pero sí tienda/inventario que se quedaban
+  // vacíos para siempre sin ningún mensaje ni forma de reintentar.
+  const [loadError, setLoadError] = useState(false);
 
   const load = useCallback(() => {
-    Promise.all([fetchStoreItems(), fetchInventory(), fetchMyEquippedBySlot(), fetchWallet()]).then(
-      ([storeItems, inv, equipped, wallet]) => {
+    setLoadError(false);
+    Promise.all([fetchStoreItems(), fetchInventory(), fetchMyEquippedBySlot(), fetchWallet()])
+      .then(([storeItems, inv, equipped, wallet]) => {
         setItems(storeItems);
         setInventory(inv);
         setEquippedBySlot(equipped);
         setBalance(wallet?.balance ?? null);
-      },
-    );
+      })
+      .catch(() => setLoadError(true));
   }, []);
 
   useFocusEffect(
@@ -138,6 +144,13 @@ export default function StoreScreen() {
     <ScreenContainer scroll onBack={goBack}>
       <Text style={styles.title}>TIENDA</Text>
       {balance != null && <Text style={styles.balance}>Tu saldo: {balance.toLocaleString('es')} Coins</Text>}
+
+      {loadError && (
+        <View style={styles.errorBlock}>
+          <Text style={styles.notice}>No pudimos cargar la tienda. Revisa tu conexión.</Text>
+          <PrimaryButton label="REINTENTAR" variant="ghost" onPress={load} />
+        </View>
+      )}
 
       <View style={styles.tabs}>
         <Pressable onPress={() => setTab('store')} style={[styles.tab, tab === 'store' && styles.tabActive]}>
@@ -251,6 +264,10 @@ const styles = StyleSheet.create({
     ...typography.body,
     color: colors.success,
     textAlign: 'center',
+    marginBottom: spacing.md,
+  },
+  errorBlock: {
+    gap: spacing.sm,
     marginBottom: spacing.md,
   },
   section: {

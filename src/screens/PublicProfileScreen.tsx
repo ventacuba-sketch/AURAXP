@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { RouteProp, useRoute } from '@react-navigation/native';
 import * as Crypto from 'expo-crypto';
@@ -47,6 +47,12 @@ export default function PublicProfileScreen() {
   const [recentResults, setRecentResults] = useState<PublicRecentResult[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  // P1-1 (auditoría pre-lanzamiento): distinto de `notFound` (que es un
+  // resultado real y esperado -- ese perfil no existe) -- esto es un
+  // rechazo real de red en el Promise.all de abajo, que antes se comía el
+  // .then() entero y dejaba el spinner girando para siempre, sin mensaje
+  // ni forma de reintentar.
+  const [loadError, setLoadError] = useState(false);
   const [challenging, setChallenging] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   // Follow (bloque social) -- null mientras carga, igual que el resto de
@@ -72,36 +78,50 @@ export default function PublicProfileScreen() {
   // línea de defensa, no la única.
   const challengingRef = useRef(false);
 
-  useEffect(() => {
+  const loadProfile = useCallback(() => {
     let cancelled = false;
     setLoading(true);
     setNotFound(false);
+    setLoadError(false);
     Promise.all([
       fetchPublicProfile(params.username),
       fetchPublicXpRank(params.username),
       fetchPublicRecentResults(params.username, 5),
-    ]).then(([profileResult, rankResult, resultsResult]) => {
-      if (cancelled) return;
-      if (profileResult) {
-        setProfile(profileResult);
-        setRank(rankResult);
-        setRecentResults(resultsResult);
-        logEvent('profile_viewed', { username: params.username });
-      } else {
-        setNotFound(true);
-      }
-      setLoading(false);
-    });
-    fetchPublicEquipped(params.username).then((result) => {
-      if (cancelled) return;
-      const bySlot: Partial<Record<PublicEquippedItem['slot'], PublicEquippedItem>> = {};
-      for (const item of result) bySlot[item.slot] = item;
-      setEquippedBySlot(bySlot);
-    });
+    ])
+      .then(([profileResult, rankResult, resultsResult]) => {
+        if (cancelled) return;
+        if (profileResult) {
+          setProfile(profileResult);
+          setRank(rankResult);
+          setRecentResults(resultsResult);
+          logEvent('profile_viewed', { username: params.username });
+        } else {
+          setNotFound(true);
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLoadError(true);
+        setLoading(false);
+      });
+    // Cosmético/no bloqueante -- un rechazo acá nunca debe afectar
+    // `loading`/`notFound` de arriba, solo se agrega .catch() para que un
+    // fallo de red no quede como unhandled rejection en consola.
+    fetchPublicEquipped(params.username)
+      .then((result) => {
+        if (cancelled) return;
+        const bySlot: Partial<Record<PublicEquippedItem['slot'], PublicEquippedItem>> = {};
+        for (const item of result) bySlot[item.slot] = item;
+        setEquippedBySlot(bySlot);
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
   }, [params.username]);
+
+  useEffect(() => loadProfile(), [loadProfile]);
 
   const isMe = me?.username === params.username;
 
@@ -112,12 +132,16 @@ export default function PublicProfileScreen() {
   useEffect(() => {
     if (isMe) return;
     let cancelled = false;
-    fetchFollowStats(params.username).then((result) => {
-      if (!cancelled) setFollowStats(result);
-    });
-    fetchStoreItems().then((items) => {
-      if (!cancelled) setGiftItems(items.filter((i) => i.category === 'gift'));
-    });
+    fetchFollowStats(params.username)
+      .then((result) => {
+        if (!cancelled) setFollowStats(result);
+      })
+      .catch(() => {});
+    fetchStoreItems()
+      .then((items) => {
+        if (!cancelled) setGiftItems(items.filter((i) => i.category === 'gift'));
+      })
+      .catch(() => {});
     return () => {
       cancelled = true;
     };
@@ -251,6 +275,15 @@ export default function PublicProfileScreen() {
     return (
       <ScreenContainer style={styles.center} onBack={goBack}>
         <ActivityIndicator color={colors.accent} size="large" />
+      </ScreenContainer>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <ScreenContainer style={styles.center} onBack={goBack}>
+        <Text style={styles.notFound}>No pudimos cargar este perfil. Revisa tu conexión.</Text>
+        <PrimaryButton label="REINTENTAR" variant="ghost" onPress={loadProfile} />
       </ScreenContainer>
     );
   }

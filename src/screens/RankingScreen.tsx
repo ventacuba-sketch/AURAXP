@@ -44,29 +44,43 @@ export default function RankingScreen() {
   const [myXpRank, setMyXpRank] = useState<number | null>(null);
   const [myAuraRank, setMyAuraRank] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  // P1-1 (auditoría pre-lanzamiento): un rechazo real de red (no un
+  // {error} normal de Supabase, que las 4 fetch* de statsService.ts ya
+  // devuelven como valor por su cuenta) se comía el .then() entero y el
+  // spinner de arriba quedaba girando para siempre. Mismas 4 funciones,
+  // mismos datos -- solo se agrega el camino de error que faltaba, con
+  // botón para reintentar.
+  const [loadError, setLoadError] = useState(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      let cancelled = false;
-      setLoading(true);
-      Promise.all([
-        fetchXpLeaderboard(TOP_N),
-        fetchMyXpRank(),
-        fetchAuraLeaderboard(TOP_N),
-        fetchMyAuraRank(),
-      ]).then(([xp, xpRank, aura, auraRank]) => {
+  const load = useCallback(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(false);
+    Promise.all([
+      fetchXpLeaderboard(TOP_N),
+      fetchMyXpRank(),
+      fetchAuraLeaderboard(TOP_N),
+      fetchMyAuraRank(),
+    ])
+      .then(([xp, xpRank, aura, auraRank]) => {
         if (cancelled) return;
         setXpEntries(xp);
         setMyXpRank(xpRank);
         setAuraEntries(aura);
         setMyAuraRank(auraRank);
         setLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLoadError(true);
+        setLoading(false);
       });
-      return () => {
-        cancelled = true;
-      };
-    }, []),
-  );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useFocusEffect(useCallback(() => load(), [load]));
 
   function openProfile(username: string) {
     if (username === user?.username) return;
@@ -97,7 +111,12 @@ export default function RankingScreen() {
         </Pressable>
       </View>
 
-      {loading ? (
+      {loadError ? (
+        <View style={styles.emptyBlock}>
+          <Text style={styles.empty}>No pudimos cargar el ranking. Revisa tu conexión.</Text>
+          <PrimaryButton label="REINTENTAR" variant="ghost" onPress={load} />
+        </View>
+      ) : loading ? (
         <View style={styles.center}>
           <ActivityIndicator color={colors.accent} size="large" />
         </View>

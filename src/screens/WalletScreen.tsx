@@ -38,22 +38,36 @@ export default function WalletScreen() {
   const [wallet, setWallet] = useState<Wallet | null>(null);
   const [transactions, setTransactions] = useState<CoinTransaction[]>([]);
   const [loading, setLoading] = useState(true);
+  // P1-1 (auditoría pre-lanzamiento): antes, un rechazo real de red (no un
+  // {error} normal de Supabase, que fetchWallet/fetchTransactionHistory ya
+  // devuelven como valor, no como excepción) se comía el .then() entero y
+  // `loading` se quedaba en true para siempre -- spinner infinito, sin
+  // mensaje ni forma de reintentar. Mismo dato, mismas funciones, solo se
+  // agrega el camino de error que faltaba.
+  const [loadError, setLoadError] = useState(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      let cancelled = false;
-      setLoading(true);
-      Promise.all([fetchWallet(), fetchTransactionHistory()]).then(([w, tx]) => {
+  const load = useCallback(() => {
+    let cancelled = false;
+    setLoading(true);
+    setLoadError(false);
+    Promise.all([fetchWallet(), fetchTransactionHistory()])
+      .then(([w, tx]) => {
         if (cancelled) return;
         setWallet(w);
         setTransactions(tx);
         setLoading(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLoadError(true);
+        setLoading(false);
       });
-      return () => {
-        cancelled = true;
-      };
-    }, []),
-  );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useFocusEffect(useCallback(() => load(), [load]));
 
   return (
     <ScreenContainer scroll onBack={goBack}>
@@ -67,8 +81,15 @@ export default function WalletScreen() {
 
       <PrimaryButton label="IR A LA TIENDA 🛍️" onPress={() => navigation.navigate('Store')} />
 
+      {loadError && (
+        <View style={styles.errorBlock}>
+          <Text style={styles.errorText}>No pudimos cargar tu wallet. Revisa tu conexión.</Text>
+          <PrimaryButton label="REINTENTAR" variant="ghost" onPress={load} />
+        </View>
+      )}
+
       <Text style={styles.sectionTitle}>HISTORIAL</Text>
-      {!loading && transactions.length === 0 && <Text style={styles.empty}>Todavía no hay movimientos.</Text>}
+      {!loading && !loadError && transactions.length === 0 && <Text style={styles.empty}>Todavía no hay movimientos.</Text>}
       {transactions.map((tx) => (
         <View key={tx.id} style={styles.txRow}>
           <View style={styles.txInfo}>
@@ -119,6 +140,15 @@ const styles = StyleSheet.create({
   empty: {
     ...typography.body,
     color: colors.textSecondary,
+  },
+  errorBlock: {
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  errorText: {
+    ...typography.body,
+    color: colors.textSecondary,
+    textAlign: 'center',
   },
   txRow: {
     flexDirection: 'row',

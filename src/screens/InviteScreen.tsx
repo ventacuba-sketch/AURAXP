@@ -19,20 +19,31 @@ export default function InviteScreen() {
   const goBack = useSmartBack();
   const [info, setInfo] = useState<ReferralInfo | null>(null);
   const [stats, setStats] = useState<ReferralStats>({ totalReferred: 0, totalActivated: 0 });
+  // P1-1 (auditoría pre-lanzamiento): un rechazo real de red se comía el
+  // .then() entero -- acá se traducía en "INVITAR AMIGOS" deshabilitado
+  // para siempre (depende de `info`), sin ningún mensaje ni forma de
+  // reintentar.
+  const [loadError, setLoadError] = useState(false);
 
-  useFocusEffect(
-    useCallback(() => {
-      let cancelled = false;
-      Promise.all([fetchMyReferralInfo(), fetchMyReferralStats()]).then(([i, s]) => {
+  const load = useCallback(() => {
+    let cancelled = false;
+    setLoadError(false);
+    Promise.all([fetchMyReferralInfo(), fetchMyReferralStats()])
+      .then(([i, s]) => {
         if (cancelled) return;
         setInfo(i);
         setStats(s);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLoadError(true);
       });
-      return () => {
-        cancelled = true;
-      };
-    }, []),
-  );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useFocusEffect(useCallback(() => load(), [load]));
 
   async function handleInvite() {
     if (!info) return;
@@ -50,6 +61,13 @@ export default function InviteScreen() {
           <Text style={styles.codeLabel}>TU CÓDIGO</Text>
           <Text style={styles.code}>{info.code}</Text>
         </Card>
+      )}
+
+      {loadError && !info && (
+        <View style={styles.errorBlock}>
+          <Text style={styles.errorText}>No pudimos cargar tu código. Revisa tu conexión.</Text>
+          <PrimaryButton label="REINTENTAR" variant="ghost" onPress={load} />
+        </View>
       )}
 
       <PrimaryButton label="INVITAR AMIGOS 🎉" onPress={handleInvite} disabled={!info} />
@@ -84,6 +102,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: spacing.lg,
     borderColor: colors.accent,
+  },
+  errorBlock: {
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  errorText: {
+    ...typography.body,
+    color: colors.textSecondary,
+    textAlign: 'center',
   },
   codeLabel: {
     ...typography.eyebrow,
