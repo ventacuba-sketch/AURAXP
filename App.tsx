@@ -7,6 +7,7 @@ import { WebMobileFrame } from './src/components/WebMobileFrame';
 import { AuthProvider } from './src/hooks/useAuth';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { logAppOpenOnce } from './src/services/analyticsService';
+import { captureUtmFromUrl } from './src/services/campaignService';
 import { checkStandaloneOnBoot, registerServiceWorker } from './src/services/installService';
 import { captureReferralFromUrl } from './src/services/referralService';
 
@@ -29,6 +30,10 @@ export default function App() {
     // lo guarda pendiente; la atribución real a la cuenta pasa después, ya
     // con sesión, en RootNavigator (ver tryAttributePendingReferral ahí).
     captureReferralFromUrl();
+    // Landing de adquisición (TikTok/Reels/Shorts) -- captura ?utm_* de la
+    // URL, mismo criterio y mismo storage por fuera de la navegación que
+    // el referido de arriba (ver campaignService.ts).
+    captureUtmFromUrl();
   }, []);
 
   return (

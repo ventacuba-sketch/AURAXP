@@ -47,6 +47,16 @@ export type AnalyticsEventName =
   | 'share'
   | 'profile_viewed'
   | 'pro_checkout_opened'
+  // Landing de adquisición (TikTok/Reels/Shorts) -- funnel mínimo pedido:
+  // landing_viewed -> landing_cta_clicked -> signup_started/completed (ya
+  // existían arriba, sin cambios) -> scan_started (nuevo, ver
+  // UploadScreen.handleAnalyze) -> scan_completed (ya existía, ver
+  // logScanMilestone). Metadata de estos dos primeros lleva los `utm_*`
+  // guardados (ver campaignService.ts) cuando la visita vino de una
+  // campaña -- ausente en un `app_open` normal.
+  | 'landing_viewed'
+  | 'landing_cta_clicked'
+  | 'scan_started'
   // PWA (R12) -- solo lo técnicamente confirmable. 'pwa_installed' se
   // loguea en DOS puntos, ambos hechos reales, nunca una suposición: (1)
   // el evento `appinstalled` del navegador (Android/Chrome, confirmado

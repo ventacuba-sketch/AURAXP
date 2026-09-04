@@ -59,8 +59,19 @@ export type RootStackParamList = {
   ChallengeLanding: { token: string };
   /** Placeholder de beneficios PRO -- sin checkout todavía, ver DailyScanCounter. */
   Pro: undefined;
-  /** Solo registrada en el navigator cuando no hay sesión — ver RootNavigator. */
-  Auth: undefined;
+  /** Landing de adquisición (TikTok/Reels/Shorts) -- solo registrada cuando
+   * no hay sesión, igual que Auth (ver RootNavigator). Ruta pública propia
+   * (ver `linking` en ese archivo) para no tocar el comportamiento de `/`
+   * (sigue cayendo en Auth, como siempre) ni el de `?ref=CODE`. */
+  Landing: undefined;
+  /** Solo registrada en el navigator cuando no hay sesión — ver RootNavigator.
+   * `initialMode`/`context`: cómo se llegó acá desde otra pantalla (p. ej.
+   * LandingScreen) -- decide el modo inicial y el copy, nunca reemplaza la
+   * señal existente de `?ref=CODE` (ver hasReferralCodeInUrl en AuthScreen),
+   * solo se suma como otra fuente posible. `undefined` (cualquier caller
+   * existente que ya hace `navigate('Auth')` sin params) se comporta
+   * exactamente igual que antes. */
+  Auth: { initialMode?: 'signIn' | 'signUp'; context?: 'measure_aura' } | undefined;
   /** Solo registrada mientras useAuth().passwordRecovery es true (volviendo
    * del link de "olvidé mi contraseña") — ver RootNavigator. */
   ResetPassword: undefined;

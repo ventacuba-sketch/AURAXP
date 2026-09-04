@@ -24,6 +24,7 @@ import ChallengeLandingScreen from '../screens/ChallengeLandingScreen';
 import ChallengeScreen from '../screens/ChallengeScreen';
 import HelpScreen from '../screens/HelpScreen';
 import InviteScreen from '../screens/InviteScreen';
+import LandingScreen from '../screens/LandingScreen';
 import MyChallengesScreen from '../screens/MyChallengesScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import ProScreen from '../screens/ProScreen';
@@ -53,14 +54,20 @@ const navigationTheme: Theme = {
   },
 };
 
-// Solo ChallengeLanding (y Auth) tienen un path real — es lo único que
-// necesita abrirse desde fuera de la app (link compartido / navegador).
+// Solo ChallengeLanding, Auth y ahora Landing tienen un path real — es lo
+// único que necesita abrirse desde fuera de la app (link compartido /
+// navegador / campaña de adquisición). `/aura` es ruta NUEVA y propia --
+// deliberadamente no se tocó `/` (sigue cayendo en Auth para cualquier
+// visitante sin sesión, exactamente como antes, incluido `?ref=CODE`) ni
+// se reusó ningún nombre ya existente (evita cualquier choque con `Scan`,
+// el tab).
 const linking: LinkingOptions<RootStackParamList> = {
   prefixes: ['auraxp://', 'https://auravs.app'],
   config: {
     screens: {
       ChallengeLanding: 'c/:token',
       Auth: 'auth',
+      Landing: 'aura',
     },
   },
 };
@@ -198,7 +205,16 @@ export function RootNavigator() {
                 <Stack.Screen name="Invite" component={InviteScreen} />
               </>
             ) : (
-              <Stack.Screen name="Auth" component={AuthScreen} />
+              <>
+                <Stack.Screen name="Auth" component={AuthScreen} />
+                {/* Landing de adquisición (TikTok/Reels/Shorts) -- registrada
+                    SOLO acá, igual que Auth: alguien ya logueado que abra
+                    /aura nunca ve esto (React Navigation cae al primer
+                    screen del stack autenticado, MainTabs, mismo criterio ya
+                    probado que usa "/" para caer en Auth cuando no hay
+                    sesión). */}
+                <Stack.Screen name="Landing" component={LandingScreen} />
+              </>
             )}
             <Stack.Screen name="ChallengeLanding" component={ChallengeLandingScreen} />
           </Stack.Navigator>

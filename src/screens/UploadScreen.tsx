@@ -7,6 +7,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useSmartBack } from '../hooks/useSmartBack';
+import { logEvent } from '../services/analyticsService';
 import { uploadAndSubmitScan, VideoTooLargeError } from '../services/scanService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
@@ -139,6 +140,13 @@ export default function UploadScreen() {
 
   async function handleAnalyze() {
     if (!video) return;
+
+    // Funnel de adquisición (landing TikTok/Reels/Shorts) -- best-effort,
+    // nunca bloquea el submit real (ver logEvent). Acá, no antes: recién
+    // cuando la persona confirma que este es el video que quiere analizar,
+    // igual que 'signup_started' se loguea al tocar CREAR CUENTA, no al
+    // abrir la pantalla.
+    logEvent('scan_started');
 
     if (!isSupabaseConfigured) {
       // Sin backend configurado todavía — Analyzing cae a su fallback mock.
