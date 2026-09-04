@@ -7,7 +7,7 @@ import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { logEvent } from '../services/analyticsService';
 import { getStoredUtmParams } from '../services/campaignService';
-import { colors, radius, spacing, typography } from '../theme/colors';
+import { colors, spacing, typography } from '../theme/colors';
 
 /**
  * Landing pública de adquisición -- pensada para tráfico de TikTok/Reels/
@@ -50,7 +50,7 @@ export default function LandingScreen() {
           ¿CUÁNTA <Text style={styles.headlineAccent}>AURA</Text> TIENES? 👀
         </Text>
         <Text style={styles.subheadline}>
-          Descúbrelo <Text style={styles.free}>GRATIS</Text> con IA.
+          Mide tu Aura <Text style={styles.free}>GRATIS</Text> con IA.
         </Text>
         <Text style={styles.pitch}>
           Graba 8 segundos. La IA mide tu Aura. Compite contra otros y demuestra quién tiene más.
@@ -62,12 +62,14 @@ export default function LandingScreen() {
         </View>
       </View>
 
-      {/* ── Qué puedes hacer -- los 4 mensajes principales, junto al hero */}
+      {/* ── Qué puedes hacer -- los 4 mensajes principales, en cuadrícula
+          2x2 compacta (ajuste de conversión mobile, ver commit): ocupaban
+          demasiado espacio vertical como filas horizontales. */}
       <View style={styles.features}>
-        <FeatureCard emoji="🤖" title="AURA SCAN CON IA" body="La IA analiza tu actitud, estilo, confianza y presencia." />
-        <FeatureCard emoji="⚔️" title="CHALLENGES ONLINE" body="Desafía a tus amigos y compite contra otros jugadores." />
-        <FeatureCard emoji="🌎" title="COMUNIDAD AURA" body="Sigue jugadores, comparte resultados y descubre quién está subiendo." />
-        <FeatureCard emoji="🏆" title="RANKING + RECOMPENSAS" body="Sube de nivel, completa misiones y gana Coins." />
+        <FeatureCard emoji="🤖" title="AURA SCAN IA" body="La IA mide tu presencia." />
+        <FeatureCard emoji="⚔️" title="CHALLENGES" body="Compite contra otros." />
+        <FeatureCard emoji="🌎" title="COMUNIDAD" body="Sigue y comparte." />
+        <FeatureCard emoji="🏆" title="RANKING" body="Sube y gana Coins." />
       </View>
 
       {/* ── Cómo funciona -- una sola línea, sin explicaciones largas ─── */}
@@ -85,18 +87,12 @@ export default function LandingScreen() {
 
       <PrimaryButton label="⚡ MEDIR MI AURA GRATIS" onPress={() => handleCta('example')} />
 
-      {/* ── Funciones secundarias -- compactas, sin competir visualmente
-          con los 4 mensajes principales de arriba (chips chicos, sin
-          Card ni emoji propio). */}
+      {/* ── Funciones secundarias -- una sola línea compacta, sin competir
+          visualmente con los 4 mensajes principales de arriba (ajuste de
+          conversión mobile: antes eran 8 chips grandes). */}
       <View style={styles.secondary}>
         <Text style={styles.secondaryTitle}>Y TAMBIÉN</Text>
-        <View style={styles.chipRow}>
-          {SECONDARY_FEATURES.map((label) => (
-            <View key={label} style={styles.chip}>
-              <Text style={styles.chipText}>{label}</Text>
-            </View>
-          ))}
-        </View>
+        <Text style={styles.secondaryLine}>{SECONDARY_FEATURES_LINE}</Text>
       </View>
 
       <Text style={styles.footnote}>Solo pedimos una cuenta gratis para guardar tu resultado y competir.</Text>
@@ -104,16 +100,7 @@ export default function LandingScreen() {
   );
 }
 
-const SECONDARY_FEATURES = [
-  'XP y niveles',
-  'Coins',
-  'Misiones diarias',
-  'Rachas',
-  'Follow',
-  'Regalos',
-  'Tienda',
-  'Invitar amigos',
-];
+const SECONDARY_FEATURES_LINE = 'XP · Coins · Misiones · Rachas · Regalos · Tienda + más';
 
 function FeatureCard({ emoji, title, body }: { emoji: string; title: string; body: string }) {
   return (
@@ -178,27 +165,35 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   features: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.sm,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.sm,
   },
   featureCard: {
-    flexDirection: 'row',
+    width: '48%',
     alignItems: 'center',
-    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
   },
   featureEmoji: {
-    fontSize: 28,
+    fontSize: 22,
+    marginBottom: 2,
   },
   featureText: {
-    flex: 1,
+    alignItems: 'center',
   },
   featureTitle: {
-    ...typography.subtitle,
+    ...typography.caption,
+    fontWeight: '800',
     color: colors.textPrimary,
+    textAlign: 'center',
   },
   featureBody: {
     ...typography.caption,
+    fontSize: 11,
     color: colors.textSecondary,
+    textAlign: 'center',
     marginTop: 2,
   },
   flowLine: {
@@ -206,7 +201,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     fontWeight: '700',
-    marginBottom: spacing.lg,
+    marginBottom: spacing.sm,
   },
   exampleCard: {
     alignItems: 'center',
@@ -237,22 +232,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: spacing.sm,
   },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: spacing.xs,
-  },
-  chip: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
-  },
-  chipText: {
+  secondaryLine: {
     ...typography.caption,
     color: colors.textMuted,
+    textAlign: 'center',
   },
   footnote: {
     ...typography.caption,
