@@ -2,6 +2,7 @@ import { Platform } from 'react-native';
 
 import { logEvent } from './analyticsService';
 import { getSession } from './authService';
+import { isIOS, isStandalone } from './installService';
 import { supabase } from './supabaseClient';
 import { createNudgePolicy } from '../utils/nudgePolicy';
 
@@ -56,6 +57,19 @@ function warnIfMissingVapidKey(): void {
 
 export function isPushSupported(): boolean {
   if (Platform.OS !== 'web' || typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  // Bug real confirmado (auditoría "push desactivado al entrar por
+  // Safari/WhatsApp"): en iOS 16.4+, Safari expone `serviceWorker`/
+  // `PushManager`/`Notification` en el `window` incluso en una pestaña
+  // normal o en el navegador embebido de WhatsApp/TikTok -- pero Apple
+  // solo deja que el push REALMENTE funcione desde una PWA instalada
+  // (standalone). Sin este chequeo, esos contextos pasaban el resto de
+  // esta función, y como el permiso ahí es 'default' (iOS lo aísla por
+  // instalación, separado de Safari), `getPushUiStatus()` devolvía 'off'
+  // -- Perfil mostraba "DESACTIVADAS" como si la persona lo hubiera
+  // apagado a mano, en vez de "NO DISPONIBLES" (este contexto no puede
+  // soportarlo, punto). Android no cambia: ahí sí funciona desde una
+  // pestaña normal, por eso el chequeo es específico de iOS.
+  if (isIOS() && !isStandalone()) return false;
   warnIfMissingVapidKey();
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window && Boolean(VAPID_PUBLIC_KEY);
 }
