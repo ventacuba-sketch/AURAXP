@@ -469,6 +469,9 @@ export async function createDirectChallenge(sourceScanId: string, targetUsername
     // hace falta para diferenciar, la próxima vez que esto falle en
     // producción, entre un constraint que faltó, un tipo mal castado, RLS,
     // o lo que sea -- sin esto, "rpc_error" no dice nada accionable.
+    const rpcErrorDetails = (error as { details?: string }).details ?? null;
+    const rpcErrorHint = (error as { hint?: string }).hint ?? null;
+    const rpcErrorCode = (error as { code?: string }).code ?? null;
     console.error(
       JSON.stringify({
         src: 'createDirectChallenge',
@@ -477,11 +480,25 @@ export async function createDirectChallenge(sourceScanId: string, targetUsername
         target_username: targetUsername,
         is_network: isNetwork,
         'rpc_error.message': message,
-        'rpc_error.details': (error as { details?: string }).details ?? null,
-        'rpc_error.hint': (error as { hint?: string }).hint ?? null,
-        'rpc_error.code': (error as { code?: string }).code ?? null,
+        'rpc_error.details': rpcErrorDetails,
+        'rpc_error.hint': rpcErrorHint,
+        'rpc_error.code': rpcErrorCode,
       }),
     );
+    // Diagnóstico TEMPORAL (bug real en producción, "No pudimos crear el
+    // desafío") -- mismo dato que el console.error de arriba, pero acá
+    // queda en `analytics_events`, consultable por SQL directo sin
+    // depender de que alguien tenga DevTools abierto en el momento exacto
+    // del fallo (ver analyticsService.ts). Best-effort, nunca bloquea ni
+    // cambia el resultado ya calculado arriba -- quitar una vez
+    // diagnosticada la causa real.
+    logEvent('challenge_direct_rpc_error', {
+      is_network: isNetwork,
+      code: rpcErrorCode,
+      message,
+      details: rpcErrorDetails,
+      hint: rpcErrorHint,
+    });
     return { ok: false, errorCode: isNetwork ? 'network' : 'rpc_error' };
   }
 

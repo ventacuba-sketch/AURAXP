@@ -43,6 +43,15 @@ export type AnalyticsEventName =
   | 'challenge_direct_created'
   | 'challenge_accepted'
   | 'challenge_rejected'
+  // Diagnóstico TEMPORAL (bug real en producción, "No pudimos crear el
+  // desafío") -- el error crudo de create_direct_challenge (message/code/
+  // details/hint de Postgrest, ya seguro de loguear, ver
+  // challengeService.ts) ya se veía en la consola del browser, pero eso
+  // exige que alguien abra DevTools en el momento exacto del fallo. Este
+  // evento manda lo mismo a `analytics_events`, consultable directo por
+  // SQL sin depender de nadie mirando la pantalla -- quitar una vez
+  // diagnosticada la causa real (ver el reporte de esta tarea).
+  | 'challenge_direct_rpc_error'
   | 'result_shared'
   | 'share'
   | 'profile_viewed'
