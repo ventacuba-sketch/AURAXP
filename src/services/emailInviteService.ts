@@ -1,3 +1,4 @@
+import { logEvent } from './analyticsService';
 import { supabase } from './supabaseClient';
 
 export type EmailInviteErrorCode =
@@ -20,26 +21,28 @@ export class EmailInviteError extends Error {
 
 function messageFor(code: EmailInviteErrorCode): string {
   switch (code) {
-    case 'not_configured':
-      return 'Las invitaciones por email todavía no están disponibles.';
-    case 'not_authenticated':
-      return 'Tu sesión expiró. Vuelve a iniciar sesión.';
-    case 'invalid_email':
-      return 'Ingresa un email válido.';
-    case 'cannot_invite_self':
-      return 'No puedes enviarte una invitación a ti mismo.';
-    case 'daily_invite_limit':
-      return 'Llegaste al máximo de 5 invitaciones por email en 24 horas.';
-    case 'send_failed':
-    default:
-      return 'No pudimos enviar la invitación. Inténtalo de nuevo.';
+    case 'not_configured': return 'Las invitaciones por email todavía no están disponibles.';
+    case 'not_authenticated': return 'Tu sesión expiró. Vuelve a iniciar sesión.';
+    case 'invalid_email': return 'Ingresa un email válido.';
+    case 'cannot_invite_self': return 'No puedes enviarte una invitación a ti mismo.';
+    case 'daily_invite_limit': return 'Llegaste al máximo de 5 invitaciones por email en 24 horas.';
+    default: return 'No pudimos enviar la invitación. Inténtalo de nuevo.';
   }
 }
 
+function normalizeServerCode(value: unknown): EmailInviteErrorCode {
+  const raw = String(value ?? '').toLowerCase();
+  if (raw.includes('auth') || raw.includes('session') || raw.includes('jwt')) return 'not_authenticated';
+  if (raw.includes('invalid') && raw.includes('email')) return 'invalid_email';
+  if (raw.includes('self') || raw.includes('yourself')) return 'cannot_invite_self';
+  if (raw.includes('limit') || raw.includes('rate') || raw.includes('5')) return 'daily_invite_limit';
+  if (raw === 'not_configured') return 'not_configured';
+  return 'send_failed';
+}
+
 /**
- * Envía una invitación real a través de la Edge Function `send-email-invite`.
- * El cliente nunca ve la RESEND_API_KEY ni decide el código de referido:
- * ambas cosas se resuelven server-side en Supabase.
+ * Invoca `send-email-invite`. La API key y el referral_code permanecen
+ * exclusivamente server-side. El backend aplica el límite anti-spam.
  */
 export async function sendEmailInvite(email: string): Promise<void> {
   if (!supabase) throw new EmailInviteError('not_configured', messageFor('not_configured'));
@@ -54,20 +57,17 @@ export async function sendEmailInvite(email: string): Promise<void> {
   });
 
   if (error) {
-    throw new EmailInviteError('send_failed', messageFor('send_failed'));
+    const code = normalizeServerCode(error.message);
+    await logEvent('email_invite_failed', { code });
+    throw new EmailInviteError(code, messageFor(code));
   }
 
-  if (data?.ok) return;
+  if (data?.ok || data?.success) {
+    await logEvent('email_invite_sent');
+    return;
+  }
 
-  const code = String(data?.error ?? 'send_failed') as EmailInviteErrorCode;
-  const known: EmailInviteErrorCode[] = [
-    'not_configured',
-    'not_authenticated',
-    'invalid_email',
-    'cannot_invite_self',
-    'daily_invite_limit',
-    'send_failed',
-  ];
-  const safeCode = known.includes(code) ? code : 'send_failed';
-  throw new EmailInviteError(safeCode, messageFor(safeCode));
+  const code = normalizeServerCode(data?.error ?? data?.code ?? data?.message);
+  await logEvent('email_invite_failed', { code });
+  throw new EmailInviteError(code, messageFor(code));
 }
