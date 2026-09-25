@@ -23,6 +23,7 @@ import { RootStackParamList } from '../types';
 import { fetchMyEquipped, PublicEquippedItem } from '../services/walletService';
 import { formatSignedXP } from '../utils/format';
 import { shareText } from '../utils/share';
+import { createPublicAuraShare, publicAuraUrl } from '../services/publicAuraService';
 
 type ScanResultRoute = RouteProp<RootStackParamList, 'ScanResult'>;
 
@@ -104,8 +105,15 @@ export default function ScanResultScreen() {
 
   async function handleShare() {
     if (!result) return;
+    let token: string | null = null;
+    try {
+      token = await createPublicAuraShare(result.id);
+    } catch (e) {
+      console.warn('createPublicAuraShare failed', e);
+    }
     const outcome = await shareText(
-      `Acabo de sacar ${formatSignedXP(result.auraScore)} AURA en AURA VS. Supéralo si puedes. 👀`,
+      `La IA me dio ${formatSignedXP(result.auraScore)} AURA. ¿Acertó? Vota MÁS AURA o MENOS AURA 👀`,
+      token ? publicAuraUrl(token) : undefined,
     );
     if (outcome === 'copied') setShareNotice('Enlace copiado');
     else if (outcome === 'unavailable') setShareNotice('No pudimos compartir. Copia manualmente.');
