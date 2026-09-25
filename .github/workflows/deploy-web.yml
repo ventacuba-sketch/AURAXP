@@ -1,42 +1,49 @@
 name: Deploy web
 
-# Production deploy: every push to main type-checks, exports and publishes
-# AURA VS to auravs.app.
 on:
   push:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
-  deploy:
-    name: Build and deploy web (auravs.app)
+  regression-gate:
+    name: Regression gate
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
+          cache: npm
+      - run: npm ci
       - name: Type-check
         run: npx tsc --noEmit -p tsconfig.json
+      - name: Critical static regression tests
+        run: node scripts/regression-gate.mjs
+      - name: Production backend smoke tests
+        env:
+          SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+        run: node scripts/backend-smoke.mjs
 
+  deploy:
+    name: Build and deploy web (auravs.app)
+    needs: regression-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
       - name: Export web build
         env:
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
           EXPO_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.EXPO_PUBLIC_VAPID_PUBLIC_KEY }}
         run: npx expo export --platform web
-
       - name: Add SPA fallback + caching rules (.htaccess)
         run: cp web/.htaccess dist/.htaccess
-
       - name: Deploy to auravs.app via FTPS
         uses: SamKirkland/FTP-Deploy-Action@v4.4.0
         with:
@@ -47,3 +54,17 @@ jobs:
           local-dir: ./dist/
           server-dir: ./
           dangerous-clean-slate: false
+
+  production-smoke:
+    name: Production URL smoke test
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify public production routes
+        run: |
+          set -e
+          for path in / /aura; do
+            code=$(curl -L -sS -o /tmp/aura.html -w "%{http_code}" "https://auravs.app$path")
+            test "$code" = "200"
+            grep -qi "root" /tmp/aura.html
+          done
