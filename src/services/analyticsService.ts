@@ -115,7 +115,10 @@ export type AnalyticsEventName =
   | 'onboarding_completed'
   | 'email_invite_opened'
   | 'email_invite_sent'
-  | 'email_invite_failed';
+  | 'email_invite_failed'
+  | 'public_result_viewed'
+  | 'public_result_voted'
+  | 'public_vote_cta_clicked';
 
 export async function logEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>): Promise<void> {
   if (!supabase) return;
