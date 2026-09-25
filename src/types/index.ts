@@ -64,6 +64,8 @@ export type RootStackParamList = {
    * (ver `linking` en ese archivo) para no tocar el comportamiento de `/`
    * (sigue cayendo en Auth, como siempre) ni el de `?ref=CODE`. */
   Landing: undefined;
+  /** Resultado público compartible: visible y votable sin registro. */
+  PublicResult: { token: string };
   /** Solo registrada en el navigator cuando no hay sesión — ver RootNavigator.
    * `initialMode`/`context`: cómo se llegó acá desde otra pantalla (p. ej.
    * LandingScreen) -- decide el modo inicial y el copy, nunca reemplaza la
