@@ -29,6 +29,7 @@ import MyChallengesScreen from '../screens/MyChallengesScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import ProScreen from '../screens/ProScreen';
 import PublicProfileScreen from '../screens/PublicProfileScreen';
+import PublicResultScreen from '../screens/PublicResultScreen';
 import RankingScreen from '../screens/RankingScreen';
 import RecordScreen from '../screens/RecordScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
@@ -68,6 +69,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       ChallengeLanding: 'c/:token',
       Auth: 'auth',
       Landing: 'aura',
+      PublicResult: 'r/:token',
     },
   },
 };
@@ -217,6 +219,7 @@ export function RootNavigator() {
               </>
             )}
             <Stack.Screen name="ChallengeLanding" component={ChallengeLandingScreen} />
+            <Stack.Screen name="PublicResult" component={PublicResultScreen} />
           </Stack.Navigator>
         </View>
         <BottomNavBar authed={authed} navigationRef={navigationRef} />
