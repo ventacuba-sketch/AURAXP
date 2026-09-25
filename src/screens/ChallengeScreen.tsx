@@ -20,6 +20,7 @@ import {
   respondDirectChallenge,
 } from '../services/challengeService';
 import { getChallengeReplayUrl } from '../services/scanService';
+import { publicBattleUrl } from '../services/publicBattleService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { Challenge, ChallengeParticipant, RootStackParamList } from '../types';
 import { fetchMyEquipped, PublicEquippedItem } from '../services/walletService';
@@ -251,7 +252,7 @@ export default function ChallengeScreen() {
     try {
       logEvent('result_shared');
       const blob = await generateChallengeShareCardBlob(card);
-      const result = await shareImage(blob, `aura-vs-${token}.png`, text, shareUrl(token));
+      const result = await shareImage(blob, `aura-vs-${token}.png`, `${text} La IA ya eligió. Ahora vota tú 👀`, publicBattleUrl(token));
       if (result === 'copied') setNotice('Enlace copiado');
       else if (result === 'downloaded') setNotice('Imagen descargada y enlace copiado');
     } finally {

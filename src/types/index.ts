@@ -66,6 +66,8 @@ export type RootStackParamList = {
   Landing: undefined;
   /** Resultado público compartible: visible y votable sin registro. */
   PublicResult: { token: string };
+  /** Batalla completada, pública y votable sin registro. */
+  PublicBattle: { token: string };
   /** Solo registrada en el navigator cuando no hay sesión — ver RootNavigator.
    * `initialMode`/`context`: cómo se llegó acá desde otra pantalla (p. ej.
    * LandingScreen) -- decide el modo inicial y el copy, nunca reemplaza la
