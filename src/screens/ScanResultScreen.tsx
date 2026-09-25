@@ -110,10 +110,16 @@ export default function ScanResultScreen() {
       token = await createPublicAuraShare(result.id);
     } catch (e) {
       console.warn('createPublicAuraShare failed', e);
+      setShareNotice('No pudimos crear el enlace público. Intenta nuevamente.');
+      return;
+    }
+    if (!token) {
+      setShareNotice('No pudimos crear el enlace público. Intenta nuevamente.');
+      return;
     }
     const outcome = await shareText(
       `La IA me dio ${formatSignedXP(result.auraScore)} AURA. ¿Acertó? Vota MÁS AURA o MENOS AURA 👀`,
-      token ? publicAuraUrl(token) : undefined,
+      publicAuraUrl(token),
     );
     if (outcome === 'copied') setShareNotice('Enlace copiado');
     else if (outcome === 'unavailable') setShareNotice('No pudimos compartir. Copia manualmente.');
