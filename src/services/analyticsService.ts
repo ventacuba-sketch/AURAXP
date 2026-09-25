@@ -1,5 +1,6 @@
 import { getSession } from './authService';
 import { supabase } from './supabaseClient';
+import { getStoredUtmParams, linkCampaignToCurrentUser } from './campaignService';
 
 /**
  * Analítica mínima de funnel -- ver migración `analytics_events`
@@ -128,10 +129,12 @@ export async function logEvent(eventName: AnalyticsEventName, metadata?: Record<
   if (!supabase) return;
   try {
     const session = await getSession();
+    const utm = await getStoredUtmParams();
+    if (session && utm) await linkCampaignToCurrentUser();
     await supabase.from('analytics_events').insert({
       event_name: eventName,
       user_id: session?.user.id ?? null,
-      metadata: metadata ?? null,
+      metadata: utm ? { ...utm, ...(metadata ?? {}) } : (metadata ?? null),
     });
   } catch {
     // Nunca debe afectar el flujo real -- ver comentario de arriba.
