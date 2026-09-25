@@ -104,7 +104,12 @@ export function WebCameraCapture() {
   const stopRequestedRef = useRef(false);
 
   function goToUpload(recordedUri?: string, recordedDurationMs?: number) {
-    navigation.navigate('Upload', { challengeToken: params?.challengeToken, recordedUri, recordedDurationMs });
+    navigation.navigate('Upload', {
+      challengeToken: params?.challengeToken,
+      rematchTargetUsername: params?.rematchTargetUsername,
+      recordedUri,
+      recordedDurationMs,
+    });
   }
 
   function clearTimers() {
@@ -389,7 +394,7 @@ export function WebCameraCapture() {
   if (!supported) {
     return (
       <View style={[styles.center, { paddingTop: insets.top + spacing.lg }]}>
-        <Text style={styles.permissionTitle}>Grabar no está disponible acá</Text>
+        <Text style={styles.permissionTitle}>Grabar no está disponible aquí</Text>
         <Text style={styles.permissionText}>
           Este navegador no soporta grabar video directo. Usa SUBIR VIDEO para elegir un archivo.
         </Text>
@@ -403,7 +408,7 @@ export function WebCameraCapture() {
       <View style={[styles.center, { paddingTop: insets.top + spacing.lg }]}>
         <Text style={styles.permissionTitle}>Falta permiso</Text>
         <Text style={styles.permissionText}>
-          AURAXP necesita acceso a la cámara y al micrófono para grabar tu momento. Revisa los permisos
+          AURA VS necesita acceso a la cámara y al micrófono para grabar tu momento. Revisa los permisos
           de este sitio en los ajustes de tu navegador.
         </Text>
         <PrimaryButton label="VOLVER" onPress={() => goToUpload()} />

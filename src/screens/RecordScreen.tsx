@@ -73,7 +73,12 @@ function NativeCameraRecorder() {
   const stopRequestedRef = useRef(false);
 
   function goToUpload(recordedUri?: string, recordedDurationMs?: number) {
-    navigation.navigate('Upload', { challengeToken: params?.challengeToken, recordedUri, recordedDurationMs });
+    navigation.navigate('Upload', {
+      challengeToken: params?.challengeToken,
+      rematchTargetUsername: params?.rematchTargetUsername,
+      recordedUri,
+      recordedDurationMs,
+    });
   }
 
   // Pide cámara + micrófono apenas se entra a la pantalla -- grabar video
@@ -191,7 +196,7 @@ function NativeCameraRecorder() {
       <View style={[styles.center, { paddingTop: insets.top + spacing.lg }]}>
         <Text style={styles.permissionTitle}>Falta permiso</Text>
         <Text style={styles.permissionText}>
-          AURAXP necesita acceso a la cámara y al micrófono para grabar tu momento.
+          AURA VS necesita acceso a la cámara y al micrófono para grabar tu momento.
         </Text>
         <View style={styles.permissionActions}>
           {canAskAgain ? (

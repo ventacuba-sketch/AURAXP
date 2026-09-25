@@ -33,7 +33,7 @@ self.addEventListener('fetch', (event) => {
 // muestra un aviso genérico en vez de fallar en silencio (mejor una
 // notificación con menos detalle que ninguna).
 self.addEventListener('push', (event) => {
-  let data = { title: 'AURAXP', body: 'Tienes una novedad ⚔️', url: '/' };
+  let data = { title: 'AURA VS', body: 'Tienes una novedad ⚔️', url: '/' };
   try {
     if (event.data) data = { ...data, ...event.data.json() };
   } catch {

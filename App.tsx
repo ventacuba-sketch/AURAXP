@@ -2,11 +2,14 @@ import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { WebMobileFrame } from './src/components/WebMobileFrame';
 import { AuthProvider } from './src/hooks/useAuth';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { logAppOpenOnce } from './src/services/analyticsService';
+import { captureUtmFromUrl } from './src/services/campaignService';
 import { checkStandaloneOnBoot, registerServiceWorker } from './src/services/installService';
+import { captureReferralFromUrl } from './src/services/referralService';
 
 export default function App() {
   // Analítica de funnel (L) -- una sola vez por carga de la app, ver
@@ -23,16 +26,26 @@ export default function App() {
     // "aceptó instalar" ahí, a diferencia de Android).
     registerServiceWorker();
     checkStandaloneOnBoot();
+    // Referidos (bloque referidos) -- captura ?ref= de la URL (solo web) y
+    // lo guarda pendiente; la atribución real a la cuenta pasa después, ya
+    // con sesión, en RootNavigator (ver tryAttributePendingReferral ahí).
+    captureReferralFromUrl();
+    // Landing de adquisición (TikTok/Reels/Shorts) -- captura ?utm_* de la
+    // URL, mismo criterio y mismo storage por fuera de la navegación que
+    // el referido de arriba (ver campaignService.ts).
+    captureUtmFromUrl();
   }, []);
 
   return (
-    <SafeAreaProvider>
-      <StatusBar style="light" />
-      <AuthProvider>
-        <WebMobileFrame>
-          <RootNavigator />
-        </WebMobileFrame>
-      </AuthProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <StatusBar style="light" />
+        <AuthProvider>
+          <WebMobileFrame>
+            <RootNavigator />
+          </WebMobileFrame>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }

@@ -5,7 +5,8 @@
  * referencia propia: el checkout es un link fijo, no lleva ningún
  * identificador de AURAXP).
  *
- * DOS MODOS, cada uno con su propio alcance de escritura:
+ * CUATRO MODOS, cada uno con su propio alcance de escritura (el 4 es de
+ * solo lectura -- nunca escribe nada):
  *
  * 1) Con JWT de usuario (Authorization: Bearer <access_token> normal) --
  *    lo llama el propio cliente, típicamente al volver a la app después
@@ -26,13 +27,48 @@
  *    para correr periódicamente (cron) -- no configurado automáticamente
  *    todavía, ver el mensaje final de la tarea que agregó esto.
  *
- * Idempotente en ambos modos: re-sincronizar una cuenta ya PRO con la
- * misma suscripción activa vuelve a escribir los mismos valores (no-op
- * real); `pro_started_at` se fija UNA sola vez (solo cuando está en null)
- * así que nunca se pisa la fecha real de alta en una renovación; una
- * suscripción inactiva SOLO puede bajar a un perfil que ya tenía
- * exactamente ese pro_subscription_id -- nunca toca una cuenta por una
- * coincidencia de email vieja/ajena.
+ * 3) Con el mismo secret compartido, pero con body JSON
+ *    `{ subscription_id, profile_id | username }` -- reconciliación
+ *    MANUAL de un pago puntual (auditoría: pago real aprobado en dLocal
+ *    con un email distinto al de la cuenta de AURA VS, así que los modos
+ *    1 y 2 nunca podían encontrarlo). Se salta el matching por email por
+ *    completo: verifica que esa suscripción exista de verdad en dLocal y
+ *    esté activa, y recién entonces llama a activateProfile() -- mismo
+ *    camino de escritura que el modo 2, ninguna lógica de activación
+ *    nueva. Pensado para usarse a mano, una vez por caso real, nunca
+ *    automatizado.
+ *
+ * 4) Con el mismo secret compartido, con body JSON `{ diagnostic: true,
+ *    email_filter?, since?, until? }` -- diagnóstico de SOLO LECTURA,
+ *    nunca activa ni toca ninguna cuenta. Caso real (auditoría): el id
+ *    que alguien tenía a mano para reconciliar (modo 3) resultó ser un
+ *    transaction/payment ID de dLocal, no el `subscription.id` real --
+ *    este modo lista las suscripciones ACTIVAS del plan (opcionalmente
+ *    filtradas por email parcial y/o rango de `created_at`) para poder
+ *    ubicar a mano cuál es la del pago real, antes de reconciliar. Nunca
+ *    devuelve token/tarjeta/nada sensible -- listAllSubscriptions() ni
+ *    siquiera lo trae -- y el email siempre sale enmascarado (ver
+ *    maskEmail()). Temporal: se puede quitar una vez que ya no haga
+ *    falta ubicar pagos a mano así.
+ *
+ * Idempotente en los modos 1-3: re-sincronizar (o reconciliar) una
+ * cuenta ya PRO con la misma suscripción activa vuelve a escribir los
+ * mismos valores (no-op real); `pro_started_at` se fija UNA sola vez
+ * (solo cuando está en null) así que nunca se pisa la fecha real de alta
+ * en una renovación; una suscripción inactiva SOLO puede bajar a un
+ * perfil que ya tenía exactamente ese pro_subscription_id -- nunca toca
+ * una cuenta por una coincidencia de email vieja/ajena.
+ *
+ * Ownership de subscription_id (bug real confirmado, auditoría) -- una
+ * misma suscripción de dLocal solo puede pertenecer a UN perfil de
+ * AURAXP. Los modos 1 y 2 verifican esto antes de activar (ver
+ * isSubscriptionClaimedByAnotherProfile()): si `pro_subscription_id` ya
+ * está tomado por otro perfil, no se activa aunque el email matchee --
+ * sin esto, una segunda cuenta con el mismo email que quien pagó
+ * terminaba PRO real (no visual) con solo abrir ProScreen, aunque esa
+ * suscripción ya estuviera reconciliada a otra persona. El índice único
+ * parcial sobre profiles.pro_subscription_id (ver migración) refuerza el
+ * mismo invariante a nivel de base de datos.
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import { corsHeaders } from '../_shared/cors.ts';
@@ -61,13 +97,64 @@ function log(event: string, data: Record<string, unknown> = {}) {
   console.log(JSON.stringify({ src: 'sync-pro-subscriptions', event, ...data }));
 }
 
+/** Modo 4 (diagnóstico) -- enmascara un email para mostrarlo sin
+ * exponerlo entero: conserva los primeros 2 caracteres del local-part y
+ * el dominio completo (el dominio ayuda a reconocer de un vistazo si es
+ * el checkout correcto, sin identificar a la persona por sí solo). Un
+ * local-part de 1-2 caracteres se enmascara igual, sin quedar 100%
+ * al descubierto. */
+function maskEmail(email: string | null): string | null {
+  if (!email) return null;
+  const at = email.indexOf('@');
+  if (at <= 0) return '***';
+  const local = email.slice(0, at);
+  const domain = email.slice(at + 1);
+  const visibleLength = Math.min(2, local.length - 1 || 1);
+  const visible = local.slice(0, visibleLength);
+  return `${visible}${'*'.repeat(Math.max(1, local.length - visibleLength))}@${domain}`;
+}
+
 type AdminClient = ReturnType<typeof createClient>;
+
+/** Fix de ownership (bug real confirmado, auditoría): un `subscription_id`
+ * de dLocal debe pertenecer como máximo a UN perfil de AURAXP. Antes de
+ * este fix, los modos 1 y 2 activaban PRO en CUALQUIER cuenta cuya sesión
+ * tuviera el mismo email que `client_email` -- si esa suscripción ya
+ * estaba reconciliada (a mano, modo 3, o por un sync anterior) a OTRO
+ * perfil distinto, una segunda cuenta con el mismo email igual la
+ * reclamaba: caso real, una cuenta de pruebas de referidos terminó con
+ * `plan='pro'` real (no solo visual) y un crédito de Coins indebido,
+ * compartiendo la MISMA suscripción activa (165746) ya asociada a
+ * @Cubanito. `String()` en ambos lados (mismo criterio que ya usa el
+ * modo 3, ver ese comentario): dLocal devuelve `id` como número, así que
+ * comparar sin normalizar nunca matchearía. */
+async function isSubscriptionClaimedByAnotherProfile(
+  admin: AdminClient,
+  subscriptionId: string,
+  profileId: string,
+): Promise<boolean> {
+  const { data } = await admin
+    .from('profiles')
+    .select('id')
+    .eq('pro_subscription_id', subscriptionId)
+    .neq('id', profileId)
+    .limit(1)
+    .maybeSingle();
+  return Boolean(data);
+}
 
 /** Activa/refresca PRO para un perfil puntual -- misma lógica sea cual sea
  * el modo que la llame. Dos UPDATEs a propósito: el primero es seguro de
  * repetir en cada renovación (siempre pisa lo mismo); el segundo solo
  * corre si `pro_started_at` sigue en null, así la fecha de alta real
- * nunca se mueve una vez fijada. */
+ * nunca se mueve una vez fijada.
+ *
+ * Coins mensuales de PRO (bloque Wallet/Economía): un tercer paso,
+ * best-effort -- credit_pro_monthly_coins() ya es idempotente por mes
+ * calendario por su cuenta (ver esa migración), así que llamarla en
+ * CADA sync (hasta cada hora una vez que el cron esté vivo) es seguro,
+ * nunca duplica el crédito. Un fallo acá nunca debe tumbar la
+ * activación real de PRO -- por eso está aislado y solo logueado. */
 async function activateProfile(admin: AdminClient, profileId: string, subscriptionId: string): Promise<void> {
   await admin
     .from('profiles')
@@ -78,6 +165,12 @@ async function activateProfile(admin: AdminClient, profileId: string, subscripti
     .update({ pro_started_at: new Date().toISOString() })
     .eq('id', profileId)
     .is('pro_started_at', null);
+
+  try {
+    await admin.rpc('credit_pro_monthly_coins', { p_user_id: profileId });
+  } catch (e) {
+    log('monthly_coins_credit_failed', { profileId, error: String(e) });
+  }
 }
 
 Deno.serve(async (req: Request) => {
@@ -105,9 +198,155 @@ Deno.serve(async (req: Request) => {
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-  // ── Modo 2: secret compartido -- sincronización completa ────────────
+  // ── Secret compartido: modo 4 (diagnóstico), modo 3 (reconciliación
+  // manual), o modo 2 (sync completa) -- el body decide cuál de los tres.
   const providedSecret = req.headers.get('x-webhook-secret') ?? new URL(req.url).searchParams.get('secret') ?? '';
   if (SHARED_SECRET && providedSecret === SHARED_SECRET) {
+    // El body se lee UNA sola vez acá (Request.body no se puede leer dos
+    // veces) -- si no es JSON válido o viene vacío (la sync completa de
+    // siempre no manda body), reconcileBody queda `{}` y cae directo al
+    // modo 2, sin romper el comportamiento existente.
+    let reconcileBody: {
+      profile_id?: string;
+      username?: string;
+      subscription_id?: string;
+      diagnostic?: boolean;
+      email_filter?: string;
+      since?: string;
+      until?: string;
+    } = {};
+    try {
+      reconcileBody = (await req.json()) as typeof reconcileBody;
+    } catch {
+      reconcileBody = {};
+    }
+
+    // ── Modo 4: diagnóstico de solo lectura -- localizar a mano una
+    // suscripción real sin activar nada ────────────────────────────────
+    // Caso real (auditoría): el subscription_id que se intentó reconciliar
+    // en el modo 3 era en realidad un transaction/payment ID de dLocal,
+    // no el `subscription.id` que devuelve listAllSubscriptions() -- este
+    // modo existe para poder ver, filtrado, cuál de las suscripciones
+    // reales del plan es la del pago recién hecho, SIN tocar ninguna
+    // cuenta. Nunca devuelve token/tarjeta/nada de eso -- listAllSubscriptions()
+    // ni siquiera lo trae (ver DlocalGoSubscription: id/status/active/
+    // client_email/created_at/updated_at, nada más). client_email sale
+    // siempre enmascarado -- ver maskEmail() más abajo. Temporal: se
+    // puede quitar una vez ubicada la suscripción real.
+    if (reconcileBody.diagnostic === true) {
+      try {
+        const subscriptions = await listAllSubscriptions(dlocalConfig);
+        const emailFilter = reconcileBody.email_filter?.toLowerCase().trim() || null;
+        const sinceMs = reconcileBody.since ? Date.parse(reconcileBody.since) : null;
+        const untilMs = reconcileBody.until ? Date.parse(reconcileBody.until) : null;
+
+        const rows = subscriptions
+          .filter((s) => s.active)
+          .filter((s) => {
+            if (emailFilter && !(s.client_email ?? '').toLowerCase().includes(emailFilter)) return false;
+            const createdMs = s.created_at ? Date.parse(s.created_at) : NaN;
+            if (sinceMs !== null && !Number.isNaN(sinceMs) && (Number.isNaN(createdMs) || createdMs < sinceMs)) return false;
+            if (untilMs !== null && !Number.isNaN(untilMs) && (Number.isNaN(createdMs) || createdMs > untilMs)) return false;
+            return true;
+          })
+          .map((s) => ({
+            subscription_id: s.id,
+            client_email: maskEmail(s.client_email),
+            created_at: s.created_at ?? null,
+            status: s.status,
+            active: s.active,
+          }));
+
+        // Nunca el email_filter en claro en los logs -- podría ser un
+        // email real de alguien.
+        log('diagnostic_list', {
+          totalActive: subscriptions.filter((s) => s.active).length,
+          matched: rows.length,
+          hasEmailFilter: Boolean(emailFilter),
+          since: reconcileBody.since ?? null,
+          until: reconcileBody.until ?? null,
+        });
+        return jsonResponse({ ok: true, count: rows.length, subscriptions: rows });
+      } catch (e) {
+        log('diagnostic_failed', { error: String(e) });
+        return jsonResponse({ ok: false, error: 'diagnostic_failed' }, 502);
+      }
+    }
+
+    // ── Modo 3: reconciliación manual de UN pago puntual ──────────────
+    // Para el caso real (auditoría): dLocal aceptó el pago con un email
+    // distinto al de la cuenta de AURA VS, así que ni el modo 1 (propio
+    // usuario) ni el modo 2 (sync por email) pueden encontrar nunca esa
+    // suscripción. Este modo se salta el matching por email por completo
+    // -- recibe el `subscription_id` real (copiado a mano del dashboard
+    // de dLocal Go) y el perfil exacto a activar, verifica ambos contra
+    // dLocal de verdad, y reusa activateProfile() sin ninguna lógica de
+    // activación nueva -- misma idempotencia real que ya tiene el modo 2.
+    if (reconcileBody.subscription_id && (reconcileBody.profile_id || reconcileBody.username)) {
+      try {
+        let profileId = reconcileBody.profile_id ?? null;
+        if (!profileId && reconcileBody.username) {
+          // ilike pre-filtra (case-insensitive) y la comparación exacta
+          // de abajo confirma -- `username` no tiene un CHECK de charset
+          // a nivel de columna (ver init_schema.sql), así que no se puede
+          // asumir que nunca va a tener un `_`/`%` que ilike interprete
+          // como comodín; la comparación exacta después lo corrige.
+          const { data: candidates } = await admin.from('profiles').select('id, username').ilike('username', reconcileBody.username);
+          const match = (candidates ?? []).find((p) => p.username.toLowerCase() === reconcileBody.username!.toLowerCase());
+          profileId = match?.id ?? null;
+        }
+        if (!profileId) {
+          log('reconcile_profile_not_found', { username: reconcileBody.username });
+          return jsonResponse({ ok: false, error_code: 'profile_not_found' }, 404);
+        }
+
+        // Punto 1/2 (auditoría) -- verifica que la suscripción exista
+        // REALMENTE en dLocal y esté activa ANTES de tocar nada -- nunca
+        // se activa PRO solo porque alguien pasó un id cualquiera. Usa
+        // listAllSubscriptions(), el mismo camino ya probado del modo 2
+        // (no se inventa un endpoint nuevo de dLocal Go sin la misma
+        // investigación que respalda al resto de este archivo).
+        const subscriptions = await listAllSubscriptions(dlocalConfig);
+        // Bug confirmado (auditoría) -- dLocal devuelve `id` como número
+        // (165746), no string, aunque DlocalGoSubscription.id está
+        // tipado como string -- la comparación estricta de antes
+        // (s.id === reconcileBody.subscription_id) nunca podía matchear
+        // un subscription_id real, incluso pasando el correcto (modo 4
+        // confirmado). String() en ambos lados lo normaliza sin asumir
+        // cuál de los dos viene "mal" -- funciona igual si algún día
+        // dLocal empieza a devolver el id ya como string.
+        const target = subscriptions.find((s) => String(s.id) === String(reconcileBody.subscription_id));
+
+        if (!target) {
+          log('reconcile_subscription_not_found', { profileId, subscription_id: reconcileBody.subscription_id });
+          return jsonResponse({ ok: false, error_code: 'subscription_not_found' }, 404);
+        }
+        if (!target.active) {
+          log('reconcile_subscription_inactive', { profileId, subscription_id: reconcileBody.subscription_id, status: target.status });
+          return jsonResponse({ ok: false, error_code: 'subscription_not_active' }, 409);
+        }
+
+        // subscriptionId normalizado a string explícito -- lo que se
+        // guarda en profiles.pro_subscription_id (vía activateProfile)
+        // y lo que se devuelve/loguea son siempre el mismo string, nunca
+        // el número crudo que pudo haber venido de dLocal.
+        const subscriptionId = String(target.id);
+
+        // activateProfile() es el mismo camino que usa el modo 2 para
+        // cada suscripción activa que sí matchea por email -- ya es
+        // idempotente por su cuenta (ver el comentario de esa función):
+        // repetir esta misma llamada nunca duplica el crédito de Coins
+        // ni pisa pro_started_at una segunda vez. Acá también.
+        await activateProfile(admin, profileId, subscriptionId);
+        log('reconcile_activated', { profileId, subscription_id: subscriptionId });
+        return jsonResponse({ ok: true, activated: true, profileId, subscriptionId });
+      } catch (e) {
+        log('reconcile_failed', { error: String(e) });
+        return jsonResponse({ ok: false, error: 'reconcile_failed' }, 502);
+      }
+    }
+
+    // ── Modo 2: sincronización completa (comportamiento sin cambios) ──
     try {
       const subscriptions: DlocalGoSubscription[] = await listAllSubscriptions(dlocalConfig);
       let activated = 0;
@@ -118,7 +357,16 @@ Deno.serve(async (req: Request) => {
           if (!sub.client_email) continue;
           const { data: profileId } = await admin.rpc('find_profile_id_by_email', { p_email: sub.client_email });
           if (!profileId) continue;
-          await activateProfile(admin, profileId as string, sub.id);
+          const subscriptionId = String(sub.id);
+          // Ownership guard (bug real confirmado, auditoría) -- ver el
+          // comentario de isSubscriptionClaimedByAnotherProfile(). Un
+          // match por email nunca debe poder robarle a otro perfil una
+          // suscripción que ya es suya.
+          if (await isSubscriptionClaimedByAnotherProfile(admin, subscriptionId, profileId as string)) {
+            log('full_sync_subscription_claimed_by_other', { profileId, subscription_id: subscriptionId });
+            continue;
+          }
+          await activateProfile(admin, profileId as string, subscriptionId);
           activated++;
         } else {
           const { error, count } = await admin
@@ -161,7 +409,19 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: true, activated: false });
     }
 
-    await activateProfile(admin, user.id, mine.id);
+    const subscriptionId = String(mine.id);
+    // Ownership guard (bug real confirmado, auditoría) -- ver el
+    // comentario de isSubscriptionClaimedByAnotherProfile(). Sin esto,
+    // cualquier cuenta cuya sesión comparta email con `client_email` de
+    // una suscripción YA reconciliada a otra persona podía auto-activarse
+    // PRO con solo abrir ProScreen -- caso real reproducido con una
+    // cuenta de pruebas y la suscripción 165746 (@Cubanito).
+    if (await isSubscriptionClaimedByAnotherProfile(admin, subscriptionId, user.id)) {
+      log('self_sync_subscription_claimed_by_other', { userId: user.id, subscription_id: subscriptionId });
+      return jsonResponse({ ok: true, activated: false });
+    }
+
+    await activateProfile(admin, user.id, subscriptionId);
     log('self_sync_activated', { userId: user.id });
     return jsonResponse({ ok: true, activated: true });
   } catch (e) {

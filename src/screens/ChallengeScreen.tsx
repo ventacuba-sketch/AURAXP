@@ -22,6 +22,7 @@ import {
 import { getChallengeReplayUrl } from '../services/scanService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { Challenge, ChallengeParticipant, RootStackParamList } from '../types';
+import { fetchMyEquipped, PublicEquippedItem } from '../services/walletService';
 import { formatSignedXP } from '../utils/format';
 import { copyLink, shareImage, shareText } from '../utils/share';
 import { generateChallengeShareCardBlob } from '../utils/shareCard';
@@ -97,8 +98,23 @@ export default function ChallengeScreen() {
   const [cancelling, setCancelling] = useState(false);
   const [responding, setResponding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Efecto visual de VS (bloque cosméticos) -- si tengo un `vs_effect`
+  // equipado, se ve de verdad en la pantalla de resultado (ver más abajo),
+  // no solo en la Tienda.
+  const [vsEffect, setVsEffect] = useState<PublicEquippedItem | null>(null);
 
   const hasCreatedRef = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchMyEquipped().then((items) => {
+      if (cancelled) return;
+      setVsEffect(items.find((i) => i.slot === 'vs_effect') ?? null);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Crea el Challenge una sola vez si llegamos con scanId (creador nuevo)
   // -- el guard evita crear dos veces si el efecto corre de nuevo.
@@ -194,17 +210,19 @@ export default function ChallengeScreen() {
     }
   }
 
-  async function handleRematch() {
+  // CORRECCIÓN (auditoría post-iPhone, punto 9): antes esto creaba un
+  // Challenge nuevo reusando `myScanId`, el scan YA COMPLETADO de la
+  // batalla anterior -- una revancha "eterna" sobre el mismo resultado de
+  // Aura, sin volver a escanear nada. Ahora manda a Upload a grabar un
+  // Scan NUEVO (mismo mecanismo de threading que `challengeToken`, ver
+  // types/index.ts y AnalyzingScreen) con el rival ya conocido -- recién
+  // cuando ESE Scan nuevo termina se crea el Challenge directo real hacia
+  // esa persona (ver AnalyzingScreen, rama rematchTargetUsername).
+  function handleRematch() {
     if (!challenge || !user) return;
-    const myScanId = challenge.creator.userId === user.id ? challenge.creator.scanId : challenge.opponent?.scanId;
-    if (!myScanId) return;
-    try {
-      const newToken = await createChallenge(myScanId);
-      navigation.replace('Challenge', { challengeToken: newToken });
-    } catch (e) {
-      console.warn('rematch createChallenge failed', e);
-      setNotice('No pudimos crear la revancha.');
-    }
+    const rivalUsername = challenge.creator.userId === user.id ? challenge.opponent?.username : challenge.creator.username;
+    if (!rivalUsername) return;
+    navigation.navigate('Upload', { rematchTargetUsername: rivalUsername });
   }
 
   async function handleShareResult() {
@@ -325,7 +343,8 @@ export default function ChallengeScreen() {
 
         <View style={styles.versusRow}>
           <ParticipantColumn participant={me} isMe highlight={iWon} />
-          <View style={styles.vsBadge}>
+          <View style={[styles.vsBadge, vsEffect && styles.vsBadgeWithEffect]}>
+            {vsEffect && <Text style={styles.vsEffectGlyph}>{vsEffect.assetRef}</Text>}
             <Text style={styles.vsText}>VS</Text>
           </View>
           <ParticipantColumn
@@ -424,7 +443,11 @@ export default function ChallengeScreen() {
   return (
     <ScreenContainer style={styles.center} onBack={goBack}>
       <Text style={styles.headline}>Desafío creado ⚔️</Text>
-      <Text style={styles.copy}>Esperando rival…</Text>
+      {/* Punto 10 (auditoría post-iPhone): un Challenge DIRIGIDO a alguien
+          conocido dice quién, en vez del genérico "Esperando rival" --
+          ese genérico se reserva para el link compartido, donde
+          legítimamente todavía no hay un rival específico. */}
+      <Text style={styles.copy}>{challenge.targetUsername ? `Esperando a @${challenge.targetUsername}…` : 'Esperando rival…'}</Text>
 
       <Card style={styles.waitingCard}>
         <Text style={styles.avatar}>{challenge.creator.avatarEmoji}</Text>
@@ -451,7 +474,7 @@ export default function ChallengeScreen() {
           una pantalla muerta -- ofrece la siguiente acción natural sin
           competir con COMPARTIR (que sigue siendo el CTA principal acá). */}
       <Pressable onPress={() => navigation.navigate('Upload')} hitSlop={6}>
-        <Text style={styles.waitingHint}>Mientras esperás, escaneá otro momento ›</Text>
+        <Text style={styles.waitingHint}>Mientras esperas, escanea otro momento ›</Text>
       </Pressable>
     </ScreenContainer>
   );
@@ -576,6 +599,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginHorizontal: spacing.sm,
+  },
+  vsBadgeWithEffect: {
+    width: 56,
+    height: 56,
+    borderColor: '#FFD700',
+    borderWidth: 2,
+  },
+  vsEffectGlyph: {
+    position: 'absolute',
+    top: -18,
+    fontSize: 18,
   },
   vsText: {
     ...typography.caption,

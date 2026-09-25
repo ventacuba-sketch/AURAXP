@@ -79,6 +79,11 @@ interface ScanRow {
   moderation_flagged: boolean;
   created_at: string;
   video_path: string | null;
+  /** item_key del consumible que process-scan encontró ARMADO y consumió
+   * para ESTE resultado (p. ej. 'confetti_boost') -- null si no había
+   * ninguno activado. Lo decide el server, nunca el cliente (ver
+   * activate_consumable/process-scan). */
+  consumable_effect_key: string | null;
 }
 
 export function mapScanRowToScanResult(row: ScanRow): ScanResult {
@@ -93,6 +98,7 @@ export function mapScanRowToScanResult(row: ScanRow): ScanResult {
     stats: row.stats ?? { confidence: 0, style: 0, timing: 0, cringeRisk: 0 },
     createdAt: row.created_at,
     videoPath: row.video_path ?? null,
+    consumableEffectKey: row.consumable_effect_key ?? null,
   };
 }
 
@@ -286,7 +292,25 @@ export interface DailyScanStatus {
 export async function fetchDailyScanStatus(): Promise<DailyScanStatus | null> {
   if (!supabase) return null;
   const { data, error } = await supabase.functions.invoke('get-daily-scan-status');
-  if (error || !data || data.error) return null;
+  // Diagnóstico (bug separado, auditoría PRO) -- "Plan actual" desaparece
+  // entero en Perfil cada vez que esto devuelve null, y hasta ahora eso
+  // pasaba en silencio total (ni un log) -- imposible saber si era un
+  // error de red, la función caída, o `data.error`. Mismo criterio que
+  // los diagnósticos ya agregados a pushService/send-push: nunca cambia
+  // el comportamiento (sigue devolviendo null en los tres casos, tal
+  // cual antes), solo dice POR QUÉ en consola.
+  if (error || !data || data.error) {
+    console.warn(
+      JSON.stringify({
+        src: 'fetchDailyScanStatus',
+        event: 'get-daily-scan-status_failed',
+        invokeError: error?.message ?? null,
+        hasData: Boolean(data),
+        dataError: data?.error ?? null,
+      }),
+    );
+    return null;
+  }
   return data as DailyScanStatus;
 }
 

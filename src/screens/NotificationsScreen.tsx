@@ -3,6 +3,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { useFocusEffect } from '@react-navigation/native';
 
 import { Card } from '../components/Card';
+import { GiftReceivedSheet } from '../components/GiftReceivedSheet';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
@@ -23,13 +24,33 @@ const COPY: Record<string, (rival: string) => string> = {
   challenge_completed_won: (rival) => `🏆 Le ganaste a @${rival}`,
   challenge_completed_lost: (rival) => `💀 @${rival} te ganó`,
   challenge_completed_tie: (rival) => `🤝 Empataste con @${rival}`,
+  // Bloque Wallet/Coins/Social -- faltaban acá (auditoría pre-lanzamiento):
+  // sin estos casos, las 3 caían en el fallback de "empataste" de más
+  // abajo -- texto directamente incorrecto para un referido activado, un
+  // follower nuevo o un regalo recibido.
+  referral_activated: (rival) => `🎉 @${rival} hizo su primer Scan -- ganaste 5.000 Coins`,
+  new_follower: (rival) => `@${rival} empezó a seguirte`,
 };
+
+/** Bug UX corregido: antes siempre "te mandó un regalo", sin decir cuál.
+ * Ahora usa el nombre/emoji reales del catálogo cuando la notificación
+ * pudo resolverlos (ver fetchNotifications) -- p. ej. "👏 @Cubanito te
+ * envió Aplausos". Una fila vieja sin gift_id (de antes de esta
+ * corrección, ver migración 20260907000000) no tiene giftName: cae al
+ * texto genérico de siempre, nunca rompe. */
+function giftReceivedText(rival: string, giftName: string | null, giftAssetRef: string | null): string {
+  if (!giftName) return `🎁 @${rival} te mandó un regalo`;
+  return `${giftAssetRef ?? '🎁'} @${rival} te envió ${giftName}`;
+}
 
 function notificationText(n: AppNotification): string {
   const rival = n.rivalUsername ?? 'alguien';
   if (n.kind === 'challenge_received') return COPY.challenge_received(rival);
   if (n.kind === 'challenge_accepted') return COPY.challenge_accepted(rival);
   if (n.kind === 'challenge_rejected') return COPY.challenge_rejected(rival);
+  if (n.kind === 'referral_activated') return COPY.referral_activated(rival);
+  if (n.kind === 'new_follower') return COPY.new_follower(rival);
+  if (n.kind === 'gift_received') return giftReceivedText(rival, n.giftName, n.giftAssetRef);
   if (n.result === 'won') return COPY.challenge_completed_won(rival);
   if (n.result === 'lost') return COPY.challenge_completed_lost(rival);
   return COPY.challenge_completed_tie(rival);
@@ -40,6 +61,8 @@ export default function NotificationsScreen() {
   const goBack = useSmartBack();
   const [items, setItems] = useState<AppNotification[]>([]);
   const [loading, setLoading] = useState(true);
+  // Bug UX (gift_received) -- ver GiftReceivedSheet.
+  const [giftSheetFor, setGiftSheetFor] = useState<AppNotification | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -58,8 +81,29 @@ export default function NotificationsScreen() {
       setItems((prev) => prev.map((i) => (i.id === n.id ? { ...i, read: true } : i)));
       markNotificationRead(n.id);
     }
+    if (n.kind === 'gift_received') {
+      // Bug UX corregido: antes esto iba directo al perfil del
+      // remitente sin mostrar el regalo en ningún lado. Si se pudo
+      // resolver (ver fetchNotifications), muestra el sheet con el
+      // regalo real -- "VER PERFIL" adentro sigue ofreciendo el destino
+      // de antes para quien lo quiera. Una fila vieja sin gift_id
+      // (giftName null) cae al comportamiento anterior tal cual, nunca
+      // se queda sin hacer nada al tocarla.
+      if (n.giftName && n.rivalUsername) {
+        setGiftSheetFor(n);
+      } else if (n.rivalUsername) {
+        navigation.navigate('PublicProfile', { username: n.rivalUsername });
+      }
+      return;
+    }
     if (n.challengeShareToken) {
       navigation.navigate('Challenge', { challengeToken: n.challengeShareToken });
+    } else if (n.kind === 'referral_activated') {
+      // Mismo destino natural que el push equivalente ("🎉 Coins ganados") --
+      // ver el saldo recién acreditado.
+      navigation.navigate('Wallet');
+    } else if (n.kind === 'new_follower' && n.rivalUsername) {
+      navigation.navigate('PublicProfile', { username: n.rivalUsername });
     }
   }
 
@@ -69,7 +113,24 @@ export default function NotificationsScreen() {
   }
 
   return (
-    <ScreenContainer scroll onBack={goBack}>
+    <>
+      {giftSheetFor && giftSheetFor.giftName && giftSheetFor.rivalUsername && (
+        <GiftReceivedSheet
+          visible
+          giftName={giftSheetFor.giftName}
+          giftAssetRef={giftSheetFor.giftAssetRef}
+          senderUsername={giftSheetFor.rivalUsername}
+          senderAvatarEmoji={giftSheetFor.rivalAvatarEmoji}
+          createdAt={giftSheetFor.createdAt}
+          onViewProfile={() => {
+            const username = giftSheetFor.rivalUsername!;
+            setGiftSheetFor(null);
+            navigation.navigate('PublicProfile', { username });
+          }}
+          onDismiss={() => setGiftSheetFor(null)}
+        />
+      )}
+      <ScreenContainer scroll onBack={goBack}>
       <View style={styles.header}>
         <Text style={styles.title}>NOTIFICACIONES 🔔</Text>
         {hasUnread && (
@@ -87,7 +148,7 @@ export default function NotificationsScreen() {
         <View style={styles.empty}>
           <Text style={styles.emptyText}>Sin notificaciones todavía.</Text>
           <Text style={styles.emptySubtext}>
-            Cuando alguien acepte tu desafío o termine una batalla, aparece acá.
+            Cuando alguien acepte tu desafío o termine una batalla, aparece aquí.
           </Text>
           <PrimaryButton label="MIS DESAFÍOS" variant="ghost" onPress={() => navigation.navigate('MyChallenges')} />
         </View>
@@ -107,7 +168,8 @@ export default function NotificationsScreen() {
           ))}
         </View>
       )}
-    </ScreenContainer>
+      </ScreenContainer>
+    </>
   );
 }
 

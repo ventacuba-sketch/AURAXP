@@ -9,10 +9,19 @@ import { openProCheckout, PRO_MONTHLY_PRICE_USD, syncOwnProStatus } from '../ser
 import { colors, spacing, typography } from '../theme/colors';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 
+// Limpieza pre-lanzamiento: "Estadísticas avanzadas" y "Perks y
+// cosméticos exclusivos" se auditaron y NO tienen ninguna implementación
+// real detrás -- ni una sola pantalla de stats extra, ni un solo ítem de
+// tienda/equip_slot reservado a PRO en todo el código (frontend Y
+// backend, grep exhaustivo). Vender un beneficio que no existe es peor
+// que no listarlo, así que se eliminan en vez de inventar un reemplazo.
+// Quedan únicamente los dos beneficios reales y verificados:
 const BENEFITS = [
   { emoji: '⚡', label: 'Scans ilimitados' },
-  { emoji: '📊', label: 'Estadísticas avanzadas' },
-  { emoji: '✨', label: 'Perks y cosméticos exclusivos' },
+  // credit_pro_monthly_coins() corre server-side de verdad (ver
+  // sync-pro-subscriptions) -- este sigue siendo el único otro beneficio
+  // real que existe hoy.
+  { emoji: '🪙', label: '+5.000 Coins cada mes' },
 ];
 
 /**

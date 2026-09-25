@@ -58,11 +58,16 @@ export function DailyScanCounter() {
         : null;
 
   if (status.unlimited) {
+    // Limpieza pre-lanzamiento: antes decía "(TEST)" -- una cuenta de
+    // prueba puede seguir existiendo internamente (UNLIMITED_TEST_USER_IDS,
+    // ver dailyLimit.ts), pero ningún texto visible debe delatarla como
+    // tal. El estilo propio (styles.testText, distinto del de PRO)
+    // sigue diferenciando este caso visualmente sin necesitar la palabra.
     return (
       <View style={styles.wrapper}>
         {systemNotice && <Text style={styles.systemNotice}>{systemNotice}</Text>}
         <View style={[styles.row, styles.badgeRow]}>
-          <Text style={styles.testText}>Scans ilimitados (TEST)</Text>
+          <Text style={styles.testText}>Scans ilimitados</Text>
         </View>
       </View>
     );

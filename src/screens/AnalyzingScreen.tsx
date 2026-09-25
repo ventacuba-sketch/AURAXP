@@ -10,6 +10,7 @@ import { SCAN_DURATION_MS, submitScan } from '../services/api';
 import { logScanMilestone } from '../services/analyticsService';
 import { recordMeaningfulAction } from '../services/installService';
 import { recordMeaningfulAction as recordPushSignal } from '../services/pushService';
+import { createDirectChallenge } from '../services/challengeService';
 import { checkScanStatus, ScanStatusCheck, subscribeToScan } from '../services/scanService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
@@ -58,6 +59,7 @@ export default function AnalyzingScreen() {
   const { params } = useRoute<AnalyzingRoute>();
   const scanId = params?.scanId;
   const challengeToken = params?.challengeToken;
+  const rematchTargetUsername = params?.rematchTargetUsername;
   const useRealBackend = Boolean(scanId && isSupabaseConfigured);
 
   const [labelIndex, setLabelIndex] = useState(0);
@@ -179,6 +181,27 @@ export default function AnalyzingScreen() {
           // versus en vez de al Aura Replay individual.
           if (challengeToken) {
             navigation.replace('Challenge', { challengeToken });
+          } else if (rematchTargetUsername && scanId) {
+            // Revancha (punto 9, auditoría post-iPhone): recién ACÁ existe
+            // el Scan nuevo que la revancha exige -- este es el único
+            // lugar donde se crea el Challenge directo real hacia el
+            // mismo rival, siempre sobre un resultado nuevo, nunca
+            // reusando el anterior.
+            createDirectChallenge(scanId, rematchTargetUsername)
+              .then((result) => {
+                if (cancelled) return;
+                if (result.ok && result.shareToken) {
+                  navigation.replace('Challenge', { challengeToken: result.shareToken });
+                } else {
+                  // Degradación segura -- si no se pudo crear el Challenge
+                  // (el rival dejó de existir, error de red), el usuario
+                  // igual ve su resultado nuevo en vez de quedar colgado.
+                  navigation.replace('ScanResult', { scanId });
+                }
+              })
+              .catch(() => {
+                if (!cancelled) navigation.replace('ScanResult', { scanId });
+              });
           } else {
             navigation.replace('ScanResult', { scanId });
           }
@@ -217,6 +240,11 @@ export default function AnalyzingScreen() {
         showProCta = true;
       } else if (errorCode === 'fair_use_limit') {
         message = 'Estamos protegiendo el servicio por actividad inusual en tu cuenta. Intenta de nuevo más tarde.';
+      } else if (errorCode === 'duration_exceeded_server_check') {
+        // Chequeo server-side real del límite de 8s (punto 14, auditoría
+        // post-iPhone) -- distinto del rechazo genérico de abajo para que
+        // quede claro qué pasó, en vez de un "no se pudo procesar" vago.
+        message = 'Tu video dura más de 8 segundos. Grábalo o recórtalo a máximo 8s e intenta de nuevo.';
       } else if (reason === 'rejected' && moderationFlagged) {
         message = 'Este video no cumple con nuestras normas de contenido. Prueba con otro.';
       } else if (reason === 'rejected') {

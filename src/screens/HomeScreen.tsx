@@ -90,7 +90,7 @@ export default function HomeScreen() {
   return (
     <ScreenContainer scroll>
       <View style={styles.topRow}>
-        <Text style={styles.wordmark}>AURAXP</Text>
+        <Text style={styles.wordmark}>AURA VS</Text>
         <Pressable onPress={() => navigation.navigate('Notifications')} style={styles.bellButton} hitSlop={8}>
           <Text style={styles.bellIcon}>🔔</Text>
           {unreadCount > 0 && (
@@ -105,7 +105,7 @@ export default function HomeScreen() {
         <Pressable onPress={() => navigation.navigate('MyChallenges')}>
           <Card style={styles.urgentCard}>
             <Text style={styles.urgentText}>
-              ⚔️ Te desafiaron -- tenés {receivedCount} respuesta{receivedCount === 1 ? '' : 's'} pendiente{receivedCount === 1 ? '' : 's'}
+              ⚔️ Te desafiaron -- tienes {receivedCount} respuesta{receivedCount === 1 ? '' : 's'} pendiente{receivedCount === 1 ? '' : 's'}
             </Text>
             <Text style={styles.urgentArrow}>Responder ›</Text>
           </Card>
@@ -116,7 +116,7 @@ export default function HomeScreen() {
           <Pressable onPress={() => navigation.navigate('MyChallenges')}>
             <Card style={styles.urgentCard}>
               <Text style={styles.urgentText}>
-                ⚔️ Tenés {myTurnCount} desafío{myTurnCount === 1 ? '' : 's'} esperando tu Scan
+                ⚔️ Tienes {myTurnCount} desafío{myTurnCount === 1 ? '' : 's'} esperando tu Scan
               </Text>
               <Text style={styles.urgentArrow}>Continuar ›</Text>
             </Card>
@@ -127,7 +127,7 @@ export default function HomeScreen() {
       <View style={styles.hero}>
         <Text style={styles.headline}>¿CUÁNTA AURA TIENES?</Text>
         <Text style={styles.heroSubtitle}>
-          Sube un momento. AURAXP te dice dónde ganaste o perdiste Aura.
+          Sube un momento. AURA VS te dice dónde ganaste o perdiste Aura.
         </Text>
         <PrimaryButton label="ESCANEAR MI AURA" onPress={() => navigation.navigate('Upload')} />
       </View>

@@ -36,12 +36,21 @@ export type RootStackParamList = {
         /** Vuelta desde Record con un video recién grabado (ver RecordScreen). */
         recordedUri?: string;
         recordedDurationMs?: number;
+        /** Revancha (punto 9, auditoría post-iPhone): username del rival
+         * ya conocido -- viaja igual que `challengeToken` hasta Analyzing,
+         * que al terminar el Scan nuevo crea el Challenge directo real
+         * hacia esta persona (nunca reusando un scan viejo). Mutuamente
+         * excluyente con `challengeToken` en la práctica (un caso es
+         * "aceptando un Challenge ajeno", el otro es "creando la
+         * revancha yo"). */
+        rematchTargetUsername?: string;
       }
     | undefined;
-  Record: { challengeToken?: string } | undefined;
+  Record: { challengeToken?: string; rematchTargetUsername?: string } | undefined;
   /** `challengeToken` viaja hasta acá para que Analyzing sepa, al terminar,
-   * si tiene que resolver un Challenge en vez de ir al Aura Replay normal. */
-  Analyzing: { scanId?: string; challengeToken?: string } | undefined;
+   * si tiene que resolver un Challenge en vez de ir al Aura Replay normal.
+   * `rematchTargetUsername` -- ver Upload arriba. */
+  Analyzing: { scanId?: string; challengeToken?: string; rematchTargetUsername?: string } | undefined;
   ScanResult: { scanId?: string } | undefined;
   /** Exactamente uno de los dos: `scanId` (creando un Challenge nuevo desde
    * tu propio scan) o `challengeToken` (viendo/esperando uno ya existente,
@@ -50,8 +59,19 @@ export type RootStackParamList = {
   ChallengeLanding: { token: string };
   /** Placeholder de beneficios PRO -- sin checkout todavía, ver DailyScanCounter. */
   Pro: undefined;
-  /** Solo registrada en el navigator cuando no hay sesión — ver RootNavigator. */
-  Auth: undefined;
+  /** Landing de adquisición (TikTok/Reels/Shorts) -- solo registrada cuando
+   * no hay sesión, igual que Auth (ver RootNavigator). Ruta pública propia
+   * (ver `linking` en ese archivo) para no tocar el comportamiento de `/`
+   * (sigue cayendo en Auth, como siempre) ni el de `?ref=CODE`. */
+  Landing: undefined;
+  /** Solo registrada en el navigator cuando no hay sesión — ver RootNavigator.
+   * `initialMode`/`context`: cómo se llegó acá desde otra pantalla (p. ej.
+   * LandingScreen) -- decide el modo inicial y el copy, nunca reemplaza la
+   * señal existente de `?ref=CODE` (ver hasReferralCodeInUrl en AuthScreen),
+   * solo se suma como otra fuente posible. `undefined` (cualquier caller
+   * existente que ya hace `navigate('Auth')` sin params) se comporta
+   * exactamente igual que antes. */
+  Auth: { initialMode?: 'signIn' | 'signUp'; context?: 'measure_aura' } | undefined;
   /** Solo registrada mientras useAuth().passwordRecovery es true (volviendo
    * del link de "olvidé mi contraseña") — ver RootNavigator. */
   ResetPassword: undefined;
@@ -64,6 +84,16 @@ export type RootStackParamList = {
   /** Perfil público de OTRO usuario (o el propio, visto desde afuera) --
    * ver PublicProfileScreen/get_public_profile. */
   PublicProfile: { username: string };
+  /** Saldo + historial de Coins -- ver WalletScreen/walletService. */
+  Wallet: undefined;
+  /** Tienda (comprar) + Inventario (equipar) en pestañas -- ver StoreScreen. */
+  Store: undefined;
+  /** FAQ/ayuda -- ver HelpScreen. */
+  Help: undefined;
+  /** Reportar bug/sugerencia -- ver BugReportScreen. */
+  BugReport: undefined;
+  /** Código de referido propio + CTA de invitar -- ver InviteScreen. */
+  Invite: undefined;
 };
 
 export interface User {
@@ -136,6 +166,10 @@ export interface ScanResult {
    * reproducirlo (ver getVideoPlaybackUrl en scanService.ts). null en modo
    * mock o si el scan no tiene video asociado. */
   videoPath: string | null;
+  /** item_key del consumible que se activó y consumió justo para este
+   * resultado (p. ej. 'confetti_boost') -- ver ConfettiBurst/StoreScreen.
+   * null si no había ninguno armado. */
+  consumableEffectKey: string | null;
 }
 
 /** A chain of friends who've passed a challenge along. */
@@ -182,6 +216,12 @@ export interface Challenge {
    * aceptar/rechazar mientras sigue 'pending'. null en el Challenge
    * clásico por link (cualquiera que lo reciba puede aceptarlo). */
   targetUserId: string | null;
+  /** username de `targetUserId`, resuelto para mostrar "Esperando a
+   * @username" (punto 10, auditoría post-iPhone) en vez del genérico
+   * "Esperando rival" en un Challenge DIRIGIDO que todavía nadie aceptó.
+   * null si no es un Challenge dirigido, o si el perfil no se pudo
+   * resolver. */
+  targetUsername: string | null;
   winnerUserId: string | null;
   isTie: boolean;
   creatorXpAwarded: number | null;

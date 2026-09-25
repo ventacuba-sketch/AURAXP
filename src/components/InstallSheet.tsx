@@ -30,14 +30,14 @@ export function InstallSheet({ visible, variant, onInstall, onDismiss }: Props) 
         <View style={styles.sheet}>
           {variant === 'android' ? (
             <>
-              <Text style={styles.title}>INSTALAR AURAXP ⚡</Text>
-              <Text style={styles.subtitle}>Ten AURAXP en tu pantalla de inicio y entra con un toque.</Text>
+              <Text style={styles.title}>INSTALAR AURA VS ⚡</Text>
+              <Text style={styles.subtitle}>Ten AURA VS en tu pantalla de inicio y entra con un toque.</Text>
               <PrimaryButton label="INSTALAR" onPress={onInstall} />
               <PrimaryButton variant="text" label="Ahora no" onPress={onDismiss} />
             </>
           ) : (
             <>
-              <Text style={styles.title}>LLEVA AURAXP A TU INICIO ⚡</Text>
+              <Text style={styles.title}>LLEVA AURA VS A TU INICIO ⚡</Text>
               <Text style={styles.subtitle}>Entra con un toque, como una app.</Text>
 
               {/* Mockup CONCEPTUAL de la barra de Safari -- no un overlay
@@ -60,7 +60,7 @@ export function InstallSheet({ visible, variant, onInstall, onDismiss }: Props) 
                 </View>
               </View>
               <Text style={styles.safariBarCaption}>
-                El botón Compartir vive en la barra de Safari -- arriba o abajo según tu iPhone -- no dentro de AURAXP.
+                El botón Compartir vive en la barra de Safari -- arriba o abajo según tu iPhone -- no dentro de AURA VS.
               </Text>
 
               <View style={styles.steps}>

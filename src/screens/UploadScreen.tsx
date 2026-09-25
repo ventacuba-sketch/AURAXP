@@ -7,6 +7,7 @@ import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useSmartBack } from '../hooks/useSmartBack';
+import { logEvent } from '../services/analyticsService';
 import { uploadAndSubmitScan, VideoTooLargeError } from '../services/scanService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
@@ -15,6 +16,12 @@ import { RootStackParamList } from '../types';
 type UploadRoute = RouteProp<RootStackParamList, 'Upload'>;
 
 const MAX_DURATION_MS = 8000;
+// Punto 15 (auditoría post-iPhone, 4G real): sin progreso % real
+// disponible (uploadToSignedUrl de supabase-js no expone eventos de
+// progreso -- cambiar eso es una reescritura de la subida, fuera de
+// alcance acá), pasado este umbral se aclara que es la conexión, no que
+// la app se colgó.
+const SLOW_UPLOAD_THRESHOLD_MS = 6000;
 
 interface PickedVideo {
   uri: string;
@@ -25,7 +32,7 @@ interface PickedVideo {
 const GUIDELINES = [
   'Máximo 8 segundos',
   'Procura que se vea la acción completa.',
-  'AURAXP analiza el momento, no tu apariencia.',
+  'AURA VS analiza el momento, no tu apariencia.',
 ];
 
 export default function UploadScreen() {
@@ -40,6 +47,15 @@ export default function UploadScreen() {
   // on iOS/Android, and falls back to this inline banner on web so
   // permission/duration/upload feedback is never silently dropped.
   const [notice, setNotice] = useState<string | null>(null);
+  // Punto 15 (auditoría post-iPhone, 4G real): sin progreso % real
+  // disponible (uploadToSignedUrl de supabase-js no expone eventos de
+  // progreso -- cambiar eso es una reescritura de la subida, fuera de
+  // alcance acá), esto es la mejora mínima y segura: si "SUBIENDO..."
+  // lleva más de este umbral, se aclara que es la conexión, no que la
+  // app se colgó. `uploadFailed` distingue el reintento (mismo video en
+  // memoria, ver más abajo) del primer intento.
+  const [slowUpload, setSlowUpload] = useState(false);
+  const [uploadFailed, setUploadFailed] = useState(false);
 
   function notify(title: string, message: string) {
     if (Platform.OS === 'web') {
@@ -72,6 +88,7 @@ export default function UploadScreen() {
     }
 
     setNotice(null);
+    setUploadFailed(false);
     setVideo({ uri: asset.uri, durationMs });
     setSource(mode);
   }
@@ -88,6 +105,7 @@ export default function UploadScreen() {
       notify('Muy largo', 'El clip tiene que durar máximo 8 segundos.');
     } else {
       setNotice(null);
+      setUploadFailed(false);
       setVideo({ uri: params.recordedUri, durationMs });
       setSource('record');
     }
@@ -104,13 +122,16 @@ export default function UploadScreen() {
     // MediaRecorder) en web -- y ahí, si el navegador no soporta grabar,
     // WebCameraCapture es quien muestra el aviso de "usa SUBIR VIDEO", no
     // esta pantalla. Ya no bloqueamos web acá.
-    navigation.navigate('Record', { challengeToken: params?.challengeToken });
+    navigation.navigate('Record', {
+      challengeToken: params?.challengeToken,
+      rematchTargetUsername: params?.rematchTargetUsername,
+    });
   }
 
   async function handlePickFromLibrary() {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      notify('Falta permiso', 'AURAXP necesita acceso a tus videos para subir uno.');
+      notify('Falta permiso', 'AURA VS necesita acceso a tus videos para subir uno.');
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['videos'] });
@@ -120,6 +141,13 @@ export default function UploadScreen() {
   async function handleAnalyze() {
     if (!video) return;
 
+    // Funnel de adquisición (landing TikTok/Reels/Shorts) -- best-effort,
+    // nunca bloquea el submit real (ver logEvent). Acá, no antes: recién
+    // cuando la persona confirma que este es el video que quiere analizar,
+    // igual que 'signup_started' se loguea al tocar CREAR CUENTA, no al
+    // abrir la pantalla.
+    logEvent('scan_started');
+
     if (!isSupabaseConfigured) {
       // Sin backend configurado todavía — Analyzing cae a su fallback mock.
       navigation.navigate('Analyzing');
@@ -127,12 +155,22 @@ export default function UploadScreen() {
     }
 
     setSubmitting(true);
+    setSlowUpload(false);
+    // Sin progreso % real disponible, esto es lo mínimo honesto: si
+    // "SUBIENDO..." lleva más de SLOW_UPLOAD_THRESHOLD_MS, avisa que
+    // probablemente es la conexión -- nunca marca nada como terminado
+    // antes de tiempo, solo cambia el texto mientras se sigue esperando.
+    const slowTimer = setTimeout(() => setSlowUpload(true), SLOW_UPLOAD_THRESHOLD_MS);
     try {
       // scans.duration_ms es NOT NULL en el schema (fuera de alcance acá) —
       // cuando no pudimos determinar la duración mandamos 0 como antes.
       const durationMs = video.durationMs ?? 0;
       const scanId = await uploadAndSubmitScan(video.uri, durationMs, params?.challengeToken);
-      navigation.navigate('Analyzing', { scanId, challengeToken: params?.challengeToken });
+      navigation.navigate('Analyzing', {
+        scanId,
+        challengeToken: params?.challengeToken,
+        rematchTargetUsername: params?.rematchTargetUsername,
+      });
     } catch (e) {
       console.warn('uploadAndSubmitScan failed', e);
       if (e instanceof VideoTooLargeError) {
@@ -144,9 +182,16 @@ export default function UploadScreen() {
           'Este video es demasiado pesado para la versión de prueba. Intenta grabarlo en menor resolución.',
         );
       } else {
-        notify('No se pudo subir el video', 'Intenta de nuevo en unos segundos.');
+        // `video` NO se limpia acá a propósito (punto 15, auditoría
+        // post-iPhone): el archivo ya elegido/grabado se queda en memoria
+        // tal cual estaba, así que REINTENTAR vuelve a intentar subir ESE
+        // mismo video, sin forzar grabar/elegir de nuevo.
+        setUploadFailed(true);
+        notify('Tu video no pudo subirse', 'Revisa tu conexión e inténtalo de nuevo.');
       }
     } finally {
+      clearTimeout(slowTimer);
+      setSlowUpload(false);
       setSubmitting(false);
     }
   }
@@ -188,6 +233,15 @@ export default function UploadScreen() {
           </View>
         )}
 
+        {/* Punto 15 (auditoría post-iPhone, 4G real): sin esto, "SUBIENDO..."
+            se quedaba colgado sin ninguna pista de qué estaba pasando en
+            una conexión lenta -- parecía que la app se había trabado. */}
+        {submitting && slowUpload && (
+          <View style={styles.notice}>
+            <Text style={styles.noticeText}>Subiendo video… Tu conexión parece lenta. No cierres AURA VS.</Text>
+          </View>
+        )}
+
         {video && (
           <View style={styles.videoReady}>
             <Text style={styles.videoReadyText}>
@@ -207,7 +261,7 @@ export default function UploadScreen() {
       </View>
 
       <PrimaryButton
-        label={submitting ? 'SUBIENDO...' : 'ANALIZAR MI AURA'}
+        label={submitting ? 'SUBIENDO...' : uploadFailed ? 'REINTENTAR' : 'ANALIZAR MI AURA'}
         disabled={!video || submitting}
         onPress={handleAnalyze}
       />

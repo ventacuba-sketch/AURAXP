@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { RouteProp, useRoute } from '@react-navigation/native';
 
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
@@ -12,9 +13,12 @@ import {
   signIn,
   signUp,
 } from '../services/authService';
+import { hasReferralCodeInUrl } from '../services/referralService';
 import { colors, radius, spacing, typography } from '../theme/colors';
+import { RootStackParamList } from '../types';
 
 type Mode = 'signIn' | 'signUp' | 'forgotPassword';
+type AuthRouteProp = RouteProp<RootStackParamList, 'Auth'>;
 
 // Evita que alguien machaque el botón de "recuperar contraseña" y
 // dispare un montón de emails -- Supabase igual tiene su propio rate
@@ -24,12 +28,25 @@ const RESET_COOLDOWN_MS = 30000;
 
 export default function AuthScreen() {
   const navigation = useRootNavigation();
+  const { params } = useRoute<AuthRouteProp>();
   // Solo si hay algo real a lo que volver -- p. ej. se llegó empujado
   // desde ChallengeLanding al tocar ACEPTAR sin sesión. Si Auth fue la
   // primera pantalla (visita directa), no hay historial in-app y no
   // ofrecemos un botón que no lleve a ningún lado.
   const canGoBack = navigation.canGoBack();
-  const [mode, setMode] = useState<Mode>('signIn');
+  // Modo inicial: dos señales posibles, ninguna reemplaza a la otra --
+  // (1) `params.initialMode`, cuando otra pantalla navegó acá a propósito
+  // (hoy solo LandingScreen, ver ese archivo); (2) el link de referido
+  // (?ref=CODE, ver InviteScreen/referralService) -- el código en sí sigue
+  // capturándose aparte (captureReferralFromUrl en App.tsx, boot), esto
+  // solo decide el modo inicial de ESTA pantalla, una sola vez, sin tocar
+  // esa lógica. `params.initialMode` gana si ambas señales están presentes
+  // (llegar desde Landing es una decisión explícita, más fuerte que una
+  // URL vieja).
+  const [mode, setMode] = useState<Mode>(() => {
+    if (params?.initialMode) return params.initialMode;
+    return hasReferralCodeInUrl() ? 'signUp' : 'signIn';
+  });
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -139,7 +156,7 @@ export default function AuthScreen() {
     return (
       <ScreenContainer style={styles.container} onBack={canGoBack ? () => navigation.goBack() : undefined}>
         <View style={styles.header}>
-          <Text style={styles.wordmark}>AURAXP</Text>
+          <Text style={styles.wordmark}>AURA VS</Text>
           <Text style={styles.successText}>Esta cuenta ya existe o está pendiente de confirmación.</Text>
         </View>
         {resendNotice && <Text style={styles.resendNotice}>{resendNotice}</Text>}
@@ -161,7 +178,7 @@ export default function AuthScreen() {
     return (
       <ScreenContainer style={styles.container} onBack={canGoBack ? () => navigation.goBack() : undefined}>
         <View style={styles.header}>
-          <Text style={styles.wordmark}>AURAXP</Text>
+          <Text style={styles.wordmark}>AURA VS</Text>
           <Text style={styles.successText}>{successMessage}</Text>
         </View>
         <PrimaryButton label="VOLVER A INICIAR SESIÓN" onPress={() => switchMode('signIn')} />
@@ -173,7 +190,7 @@ export default function AuthScreen() {
     return (
       <ScreenContainer style={styles.container} onBack={canGoBack ? () => navigation.goBack() : undefined}>
         <View style={styles.header}>
-          <Text style={styles.wordmark}>AURAXP</Text>
+          <Text style={styles.wordmark}>AURA VS</Text>
           <Text style={styles.subtitle}>Te mandamos un link para elegir una contraseña nueva.</Text>
         </View>
 
@@ -206,9 +223,13 @@ export default function AuthScreen() {
   return (
     <ScreenContainer style={styles.container} onBack={canGoBack ? () => navigation.goBack() : undefined}>
       <View style={styles.header}>
-        <Text style={styles.wordmark}>AURAXP</Text>
+        <Text style={styles.wordmark}>AURA VS</Text>
         <Text style={styles.subtitle}>
-          {mode === 'signIn' ? 'Entra a tu cuenta.' : 'Crea tu cuenta.'}
+          {mode === 'signIn'
+            ? 'Entra a tu cuenta.'
+            : params?.context === 'measure_aura'
+              ? 'Un paso más para medir tu Aura.'
+              : 'Crea tu cuenta.'}
         </Text>
       </View>
 

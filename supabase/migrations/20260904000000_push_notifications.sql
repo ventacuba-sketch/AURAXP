@@ -25,13 +25,25 @@
 --   sin permiso, endpoint caducado, Vault sin configurar todavía) NUNCA
 --   puede revertir esa transacción. El trigger además envuelve todo en su
 --   propio EXCEPTION handler por las dudas.
+--
+-- NOTA (re-alineación con producción): esta migración se reescribió para
+-- ser 100% idempotente -- producción ya tiene todo este bloque aplicado
+-- (vía una migración equivalente aplicada directamente durante una
+-- auditoría), y su historial de migraciones NO tiene este archivo
+-- marcado como corrido. Un futuro `supabase db push` va a intentar
+-- ejecutar este archivo tal cual contra producción: cada sentencia de
+-- abajo está escrita para no romper si el objeto ya existe (CREATE TABLE
+-- IF NOT EXISTS, CREATE INDEX IF NOT EXISTS, políticas con DROP POLICY
+-- IF EXISTS antes de recrearlas, CREATE OR REPLACE FUNCTION/TRIGGER), y
+-- para terminar en el mismo estado final tanto en una base nueva y vacía
+-- como en producción (que ya lo tiene).
 
 create extension if not exists pg_net;
 
 -- ============================================================
 -- push_subscriptions
 -- ============================================================
-create table push_subscriptions (
+create table if not exists push_subscriptions (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(id) on delete cascade,
   endpoint text not null,
@@ -53,7 +65,7 @@ create table push_subscriptions (
 
 -- Índice parcial: la query real de send-push es siempre "activas de este
 -- usuario", igual criterio que notifications_user_id_unread_idx.
-create index push_subscriptions_user_id_active_idx on push_subscriptions (user_id) where revoked_at is null;
+create index if not exists push_subscriptions_user_id_active_idx on push_subscriptions (user_id) where revoked_at is null;
 
 alter table push_subscriptions enable row level security;
 
@@ -61,15 +73,19 @@ alter table push_subscriptions enable row level security;
 -- restricción de columnas -- a diferencia de profiles/scans, acá no hay
 -- ningún campo que el propio dueño no deba poder tocar (no es un dato de
 -- juego/integridad, es su propia preferencia de notificación).
+drop policy if exists "push_subscriptions_select_own" on push_subscriptions;
 create policy "push_subscriptions_select_own" on push_subscriptions
   for select using (auth.uid() = user_id);
 
+drop policy if exists "push_subscriptions_insert_own" on push_subscriptions;
 create policy "push_subscriptions_insert_own" on push_subscriptions
   for insert with check (auth.uid() = user_id);
 
+drop policy if exists "push_subscriptions_update_own" on push_subscriptions;
 create policy "push_subscriptions_update_own" on push_subscriptions
   for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+drop policy if exists "push_subscriptions_delete_own" on push_subscriptions;
 create policy "push_subscriptions_delete_own" on push_subscriptions
   for delete using (auth.uid() = user_id);
 
@@ -117,6 +133,12 @@ exception when others then
 end;
 $$;
 
-create trigger notifications_push_trigger
+-- Función de trigger -- nadie la llama directo (Postgres ya lo impide
+-- estructuralmente: "trigger functions can only be called as triggers"),
+-- pero se revoca el EXECUTE por defecto de PUBLIC igual, mismo criterio
+-- que apply_coin_transaction/create_wallet_for_new_profile.
+revoke execute on function public.notify_push() from public, anon, authenticated;
+
+create or replace trigger notifications_push_trigger
   after insert on notifications
   for each row execute function public.notify_push();

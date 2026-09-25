@@ -16,10 +16,15 @@ import { NotificationInviteHost } from '../components/NotificationInviteHost';
 import { useAuth } from '../hooks/useAuth';
 import { acceptChallenge } from '../services/challengeService';
 import { consumePendingChallengeToken } from '../services/pendingChallenge';
+import { tryAttributePendingReferral } from '../services/referralService';
 import AnalyzingScreen from '../screens/AnalyzingScreen';
 import AuthScreen from '../screens/AuthScreen';
+import BugReportScreen from '../screens/BugReportScreen';
 import ChallengeLandingScreen from '../screens/ChallengeLandingScreen';
 import ChallengeScreen from '../screens/ChallengeScreen';
+import HelpScreen from '../screens/HelpScreen';
+import InviteScreen from '../screens/InviteScreen';
+import LandingScreen from '../screens/LandingScreen';
 import MyChallengesScreen from '../screens/MyChallengesScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import ProScreen from '../screens/ProScreen';
@@ -28,7 +33,9 @@ import RankingScreen from '../screens/RankingScreen';
 import RecordScreen from '../screens/RecordScreen';
 import ResetPasswordScreen from '../screens/ResetPasswordScreen';
 import ScanResultScreen from '../screens/ScanResultScreen';
+import StoreScreen from '../screens/StoreScreen';
 import UploadScreen from '../screens/UploadScreen';
+import WalletScreen from '../screens/WalletScreen';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors } from '../theme/colors';
 import { RootStackParamList } from '../types';
@@ -47,14 +54,20 @@ const navigationTheme: Theme = {
   },
 };
 
-// Solo ChallengeLanding (y Auth) tienen un path real — es lo único que
-// necesita abrirse desde fuera de la app (link compartido / navegador).
+// Solo ChallengeLanding, Auth y ahora Landing tienen un path real — es lo
+// único que necesita abrirse desde fuera de la app (link compartido /
+// navegador / campaña de adquisición). `/aura` es ruta NUEVA y propia --
+// deliberadamente no se tocó `/` (sigue cayendo en Auth para cualquier
+// visitante sin sesión, exactamente como antes, incluido `?ref=CODE`) ni
+// se reusó ningún nombre ya existente (evita cualquier choque con `Scan`,
+// el tab).
 const linking: LinkingOptions<RootStackParamList> = {
   prefixes: ['auraxp://', 'https://auravs.app'],
   config: {
     screens: {
       ChallengeLanding: 'c/:token',
       Auth: 'auth',
+      Landing: 'aura',
     },
   },
 };
@@ -116,6 +129,19 @@ export function RootNavigator() {
     });
   }, [authed, passwordRecovery]);
 
+  // Atribución de referido (bloque referidos) -- si esta persona llegó por
+  // un link de invitación (ver referralService.captureReferralFromUrl(),
+  // llamado en App.tsx al boot), recién acá hay sesión real para asociar el
+  // código guardado a su cuenta. No otorga ningún Coin por sí solo -- el
+  // premio real llega después, server-side, cuando complete su primer Scan
+  // (ver la migración: activate_referral_on_first_scan). Sin gate de
+  // passwordRecovery: no depende del flujo de Challenge pendiente y es
+  // seguro de intentar en cuanto hay sesión, se recuperando contraseña o no.
+  useEffect(() => {
+    if (!session) return;
+    tryAttributePendingReferral();
+  }, [session]);
+
   if (isSupabaseConfigured && loading) {
     return (
       <View style={styles.loading}>
@@ -172,9 +198,23 @@ export function RootNavigator() {
                 <Stack.Screen name="Notifications" component={NotificationsScreen} />
                 <Stack.Screen name="PublicProfile" component={PublicProfileScreen} />
                 <Stack.Screen name="Pro" component={ProScreen} />
+                <Stack.Screen name="Wallet" component={WalletScreen} />
+                <Stack.Screen name="Store" component={StoreScreen} />
+                <Stack.Screen name="Help" component={HelpScreen} />
+                <Stack.Screen name="BugReport" component={BugReportScreen} />
+                <Stack.Screen name="Invite" component={InviteScreen} />
               </>
             ) : (
-              <Stack.Screen name="Auth" component={AuthScreen} />
+              <>
+                <Stack.Screen name="Auth" component={AuthScreen} />
+                {/* Landing de adquisición (TikTok/Reels/Shorts) -- registrada
+                    SOLO acá, igual que Auth: alguien ya logueado que abra
+                    /aura nunca ve esto (React Navigation cae al primer
+                    screen del stack autenticado, MainTabs, mismo criterio ya
+                    probado que usa "/" para caer en Auth cuando no hay
+                    sesión). */}
+                <Stack.Screen name="Landing" component={LandingScreen} />
+              </>
             )}
             <Stack.Screen name="ChallengeLanding" component={ChallengeLandingScreen} />
           </Stack.Navigator>
