@@ -34,6 +34,7 @@ import { supabase } from './supabaseClient';
  */
 export type AnalyticsEventName =
   | 'app_open'
+  | 'signup_viewed'
   | 'signup_started'
   | 'signup_completed'
   | 'login'
