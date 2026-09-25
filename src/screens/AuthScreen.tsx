@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { RouteProp, useRoute } from '@react-navigation/native';
 
@@ -65,6 +65,10 @@ export default function AuthScreen() {
   const [resendNotice, setResendNotice] = useState<string | null>(null);
   const [resending, setResending] = useState(false);
   const [resetCooldownActive, setResetCooldownActive] = useState(false);
+
+  useEffect(() => {
+    if (mode === 'signUp') logEvent('signup_viewed', { context: params?.context ?? null });
+  }, [mode, params?.context]);
 
   function resetTransientState() {
     setError(null);
