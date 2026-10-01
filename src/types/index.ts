@@ -11,6 +11,7 @@ import type { NavigatorScreenParams } from '@react-navigation/native';
 export type MainTabParamList = {
   Home: undefined;
   Scan: undefined;
+  Chat: undefined;
   Profile: undefined;
 };
 
@@ -32,6 +33,8 @@ export type RootStackParamList = {
    * PublicResult/PublicBattle -- la propia pantalla valida el acceso real
    * contra la RPC, no un gate de navegación. */
   AdminDashboard: undefined;
+  /** Chat V1 global; también accesible sin sesión desde Landing. */
+  Chat: undefined;
   /** `{ screen: 'Profile' }` etc. salta directo a un tab puntual (p. ej.
    * desde el link "Ver perfil" del XP en ScanResult) -- `undefined` cae
    * en el tab por default (Home). */
