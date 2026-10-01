@@ -170,7 +170,7 @@ alter table public.coin_transactions add constraint coin_transactions_type_check
     'signup_bonus', 'mission_reward', 'streak_bonus',
     'referral_referrer_bonus', 'referral_referred_bonus',
     'pro_monthly_bonus', 'store_purchase', 'gift_sent',
-    'chat_guest_reward'
+    'test_credit', 'chat_guest_reward'
   ));
 
 -- ============================================================
