@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
+import ChatScreen from '../screens/ChatScreen';
 import HomeScreen from '../screens/HomeScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import ScanScreen from '../screens/ScanScreen';
@@ -14,6 +15,7 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 const tabIcons: Record<keyof MainTabParamList, string> = {
   Home: '🏠',
   Scan: '🎯',
+  Chat: '💬',
   Profile: '🦋',
 };
 
@@ -22,6 +24,7 @@ const tabIcons: Record<keyof MainTabParamList, string> = {
 const tabLabels: Record<keyof MainTabParamList, string> = {
   Home: 'Inicio',
   Scan: 'Scan',
+  Chat: 'Chat',
   Profile: 'Perfil',
 };
 
@@ -62,6 +65,7 @@ export function MainTabNavigator() {
           },
         })}
       />
+      <Tab.Screen name="Chat" component={ChatScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );

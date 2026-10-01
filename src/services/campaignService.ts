@@ -181,3 +181,6 @@ export async function linkCampaignToCurrentUser(): Promise<void> {
     // Attribution is telemetry; it must never break the app.
   }
 }
+
+/** Stable visitor id reused by Chat V1 guest identity. */
+export async function getVisitorId(): Promise<string> { return visitorId(); }
