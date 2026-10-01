@@ -27,6 +27,8 @@ import BugReportScreen from '../screens/BugReportScreen';
 import ChallengeLandingScreen from '../screens/ChallengeLandingScreen';
 import ChallengeScreen from '../screens/ChallengeScreen';
 import ChatScreen from '../screens/ChatScreen';
+import ChatPrivateConversationScreen from '../screens/ChatPrivateConversationScreen';
+import ChatPrivateInboxScreen from '../screens/ChatPrivateInboxScreen';
 import HelpScreen from '../screens/HelpScreen';
 import InviteScreen from '../screens/InviteScreen';
 import LandingScreen from '../screens/LandingScreen';
@@ -264,6 +266,14 @@ export function RootNavigator() {
                 <Stack.Screen name="Help" component={HelpScreen} />
                 <Stack.Screen name="BugReport" component={BugReportScreen} />
                 <Stack.Screen name="Invite" component={InviteScreen} />
+                {/* Chat V2 "Sala Social" -- privados con consentimiento.
+                    Solo autenticado, igual que Wallet/MyChallenges: un
+                    invitado nunca llega acá (ve el mismo CTA de registro
+                    que ya usa Chat V1 al tocar "Mensaje privado"), y el
+                    acceso real de todas formas depende de RLS/RPCs
+                    server-side (auth.uid()), esto es solo la mitad de UI. */}
+                <Stack.Screen name="ChatPrivateInbox" component={ChatPrivateInboxScreen} />
+                <Stack.Screen name="ChatPrivateConversation" component={ChatPrivateConversationScreen} />
                 {/* Dashboard de admin (M1, auditoría del dashboard) --
                     registrada SOLO acá, igual que Wallet/Store/etc, NO en el
                     bloque siempre-registrado de abajo (ChallengeLanding/

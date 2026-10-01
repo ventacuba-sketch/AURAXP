@@ -145,7 +145,21 @@ export type AnalyticsEventName =
   | 'chat_scan_cta_clicked'
   | 'chat_first_scan_completed'
   | 'chat_invite_clicked'
-  | 'chat_follow_clicked';
+  | 'chat_follow_clicked'
+  // Chat V2 "Sala Social" -- integrantes + privados con consentimiento
+  // (ver chatPrivateService.ts/ChatMembersPanel/ChatPrivateInboxScreen/
+  // ChatPrivateConversationScreen). Sin CHECK constraint en event_name
+  // (ver comentario de arriba), así que agregar estos nunca pidió tocar
+  // ninguna migración de analítica.
+  | 'chat_members_opened'
+  | 'chat_member_profile_opened'
+  | 'chat_private_requested'
+  | 'chat_private_request_accepted'
+  | 'chat_private_request_rejected'
+  | 'chat_private_inbox_opened'
+  | 'chat_private_conversation_opened'
+  | 'chat_private_message_sent'
+  | 'chat_user_blocked';
 
 function trackMetaEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>): void {
   if (typeof window === 'undefined') return;

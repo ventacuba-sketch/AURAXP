@@ -35,6 +35,17 @@ export type RootStackParamList = {
   AdminDashboard: undefined;
   /** Chat V1 global; también accesible sin sesión desde Landing. */
   Chat: undefined;
+  /** Chat V2 "Sala Social" -- bandeja de mensajes privados (solo
+   * autenticado, ver RootNavigator). Un invitado que toque "Mensaje
+   * privado" nunca llega acá -- recibe el mismo CTA de registro que ya
+   * usa Chat V1 (ver ChatScreen/ChatMembersPanel). */
+  ChatPrivateInbox: undefined;
+  /** Conversación privada 1:1 ya aceptada -- `peerId`/`peerAvatarEmoji`
+   * viajan para pintar la cabecera y resolver presencia (ver
+   * chatPresenceService.derivePeerStatusLabel) sin un round-trip extra;
+   * nunca se usan para autorizar nada (eso lo hace RLS/RPC server-side
+   * contra conversationId, siempre con auth.uid()). */
+  ChatPrivateConversation: { conversationId: string; peerId: string; peerUsername: string; peerAvatarEmoji: string };
   /** `{ screen: 'Profile' }` etc. salta directo a un tab puntual (p. ej.
    * desde el link "Ver perfil" del XP en ScanResult) -- `undefined` cae
    * en el tab por default (Home). */

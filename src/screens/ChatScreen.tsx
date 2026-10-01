@@ -10,9 +10,11 @@ import {
   Text,
   TextInput,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
 
+import { ChatMembersPanel } from '../components/ChatMembersPanel';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
@@ -41,10 +43,18 @@ import {
   subscribeToReactionChanges,
   toggleChatReaction,
 } from '../services/chatService';
+import { ChatPresenceState, joinChatPresence } from '../services/chatPresenceService';
+import { ChatMember, fetchChatMembers, fetchTotalUnreadPrivateCount, requestPrivateChat } from '../services/chatPrivateService';
 import { followUser } from '../services/followService';
 import { fetchMyReferralInfo } from '../services/referralService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { shareText } from '../utils/share';
+
+/** Punto 10 del pedido (mobile-first): a partir de este ancho, Integrantes
+ * puede mostrarse como columna lateral permanente en vez de bottom-sheet
+ * -- mismo umbral de "ancho real de tablet/desktop" ya usado en
+ * AdminDashboardScreen (useWindowDimensions). */
+const WIDE_LAYOUT_BREAKPOINT = 800;
 
 interface Viewer {
   authed: boolean;
@@ -52,13 +62,32 @@ interface Viewer {
   guestId: string | null;
 }
 
-type PromptReason = 'follow' | 'scan' | 'invite' | 'reward';
+type PromptReason = 'follow' | 'scan' | 'invite' | 'reward' | 'privateMessage';
 
 const PROMPT_COPY: Record<PromptReason, { title: string; body: string }> = {
   follow: { title: 'Crea tu cuenta para seguir', body: 'Seguir a otros usuarios es parte de tu perfil AURA VS -- se guarda cuando te registras.' },
   scan: { title: 'Crea tu cuenta para medir tu Aura', body: 'Tu Scan y tu resultado quedan guardados en tu cuenta, listos para compartir y desafiar.' },
   invite: { title: 'Crea tu cuenta para invitar amigos', body: 'Tu link de invitación es parte de tu perfil -- necesitas una cuenta para generarlo.' },
   reward: { title: 'Tienes Coins esperando', body: 'Crea tu cuenta para guardarlos en tu Wallet.' },
+  // Chat V2 "Sala Social" (punto 4 del pedido): "Un invitado que toque
+  // 'Mensaje privado' debe recibir CTA de registro/login" -- nunca una
+  // solicitud real sale de una cuenta de invitado.
+  privateMessage: {
+    title: 'Crea tu cuenta para chatear en privado',
+    body: 'Los mensajes privados son solo entre cuentas registradas -- crea la tuya para pedirle a alguien chatear 1:1.',
+  },
+};
+
+/** Error legible para el toast de abajo tras pedir un chat privado --
+ * mismo criterio que sendError en el composer: nunca un código crudo. */
+const PRIVATE_REQUEST_ERROR_COPY: Record<string, string> = {
+  cannot_request_self: 'No puedes pedirte chat privado a ti mismo.',
+  blocked: 'No puedes contactar a esta persona.',
+  rate_limited: 'Mandaste muchas solicitudes seguidas -- espera un momento.',
+  pending_incoming_exists: 'Esa persona ya te pidió chatear -- respóndele desde Privados.',
+  already_requested: 'Ya le mandaste una solicitud a esta persona.',
+  cooldown: 'Esta persona rechazó tu solicitud hace poco -- intenta de nuevo más tarde.',
+  target_not_found: 'No encontramos a ese usuario.',
 };
 
 function relativeTime(iso: string): string {
@@ -84,6 +113,8 @@ function guestLabel(guestId: string): string {
 export default function ChatScreen() {
   const navigation = useRootNavigation();
   const isFocused = useIsFocused();
+  const { width } = useWindowDimensions();
+  const isWideLayout = width >= WIDE_LAYOUT_BREAKPOINT;
   const listRef = useRef<FlatList<ChatMessage>>(null);
 
   const [viewer, setViewer] = useState<Viewer | null>(null);
@@ -101,6 +132,13 @@ export default function ChatScreen() {
   const [promptReason, setPromptReason] = useState<PromptReason | null>(null);
   const [pendingCoins, setPendingCoins] = useState<number | null>(null);
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
+
+  // Chat V2 "Sala Social" -- Integrantes (punto 2/3/9 del pedido).
+  const [membersOpen, setMembersOpen] = useState(false);
+  const [chatMembers, setChatMembers] = useState<ChatMember[]>([]);
+  const [presence, setPresence] = useState<ChatPresenceState>({ subscribed: false, onlineCount: 0, onlineUserIds: new Set() });
+  const [unreadPrivateCount, setUnreadPrivateCount] = useState(0);
+  const [memberActionMessage, setMemberActionMessage] = useState<string | null>(null);
 
   // Identidad del viewer -- sesión real si existe, si no el visitor_id ya
   // existente (ver getGuestId -- nunca un segundo identificador ni un
@@ -134,6 +172,102 @@ export default function ChatScreen() {
     // Scan real pasa DESPUÉS, en otra pantalla.
     if (viewer?.authed) void fireChatFirstScanCompletedIfPending();
   }, [isFocused, viewer?.authed]);
+
+  // Presencia real (punto 9) -- un único canal Realtime Presence para
+  // toda la sala, cubre tanto autenticados como invitados (cada quien se
+  // identifica con su propio user_id o guest_id). `presence.subscribed`
+  // en false es la señal honesta de "no se pudo confirmar" -- ver
+  // chatPresenceService.ts y el fallback de `activityLabel` más abajo.
+  useEffect(() => {
+    if (!viewer) return;
+    return joinChatPresence({ userId: viewer.userId, guestId: viewer.guestId }, setPresence);
+  }, [viewer]);
+
+  // Badge de no-leídos de Privados -- solo autenticado (un invitado nunca
+  // tiene conversaciones privadas, ver request_private_chat server-side).
+  // Se refresca cada vez que la pantalla gana foco, igual criterio que
+  // fetchUnreadNotificationCount en BottomNavBar.
+  useEffect(() => {
+    if (!isFocused || !viewer?.authed) return;
+    fetchTotalUnreadPrivateCount().then(setUnreadPrivateCount);
+  }, [isFocused, viewer?.authed]);
+
+  // Fallback honesto de "activos recientemente" (punto 1/9 del pedido):
+  // SOLO se usa cuando Presence no confirmó su propia suscripción --
+  // nunca se mezcla con un conteo real de Presence ni se presenta como
+  // "conectados". Se calcula de los mensajes YA cargados (sin query
+  // extra): remitentes autenticados distintos con un mensaje en los
+  // últimos 10 minutos.
+  const recentActiveUserIds = useCallback(() => {
+    const cutoff = Date.now() - 10 * 60 * 1000;
+    const ids = new Set<string>();
+    for (const m of messages) {
+      if (m.userId && new Date(m.createdAt).getTime() > cutoff) ids.add(m.userId);
+    }
+    return ids;
+  }, [messages]);
+
+  const effectiveMemberIds = presence.subscribed ? presence.onlineUserIds : recentActiveUserIds();
+  const activityLabel = presence.subscribed
+    ? `● ${presence.onlineCount} conectado${presence.onlineCount === 1 ? '' : 's'}`
+    : `~ ${effectiveMemberIds.size} activo${effectiveMemberIds.size === 1 ? '' : 's'} recientemente`;
+
+  useEffect(() => {
+    if (!membersOpen) return;
+    fetchChatMembers([...effectiveMemberIds]).then(setChatMembers);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membersOpen, presence.subscribed, presence.onlineUserIds.size, messages.length]);
+
+  function openMembersPanel() {
+    setMembersOpen(true);
+    logEvent('chat_members_opened');
+  }
+
+  function openPrivadosInbox() {
+    if (!viewer?.authed) {
+      openSignupPrompt('privateMessage');
+      return;
+    }
+    navigation.navigate('ChatPrivateInbox');
+  }
+
+  function handleMemberViewProfile(username: string) {
+    logEvent('chat_member_profile_opened');
+    if (!viewer?.authed) {
+      openSignupPrompt('follow');
+      return;
+    }
+    setMembersOpen(false);
+    navigation.navigate('PublicProfile', { username });
+  }
+
+  async function handleMemberFollow(username: string) {
+    await followUser(username);
+  }
+
+  function handleMemberChallenge(username: string) {
+    // Reusa la pantalla de perfil público, que ya tiene el flujo real de
+    // Desafiar (elegir el propio Scan válido, confirmar, crear el
+    // Challenge directo vía create_direct_challenge) -- nunca se duplica
+    // esa lógica acá (punto 3 del pedido: "Reutilizar los servicios
+    // existentes... No duplicar lógica existente").
+    setMembersOpen(false);
+    navigation.navigate('PublicProfile', { username });
+  }
+
+  async function handleMemberPrivateMessage(member: ChatMember) {
+    if (!viewer?.authed) {
+      openSignupPrompt('privateMessage');
+      return;
+    }
+    const result = await requestPrivateChat(member.username);
+    if (result.ok) {
+      setMemberActionMessage(`Solicitud enviada a ${member.username} -- te avisamos si la acepta.`);
+    } else {
+      setMemberActionMessage(PRIVATE_REQUEST_ERROR_COPY[result.errorCode ?? ''] ?? 'No pudimos enviar la solicitud.');
+    }
+    setTimeout(() => setMemberActionMessage(null), 4000);
+  }
 
   const hydrateExtras = useCallback(
     async (list: ChatMessage[]) => {
@@ -375,19 +509,51 @@ export default function ChatScreen() {
     );
   }
 
+  const membersPanel = (
+    <ChatMembersPanel
+      members={chatMembers}
+      onlineUserIds={presence.onlineUserIds}
+      viewerUserId={viewer?.userId ?? null}
+      viewerAuthed={Boolean(viewer?.authed)}
+      activityLabel={activityLabel}
+      onClose={isWideLayout ? undefined : () => setMembersOpen(false)}
+      onViewProfile={handleMemberViewProfile}
+      onFollow={handleMemberFollow}
+      onChallenge={handleMemberChallenge}
+      onPrivateMessage={handleMemberPrivateMessage}
+    />
+  );
+
   return (
-    <ScreenContainer style={styles.screen}>
+    <View style={[styles.rootRow, isWideLayout && styles.rootRowWide]}>
+      <ScreenContainer style={styles.screen}>
       <View style={styles.header}>
-        <View>
-          <Text style={styles.logo}>AURA VS</Text>
-          <Text style={styles.title}>Chat</Text>
+        <View style={styles.headerIdentity}>
+          <Text style={styles.logo}>🔥 SALA GLOBAL · AURA VS</Text>
+          <Text style={styles.activityLine}>{activityLabel}</Text>
         </View>
-        {viewer?.authed && (
-          <Pressable onPress={() => setStatusPickerOpen(true)} style={styles.statusButton} hitSlop={8}>
-            <Text style={styles.statusButtonText}>{statusLabel(myProfile?.chatStatus) ?? 'Mi status'}</Text>
+        <View style={styles.headerActions}>
+          <Pressable onPress={openMembersPanel} hitSlop={6}>
+            <Text style={styles.headerActionText}>👥 Integrantes</Text>
           </Pressable>
-        )}
+          <Pressable onPress={openPrivadosInbox} hitSlop={6}>
+            <Text style={styles.headerActionText}>
+              💬 Privados{unreadPrivateCount > 0 ? ` (${unreadPrivateCount})` : ''}
+            </Text>
+          </Pressable>
+          {viewer?.authed && (
+            <Pressable onPress={() => setStatusPickerOpen(true)} style={styles.statusButton} hitSlop={8}>
+              <Text style={styles.statusButtonText}>{statusLabel(myProfile?.chatStatus) ?? 'Mi status'}</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
+
+      {memberActionMessage && (
+        <View style={styles.actionToast}>
+          <Text style={styles.actionToastText}>{memberActionMessage}</Text>
+        </View>
+      )}
 
       {!viewer?.authed && (
         <View style={styles.guestBanner}>
@@ -498,11 +664,54 @@ export default function ChatScreen() {
           </View>
         </View>
       </Modal>
-    </ScreenContainer>
+      </ScreenContainer>
+
+      {/* Punto 10 del pedido (mobile-first): en ancho de tablet/desktop,
+          Integrantes es una columna lateral permanente (sibling fijo,
+          nunca divide la sala global en mobile); en mobile es un
+          bottom-sheet que se abre/cierra encima, la sala global sigue
+          ocupando prácticamente todo el ancho (punto 10). */}
+      {isWideLayout ? (
+        <View style={styles.sidebar}>{membersPanel}</View>
+      ) : (
+        <Modal visible={membersOpen} transparent animationType="slide" onRequestClose={() => setMembersOpen(false)}>
+          <View style={styles.sheetBackdrop}>
+            <View style={styles.sheetCard}>{membersPanel}</View>
+          </View>
+        </Modal>
+      )}
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  // Punto 10 del pedido (mobile-first): en mobile es solo una columna
+  // (rootRowWide nunca se aplica), la sala global sigue usando
+  // prácticamente todo el ancho -- Integrantes vive en un Modal encima,
+  // no divide la pantalla. En desktop/tablet ancho, `rootRowWide` vuelve
+  // esto una fila de 2 columnas (sala + sidebar fijo de Integrantes).
+  rootRow: {
+    flex: 1,
+  },
+  rootRowWide: {
+    flexDirection: 'row',
+  },
+  sidebar: {
+    width: 320,
+    borderLeftWidth: 1,
+    borderLeftColor: colors.border,
+  },
+  sheetBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  sheetCard: {
+    height: '75%',
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    overflow: 'hidden',
+  },
   screen: {
     paddingHorizontal: 0,
   },
@@ -511,18 +720,49 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.sm,
     paddingBottom: spacing.sm,
+    gap: spacing.sm,
+  },
+  headerIdentity: {
+    flexShrink: 1,
   },
   logo: {
-    ...typography.eyebrow,
-    color: colors.secondary,
-  },
-  title: {
     ...typography.title,
+    color: colors.textPrimary,
+    fontSize: 16,
+  },
+  activityLine: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+  },
+  headerActionText: {
+    ...typography.caption,
+    color: colors.accent,
+    fontWeight: '800',
+  },
+  actionToast: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  actionToastText: {
+    ...typography.caption,
     color: colors.textPrimary,
   },
   statusButton: {
