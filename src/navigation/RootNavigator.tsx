@@ -17,6 +17,8 @@ import { useAuth } from '../hooks/useAuth';
 import { acceptChallenge } from '../services/challengeService';
 import { consumePendingChallengeToken } from '../services/pendingChallenge';
 import { tryAttributePendingReferral } from '../services/referralService';
+import { logPageView } from '../services/analyticsService';
+import AdminDashboardScreen from '../screens/AdminDashboardScreen';
 import AnalyzingScreen from '../screens/AnalyzingScreen';
 import AuthScreen from '../screens/AuthScreen';
 import BugReportScreen from '../screens/BugReportScreen';
@@ -56,17 +58,11 @@ const navigationTheme: Theme = {
   },
 };
 
-// Solo ChallengeLanding, Auth y ahora Landing tienen un path real — es lo
-// único que necesita abrirse desde fuera de la app (link compartido /
-// navegador / campaña de adquisición). `/aura` es ruta NUEVA y propia --
-// deliberadamente no se tocó `/` (sigue cayendo en Auth para cualquier
-// visitante sin sesión, exactamente como antes, incluido `?ref=CODE`) ni
-// se reusó ningún nombre ya existente (evita cualquier choque con `Scan`,
-// el tab).
 const linking: LinkingOptions<RootStackParamList> = {
   prefixes: ['auraxp://', 'https://auravs.app'],
   config: {
     screens: {
+      AdminDashboard: 'admin',
       ChallengeLanding: 'c/:token',
       Auth: 'auth',
       Landing: 'aura',
@@ -76,43 +72,13 @@ const linking: LinkingOptions<RootStackParamList> = {
   },
 };
 
-/**
- * Root native stack: hosts the bottom tab navigator (Home / Scan / Profile)
- * as its base screen, plus the flow screens pushed on top of it. Every flow
- * screen owns its own full-bleed layout and headline, so the native header
- * chrome stays hidden throughout for a premium, non-SaaS feel — back
- * navigation is via the platform swipe/hardware gesture instead.
- *
- * Flow: Home/Scan -> Upload/Capture -> Analyzing -> Aura Replay (ScanResult) -> Challenge / Share
- *
- * Auth gate: while Supabase isn't configured, the app behaves exactly as
- * before (mock data, no login) — `authed` is forced true so nothing breaks
- * for a fresh checkout of this repo. Once configured, an anonymous visitor
- * only ever sees Auth or ChallengeLanding (the one public, unauthenticated
- * route — reachable via deep link or web URL regardless of session).
- */
 export function RootNavigator() {
   const { session, loading, passwordRecovery } = useAuth();
   const authed = !isSupabaseConfigured || Boolean(session);
   const navigationRef = useRef<NavigationContainerRef<RootStackParamList>>(null);
   const resumedRef = useRef(false);
+  const routeNameRef = useRef<string | undefined>();
 
-  // Retoma un Challenge pendiente después de pasar por Auth -- ver
-  // ChallengeLandingScreen.handleAccept() y services/pendingChallenge.ts.
-  // El swap de `authed` reemplaza TODO el árbol de screens (ver el
-  // ternario más abajo), así que cualquier param de la ruta anterior ya
-  // se perdió; esto vuelve a intentar la aceptación real desde cero con
-  // el token guardado, no confía en que la navegación lo haya conservado.
-  //
-  // Gateado por `passwordRecovery`: si alguien volvió del link de
-  // "olvidé mi contraseña" con un Challenge pendiente guardado (ver
-  // AuthScreen -> handleForgotPassword), `authed` ya es true apenas
-  // Supabase establece la sesión de recuperación -- sin este guard, este
-  // efecto correría YA (marcando resumedRef=true) y mandaría a la persona
-  // directo al Challenge sin haber llegado a cambiar la contraseña. Al
-  // no marcar resumedRef mientras passwordRecovery es true, el efecto
-  // vuelve a correr (está en las deps) apenas se limpia -- ahí sí retoma
-  // el Challenge normalmente, ya con la contraseña nueva puesta.
   useEffect(() => {
     if (!authed || passwordRecovery || resumedRef.current) return;
     resumedRef.current = true;
@@ -125,22 +91,12 @@ export function RootNavigator() {
         if (result.ok) {
           nav.navigate('Challenge', { challengeToken: token });
         } else {
-          // Ya expiró/lo tomaron/etc mientras el usuario se registraba --
-          // la landing misma sabe mostrar el motivo correcto.
           nav.navigate('ChallengeLanding', { token });
         }
       });
     });
   }, [authed, passwordRecovery]);
 
-  // Atribución de referido (bloque referidos) -- si esta persona llegó por
-  // un link de invitación (ver referralService.captureReferralFromUrl(),
-  // llamado en App.tsx al boot), recién acá hay sesión real para asociar el
-  // código guardado a su cuenta. No otorga ningún Coin por sí solo -- el
-  // premio real llega después, server-side, cuando complete su primer Scan
-  // (ver la migración: activate_referral_on_first_scan). Sin gate de
-  // passwordRecovery: no depende del flujo de Challenge pendiente y es
-  // seguro de intentar en cuanto hay sesión, se recuperando contraseña o no.
   useEffect(() => {
     if (!session) return;
     tryAttributePendingReferral();
@@ -155,14 +111,23 @@ export function RootNavigator() {
   }
 
   return (
-    <NavigationContainer ref={navigationRef} theme={navigationTheme} linking={linking}>
-      {/* Navegación inferior persistente (D) -- View flex-column con el
-          Stack arriba (flex:1) y la barra como sibling de alto fijo abajo,
-          NO un overlay -- así el contenido de cada pantalla nunca queda
-          tapado (H) sin que ningún screen individual tenga que saber que
-          esto existe. BottomNavBar decide sola, por nombre de ruta actual,
-          en qué pantallas se muestra (ver ese componente) -- cero cambios
-          acá abajo en qué screens existen o cómo navegan entre sí. */}
+    <NavigationContainer
+      ref={navigationRef}
+      theme={navigationTheme}
+      linking={linking}
+      onReady={() => {
+        const route = navigationRef.current?.getCurrentRoute()?.name;
+        routeNameRef.current = route;
+        if (route) logPageView(route);
+      }}
+      onStateChange={() => {
+        const route = navigationRef.current?.getCurrentRoute()?.name;
+        if (route && route !== routeNameRef.current) {
+          logPageView(route);
+          routeNameRef.current = route;
+        }
+      }}
+    >
       <View style={styles.appShell}>
         <View style={styles.stackArea}>
           <Stack.Navigator
@@ -172,29 +137,17 @@ export function RootNavigator() {
             }}
           >
             {authed && passwordRecovery ? (
-              // Rama propia, deliberadamente sin el resto de la app: mientras
-              // se está recuperando la contraseña, la única pantalla que debe
-              // existir es esta -- ni un deep link ni una navegación
-              // accidental deberían poder sacar a nadie de acá antes de
-              // terminar. clearPasswordRecovery() (llamado desde adentro) es
-              // la única salida.
-              <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ gestureEnabled: false }} />
+              <Stack.Screen
+                name="ResetPassword"
+                component={ResetPasswordScreen}
+                options={{ gestureEnabled: false }}
+              />
             ) : authed ? (
               <>
                 <Stack.Screen name="MainTabs" component={MainTabNavigator} />
                 <Stack.Screen name="Upload" component={UploadScreen} />
-                {/* Cámara en vivo -- bloqueamos el swipe-back nativo para que no
-                    se pueda salir por accidente a mitad de una grabación; el
-                    botón propio de la pantalla es la única salida mientras
-                    graba. El cleanup (parar cámara, limpiar timers) corre igual
-                    al desmontar sin importar cómo se salga. */}
                 <Stack.Screen name="Record" component={RecordScreen} options={{ gestureEnabled: false }} />
-                {/* Transient auto-advancing state — block swiping back out of it. */}
-                <Stack.Screen
-                  name="Analyzing"
-                  component={AnalyzingScreen}
-                  options={{ gestureEnabled: false }}
-                />
+                <Stack.Screen name="Analyzing" component={AnalyzingScreen} options={{ gestureEnabled: false }} />
                 <Stack.Screen name="ScanResult" component={ScanResultScreen} />
                 <Stack.Screen name="Challenge" component={ChallengeScreen} />
                 <Stack.Screen name="MyChallenges" component={MyChallengesScreen} />
@@ -211,25 +164,19 @@ export function RootNavigator() {
             ) : (
               <>
                 <Stack.Screen name="Auth" component={AuthScreen} />
-                {/* Landing de adquisición (TikTok/Reels/Shorts) -- registrada
-                    SOLO acá, igual que Auth: alguien ya logueado que abra
-                    /aura nunca ve esto (React Navigation cae al primer
-                    screen del stack autenticado, MainTabs, mismo criterio ya
-                    probado que usa "/" para caer en Auth cuando no hay
-                    sesión). */}
                 <Stack.Screen name="Landing" component={LandingScreen} />
               </>
             )}
+
+            {/* Always registered so /admin can be opened directly. The screen
+                itself verifies the authenticated admin through the RPC. */}
+            <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
             <Stack.Screen name="ChallengeLanding" component={ChallengeLandingScreen} />
             <Stack.Screen name="PublicResult" component={PublicResultScreen} />
             <Stack.Screen name="PublicBattle" component={PublicBattleScreen} />
           </Stack.Navigator>
         </View>
         <BottomNavBar authed={authed} navigationRef={navigationRef} />
-        {/* Mismo criterio que BottomNavBar: nunca chrome de la app propia
-            para un visitante sin sesión (p. ej. ChallengeLanding no
-            autenticado) -- ver installService.ts para por qué vive acá
-            (sibling, no dentro de un tab) y no en HomeScreen. */}
         {authed && <InstallInviteHost navigationRef={navigationRef} />}
         {authed && <NotificationInviteHost navigationRef={navigationRef} />}
       </View>
