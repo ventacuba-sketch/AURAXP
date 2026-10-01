@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import {
   DarkTheme,
@@ -78,6 +78,7 @@ export function RootNavigator() {
   const navigationRef = useRef<NavigationContainerRef<RootStackParamList>>(null);
   const resumedRef = useRef(false);
   const routeNameRef = useRef<string | undefined>();
+  const [currentRouteName, setCurrentRouteName] = useState<string | undefined>();
 
   useEffect(() => {
     if (!authed || passwordRecovery || resumedRef.current) return;
@@ -118,6 +119,7 @@ export function RootNavigator() {
       onReady={() => {
         const route = navigationRef.current?.getCurrentRoute()?.name;
         routeNameRef.current = route;
+        setCurrentRouteName(route);
         if (route) logPageView(route);
       }}
       onStateChange={() => {
@@ -125,6 +127,7 @@ export function RootNavigator() {
         if (route && route !== routeNameRef.current) {
           logPageView(route);
           routeNameRef.current = route;
+          setCurrentRouteName(route);
         }
       }}
     >
@@ -177,8 +180,8 @@ export function RootNavigator() {
           </Stack.Navigator>
         </View>
         <BottomNavBar authed={authed} navigationRef={navigationRef} />
-        {authed && <InstallInviteHost navigationRef={navigationRef} />}
-        {authed && <NotificationInviteHost navigationRef={navigationRef} />}
+        {authed && currentRouteName !== 'AdminDashboard' && <InstallInviteHost navigationRef={navigationRef} />}
+        {authed && currentRouteName !== 'AdminDashboard' && <NotificationInviteHost navigationRef={navigationRef} />}
       </View>
     </NavigationContainer>
   );
