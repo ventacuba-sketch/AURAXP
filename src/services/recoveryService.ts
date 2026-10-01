@@ -36,3 +36,14 @@ export async function recordRecoveryOpen(channel = 'magic_link') {
   if (!supabase) return;
   await supabase.rpc('record_recovery_open', { p_channel: channel });
 }
+
+export async function shouldPromptWhatsAppRecovery(): Promise<boolean> {
+  if (!supabase) return false;
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return false;
+  const [{ data: contact }, { count }] = await Promise.all([
+    supabase.from('user_recovery_contacts').select('whatsapp_prompted_at').eq('user_id', session.user.id).maybeSingle(),
+    supabase.from('scans').select('id', { count: 'exact', head: true }).eq('user_id', session.user.id).eq('status', 'done'),
+  ]);
+  return !contact?.whatsapp_prompted_at && (count ?? 0) === 0;
+}
