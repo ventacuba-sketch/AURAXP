@@ -250,6 +250,10 @@ export default function ChatScreen() {
     }
     setDraft('');
     await refreshGuestReward();
+    // Realtime es best-effort: si la tabla todavía no está en la publicación
+    // o el evento tarda, refrescamos explícitamente para que el mensaje recién
+    // enviado aparezca de inmediato también en Preview/producción.
+    await loadInitial();
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
   }
 
