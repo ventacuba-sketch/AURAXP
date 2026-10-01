@@ -2,7 +2,7 @@ name: Deploy preview web
 
 on:
   push:
-    branches: [feature/admin-analytics-dashboard]
+    branches: [feature/admin-analytics-dashboard, integration/chat-v1-main]
   workflow_dispatch:
 
 jobs:
@@ -65,7 +65,7 @@ jobs:
       - name: Verify preview routes
         run: |
           set -e
-          for path in / /admin; do
+          for path in / /admin /chat; do
             code=$(curl -L -sS -o /tmp/aura-preview.html -w "%{http_code}" "https://preview.auravs.app$path")
             test "$code" = "200"
             grep -qi "root" /tmp/aura-preview.html
