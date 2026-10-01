@@ -64,6 +64,9 @@ end;
 $$;
 
 revoke all on function public.capture_campaign_attribution(text,text,text,text,text,text,text) from public, anon, authenticated;
+-- Keep the legacy 7-argument RPC callable so the currently deployed app
+-- remains compatible until the dashboard branch is deployed.
+grant execute on function public.capture_campaign_attribution(text,text,text,text,text,text,text) to anon, authenticated;
 revoke all on function public.capture_campaign_attribution(text,text,text,text,text,text,text,text,text,text,text) from public, anon, authenticated;
 grant execute on function public.capture_campaign_attribution(text,text,text,text,text,text,text,text,text,text,text) to anon, authenticated;
 
