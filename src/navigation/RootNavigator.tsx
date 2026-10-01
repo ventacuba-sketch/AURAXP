@@ -15,6 +15,7 @@ import { InstallInviteHost } from '../components/InstallInviteHost';
 import { NotificationInviteHost } from '../components/NotificationInviteHost';
 import { useAuth } from '../hooks/useAuth';
 import { acceptChallenge } from '../services/challengeService';
+import { claimGuestRewardIfAny, fireChatSignupCompletedIfPending } from '../services/chatService';
 import { linkCampaignToCurrentUser } from '../services/campaignService';
 import { consumePendingChallengeToken } from '../services/pendingChallenge';
 import { tryAttributePendingReferral } from '../services/referralService';
@@ -25,6 +26,7 @@ import AuthScreen from '../screens/AuthScreen';
 import BugReportScreen from '../screens/BugReportScreen';
 import ChallengeLandingScreen from '../screens/ChallengeLandingScreen';
 import ChallengeScreen from '../screens/ChallengeScreen';
+import ChatScreen from '../screens/ChatScreen';
 import HelpScreen from '../screens/HelpScreen';
 import InviteScreen from '../screens/InviteScreen';
 import LandingScreen from '../screens/LandingScreen';
@@ -173,6 +175,8 @@ export function RootNavigator() {
     // evento sin ganar ningún dato nuevo en las repeticiones (hallazgo
     // H1/H2 de la auditoría del dashboard de admin).
     void linkCampaignToCurrentUser();
+    void claimGuestRewardIfAny();
+    void fireChatSignupCompletedIfPending();
   }, [session]);
 
   if (isSupabaseConfigured && loading) {
@@ -288,6 +292,7 @@ export function RootNavigator() {
             <Stack.Screen name="ChallengeLanding" component={ChallengeLandingScreen} />
             <Stack.Screen name="PublicResult" component={PublicResultScreen} />
             <Stack.Screen name="PublicBattle" component={PublicBattleScreen} />
+            <Stack.Screen name="Chat" component={ChatScreen} />
           </Stack.Navigator>
         </View>
         <BottomNavBar authed={authed} navigationRef={navigationRef} />
