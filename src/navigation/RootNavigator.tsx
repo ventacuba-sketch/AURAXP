@@ -68,9 +68,12 @@ const navigationTheme: Theme = {
 // el tab).
 //
 // `/admin` (dashboard de analítica) -- mismo criterio: path propio, nunca
-// pisa `/`. Registrada afuera del ternario authed/!authed (ver más abajo),
-// así que existe en el linking config sin importar el estado de sesión;
-// AdminDashboardScreen es quien valida el acceso real contra la RPC.
+// pisa `/`. A diferencia de ChallengeLanding/PublicResult/PublicBattle,
+// esta SÍ está dentro del ternario authed/!authed (ver más abajo, M1 de la
+// auditoría del dashboard): sin sesión, la ruta ni siquiera existe en el
+// stack, así que cae a Auth como cualquier otra ruta desconocida. Con
+// sesión mala (no admin), la pantalla monta pero get_admin_dashboard
+// (profiles.is_admin, SECURITY DEFINER) deniega el acceso server-side.
 const linking: LinkingOptions<RootStackParamList> = {
   prefixes: ['auraxp://', 'https://auravs.app'],
   config: {
@@ -256,6 +259,19 @@ export function RootNavigator() {
                 <Stack.Screen name="Help" component={HelpScreen} />
                 <Stack.Screen name="BugReport" component={BugReportScreen} />
                 <Stack.Screen name="Invite" component={InviteScreen} />
+                {/* Dashboard de admin (M1, auditoría del dashboard) --
+                    registrada SOLO acá, igual que Wallet/Store/etc, NO en el
+                    bloque siempre-registrado de abajo (ChallengeLanding/
+                    PublicResult/PublicBattle son deliberadamente públicas;
+                    esta no lo es). Un visitante sin sesión que abra /admin
+                    cae al primer screen del stack !authed (Auth), mismo
+                    criterio ya probado que usa Landing arriba -- nunca llega
+                    a montar AdminDashboardScreen. La verificación real
+                    (quién es admin de verdad) sigue siendo el RPC
+                    get_admin_dashboard (profiles.is_admin, SECURITY
+                    DEFINER) -- esto es la mitad de UI, no reemplaza esa
+                    protección server-side. */}
+                <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
               </>
             ) : (
               <>
@@ -269,9 +285,6 @@ export function RootNavigator() {
                 <Stack.Screen name="Landing" component={LandingScreen} />
               </>
             )}
-            {/* Always registered so /admin can be opened directly. The screen
-                itself verifies the authenticated admin through the RPC. */}
-            <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
             <Stack.Screen name="ChallengeLanding" component={ChallengeLandingScreen} />
             <Stack.Screen name="PublicResult" component={PublicResultScreen} />
             <Stack.Screen name="PublicBattle" component={PublicBattleScreen} />
