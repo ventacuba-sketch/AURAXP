@@ -133,7 +133,19 @@ export type AnalyticsEventName =
   | 'public_vote_cta_clicked'
   | 'public_battle_viewed'
   | 'public_battle_voted'
-  | 'public_battle_cta_clicked';
+  | 'public_battle_cta_clicked'
+  | 'chat_viewed'
+  | 'chat_guest_created'
+  | 'chat_message_sent'
+  | 'chat_reaction_added'
+  | 'chat_profile_opened'
+  | 'chat_signup_prompted'
+  | 'chat_signup_started'
+  | 'chat_signup_completed'
+  | 'chat_scan_cta_clicked'
+  | 'chat_first_scan_completed'
+  | 'chat_invite_clicked'
+  | 'chat_follow_clicked';
 
 function trackMetaEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>): void {
   if (typeof window === 'undefined') return;
