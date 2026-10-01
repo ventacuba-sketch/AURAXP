@@ -67,10 +67,14 @@ interface NotificationRow {
     | 'challenge_rejected'
     | 'referral_activated'
     | 'new_follower'
-    | 'gift_received';
+    | 'gift_received'
+    | 'chat_private_request'
+    | 'chat_private_request_accepted'
+    | 'chat_private_message';
   challenge_share_token: string | null;
   rival_user_id: string | null;
   result: 'won' | 'lost' | 'tie' | null;
+  private_conversation_id: string | null;
 }
 
 function buildMessage(n: NotificationRow, rivalUsername: string): { title: string; body: string } {
@@ -95,6 +99,12 @@ function buildMessage(n: NotificationRow, rivalUsername: string): { title: strin
       return { title: 'AURA VS', body: `@${rivalUsername} empezó a seguirte` };
     case 'gift_received':
       return { title: '🎁 Recibiste un regalo', body: `@${rivalUsername} te mandó un regalo` };
+    case 'chat_private_request':
+      return { title: '💬 Sala del Aura', body: `@${rivalUsername} quiere iniciar un chat privado contigo` };
+    case 'chat_private_request_accepted':
+      return { title: '✅ Chat privado aceptado', body: `@${rivalUsername} aceptó tu solicitud` };
+    case 'chat_private_message':
+      return { title: '💬 Nuevo mensaje privado', body: `@${rivalUsername} te envió un mensaje` };
   }
 }
 
@@ -143,7 +153,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: notification } = await admin
       .from('notifications')
-      .select('id, user_id, kind, challenge_share_token, rival_user_id, result')
+      .select('id, user_id, kind, challenge_share_token, rival_user_id, result, private_conversation_id')
       .eq('id', notification_id)
       .maybeSingle<NotificationRow>();
 
@@ -166,7 +176,11 @@ Deno.serve(async (req: Request) => {
     }
 
     const { title, body } = buildMessage(notification, rivalProfile?.username ?? 'alguien');
-    const url = notification.challenge_share_token ? `${WEB_ORIGIN}/c/${notification.challenge_share_token}` : WEB_ORIGIN;
+    const url = notification.challenge_share_token
+      ? `${WEB_ORIGIN}/c/${notification.challenge_share_token}`
+      : notification.kind.startsWith('chat_private_')
+        ? `${WEB_ORIGIN}/chat`
+        : WEB_ORIGIN;
     const payload = JSON.stringify({ title, body, url, kind: notification.kind });
     // Payload real -- no lleva ningún dato sensible (título/cuerpo del
     // mensaje son texto ya público en la notification in-app), seguro
