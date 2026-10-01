@@ -84,6 +84,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       ChallengeLanding: 'c/:token',
       Auth: 'auth',
       Landing: 'aura',
+      Chat: 'chat',
       PublicResult: 'r/:token',
       PublicBattle: 'b/:token',
     },
