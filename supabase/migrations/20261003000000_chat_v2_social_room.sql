@@ -165,6 +165,32 @@ create policy "chat_private_messages_select_involved" on public.chat_private_mes
   );
 
 grant select on public.chat_private_messages to authenticated;
+
+-- Realtime Postgres Changes NO publica tablas nuevas automáticamente.
+-- Sin esto, el fallback HTTP funciona pero los mensajes/solicitudes de
+-- otros usuarios no aparecen en vivo. Guardado para que el replay siga
+-- siendo idempotente si la tabla ya fue añadida a la publicación.
+do $
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'chat_private_messages'
+  ) then
+    alter publication supabase_realtime add table public.chat_private_messages;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime'
+      and schemaname = 'public'
+      and tablename = 'chat_private_requests'
+  ) then
+    alter publication supabase_realtime add table public.chat_private_requests;
+  end if;
+end
+$;
+
 -- Sin INSERT directo -- todo vía send_private_message() (SECURITY
 -- DEFINER): ahí es donde vive la validación real de longitud, rate
 -- limit, pertenencia a la conversación y bloqueo -- "no confiar en
