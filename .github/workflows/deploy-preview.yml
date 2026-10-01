@@ -1,0 +1,72 @@
+name: Deploy preview web
+
+on:
+  push:
+    branches: [feature/admin-analytics-dashboard]
+  workflow_dispatch:
+
+jobs:
+  regression-gate:
+    name: Preview regression gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Type-check
+        run: npx tsc --noEmit -p tsconfig.json
+      - name: Critical static regression tests
+        run: node scripts/regression-gate.mjs
+      - name: Production backend smoke tests
+        env:
+          SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+        run: node scripts/backend-smoke.mjs
+
+  deploy-preview:
+    name: Build and deploy preview
+    needs: regression-gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Export web build
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          EXPO_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.EXPO_PUBLIC_VAPID_PUBLIC_KEY }}
+        run: npx expo export --platform web
+      - name: Add SPA fallback + caching rules (.htaccess)
+        run: cp web/.htaccess dist/.htaccess
+      - name: Deploy to preview.auravs.app via FTPS
+        uses: SamKirkland/FTP-Deploy-Action@v4.4.0
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          local-dir: ./dist/
+          server-dir: ./preview.auravs.app/
+          state-name: .ftp-deploy-sync-state-preview.json
+          dangerous-clean-slate: false
+
+  preview-smoke:
+    name: Preview URL smoke test
+    needs: deploy-preview
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify preview routes
+        run: |
+          set -e
+          for path in / /admin; do
+            code=$(curl -L -sS -o /tmp/aura-preview.html -w "%{http_code}" "https://preview.auravs.app$path")
+            test "$code" = "200"
+            grep -qi "root" /tmp/aura-preview.html
+          done

@@ -26,6 +26,12 @@ export type MainTabParamList = {
  * both Analyzing and ScanResult fall back to mock data.
  */
 export type RootStackParamList = {
+  /** Dashboard de analítica, solo para la cuenta administradora -- ver
+   * AdminDashboardScreen y get_admin_dashboard. Ruta pública propia
+   * (`/admin`, ver `linking` en RootNavigator), igual que ChallengeLanding/
+   * PublicResult/PublicBattle -- la propia pantalla valida el acceso real
+   * contra la RPC, no un gate de navegación. */
+  AdminDashboard: undefined;
   /** `{ screen: 'Profile' }` etc. salta directo a un tab puntual (p. ej.
    * desde el link "Ver perfil" del XP en ScanResult) -- `undefined` cae
    * en el tab por default (Home). */

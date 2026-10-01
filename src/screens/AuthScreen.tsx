@@ -99,14 +99,14 @@ export default function AuthScreen() {
           return;
         }
         logEvent('signup_started');
-        const status = await signUp(email.trim(), password);
+        const { status, userId } = await signUp(email.trim(), password);
         if (status === 'confirmationRequired') {
           setSuccessMessage('Cuenta creada. Revisa tu correo para confirmar el registro.');
-          logEvent('signup_completed');
+          logEvent('signup_completed', undefined, userId);
         } else if (status === 'alreadyRegistered') {
           setShowAlreadyRegistered(true);
         } else if (status === 'signedIn') {
-          logEvent('signup_completed');
+          logEvent('signup_completed', undefined, userId);
         }
         // 'signedIn' (proyectos sin confirmación de email activada) ->
         // onAuthStateChange resuelve la navegación solo, igual que el login.

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import {
   DarkTheme,
@@ -15,8 +15,11 @@ import { InstallInviteHost } from '../components/InstallInviteHost';
 import { NotificationInviteHost } from '../components/NotificationInviteHost';
 import { useAuth } from '../hooks/useAuth';
 import { acceptChallenge } from '../services/challengeService';
+import { linkCampaignToCurrentUser } from '../services/campaignService';
 import { consumePendingChallengeToken } from '../services/pendingChallenge';
 import { tryAttributePendingReferral } from '../services/referralService';
+import { logPageView } from '../services/analyticsService';
+import AdminDashboardScreen from '../screens/AdminDashboardScreen';
 import AnalyzingScreen from '../screens/AnalyzingScreen';
 import AuthScreen from '../screens/AuthScreen';
 import BugReportScreen from '../screens/BugReportScreen';
@@ -63,10 +66,19 @@ const navigationTheme: Theme = {
 // visitante sin sesión, exactamente como antes, incluido `?ref=CODE`) ni
 // se reusó ningún nombre ya existente (evita cualquier choque con `Scan`,
 // el tab).
+//
+// `/admin` (dashboard de analítica) -- mismo criterio: path propio, nunca
+// pisa `/`. A diferencia de ChallengeLanding/PublicResult/PublicBattle,
+// esta SÍ está dentro del ternario authed/!authed (ver más abajo, M1 de la
+// auditoría del dashboard): sin sesión, la ruta ni siquiera existe en el
+// stack, así que cae a Auth como cualquier otra ruta desconocida. Con
+// sesión mala (no admin), la pantalla monta pero get_admin_dashboard
+// (profiles.is_admin, SECURITY DEFINER) deniega el acceso server-side.
 const linking: LinkingOptions<RootStackParamList> = {
   prefixes: ['auraxp://', 'https://auravs.app'],
   config: {
     screens: {
+      AdminDashboard: 'admin',
       ChallengeLanding: 'c/:token',
       Auth: 'auth',
       Landing: 'aura',
@@ -96,6 +108,15 @@ export function RootNavigator() {
   const authed = !isSupabaseConfigured || Boolean(session);
   const navigationRef = useRef<NavigationContainerRef<RootStackParamList>>(null);
   const resumedRef = useRef(false);
+  // Dashboard de admin (tracking de páginas) -- routeNameRef es la copia
+  // "de lectura inmediata" de la ruta actual que usan onReady/onStateChange
+  // más abajo para decidir si cambió (un useState solo se actualiza en el
+  // próximo render, demasiado tarde para comparar en el mismo callback);
+  // currentRouteName es la versión en estado, usada para el gate de
+  // InstallInviteHost/NotificationInviteHost (no deben mostrarse encima
+  // del dashboard).
+  const routeNameRef = useRef<string | undefined>(undefined);
+  const [currentRouteName, setCurrentRouteName] = useState<string | undefined>();
 
   // Retoma un Challenge pendiente después de pasar por Auth -- ver
   // ChallengeLandingScreen.handleAccept() y services/pendingChallenge.ts.
@@ -144,6 +165,14 @@ export function RootNavigator() {
   useEffect(() => {
     if (!session) return;
     tryAttributePendingReferral();
+    // Dashboard de admin (atribución) -- liga la atribución de campaña
+    // guardada (utm + device/browser/os, ver campaignService.ts) a esta
+    // cuenta UNA sola vez por sesión nueva. A propósito acá y NO dentro de
+    // logEvent(): esta última corre en cada evento de analítica de toda la
+    // app, así que llamarlo ahí multiplicaba un RPC completo por cada
+    // evento sin ganar ningún dato nuevo en las repeticiones (hallazgo
+    // H1/H2 de la auditoría del dashboard de admin).
+    void linkCampaignToCurrentUser();
   }, [session]);
 
   if (isSupabaseConfigured && loading) {
@@ -155,7 +184,30 @@ export function RootNavigator() {
   }
 
   return (
-    <NavigationContainer ref={navigationRef} theme={navigationTheme} linking={linking}>
+    <NavigationContainer
+      ref={navigationRef}
+      theme={navigationTheme}
+      linking={linking}
+      // Dashboard de admin (tracking de páginas) -- onReady/onStateChange
+      // son los únicos puntos de React Navigation que ven CUALQUIER cambio
+      // de ruta sin importar desde qué screen se originó; logPageView()
+      // es best-effort (ver analyticsService.ts), nunca puede romper la
+      // navegación real.
+      onReady={() => {
+        const route = navigationRef.current?.getCurrentRoute()?.name;
+        routeNameRef.current = route;
+        setCurrentRouteName(route);
+        if (route) logPageView(route);
+      }}
+      onStateChange={() => {
+        const route = navigationRef.current?.getCurrentRoute()?.name;
+        if (route && route !== routeNameRef.current) {
+          logPageView(route);
+          routeNameRef.current = route;
+          setCurrentRouteName(route);
+        }
+      }}
+    >
       {/* Navegación inferior persistente (D) -- View flex-column con el
           Stack arriba (flex:1) y la barra como sibling de alto fijo abajo,
           NO un overlay -- así el contenido de cada pantalla nunca queda
@@ -207,6 +259,19 @@ export function RootNavigator() {
                 <Stack.Screen name="Help" component={HelpScreen} />
                 <Stack.Screen name="BugReport" component={BugReportScreen} />
                 <Stack.Screen name="Invite" component={InviteScreen} />
+                {/* Dashboard de admin (M1, auditoría del dashboard) --
+                    registrada SOLO acá, igual que Wallet/Store/etc, NO en el
+                    bloque siempre-registrado de abajo (ChallengeLanding/
+                    PublicResult/PublicBattle son deliberadamente públicas;
+                    esta no lo es). Un visitante sin sesión que abra /admin
+                    cae al primer screen del stack !authed (Auth), mismo
+                    criterio ya probado que usa Landing arriba -- nunca llega
+                    a montar AdminDashboardScreen. La verificación real
+                    (quién es admin de verdad) sigue siendo el RPC
+                    get_admin_dashboard (profiles.is_admin, SECURITY
+                    DEFINER) -- esto es la mitad de UI, no reemplaza esa
+                    protección server-side. */}
+                <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
               </>
             ) : (
               <>
@@ -229,9 +294,11 @@ export function RootNavigator() {
         {/* Mismo criterio que BottomNavBar: nunca chrome de la app propia
             para un visitante sin sesión (p. ej. ChallengeLanding no
             autenticado) -- ver installService.ts para por qué vive acá
-            (sibling, no dentro de un tab) y no en HomeScreen. */}
-        {authed && <InstallInviteHost navigationRef={navigationRef} />}
-        {authed && <NotificationInviteHost navigationRef={navigationRef} />}
+            (sibling, no dentro de un tab) y no en HomeScreen. Tampoco
+            encima del dashboard de admin (currentRouteName), que tiene su
+            propio layout de escritorio sin estos overlays. */}
+        {authed && currentRouteName !== 'AdminDashboard' && <InstallInviteHost navigationRef={navigationRef} />}
+        {authed && currentRouteName !== 'AdminDashboard' && <NotificationInviteHost navigationRef={navigationRef} />}
       </View>
     </NavigationContainer>
   );

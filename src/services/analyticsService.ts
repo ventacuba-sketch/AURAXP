@@ -1,6 +1,6 @@
 import { getSession } from './authService';
 import { supabase } from './supabaseClient';
-import { getStoredUtmParams, linkCampaignToCurrentUser } from './campaignService';
+import { getCampaignVisitorId, getStoredUtmParams } from './campaignService';
 
 /**
  * Analítica mínima de funnel -- ver migración `analytics_events`
@@ -35,6 +35,16 @@ import { getStoredUtmParams, linkCampaignToCurrentUser } from './campaignService
  */
 export type AnalyticsEventName =
   | 'app_open'
+  // Dashboard de admin (bloque analítica web) -- 'web_visit' es el
+  // equivalente de 'app_open' pero para CUALQUIER carga web (con o sin
+  // sesión, con o sin utm_*), necesario porque 'app_open' por sí solo no
+  // distingue tráfico orgánico/directo del que ya tenía sesión -- ver
+  // logWebVisitOnce/captureWebVisit. 'page_viewed' es un evento por cambio
+  // de ruta (ver RootNavigator.onStateChange), usado solo para medir
+  // profundidad de navegación en el dashboard -- no reemplaza a ningún
+  // evento puntual ya existente (profile_viewed, landing_viewed, etc).
+  | 'web_visit'
+  | 'page_viewed'
   | 'signup_viewed'
   | 'signup_started'
   | 'signup_completed'
@@ -143,18 +153,35 @@ function trackMetaEvent(eventName: AnalyticsEventName, metadata?: Record<string,
   }
 }
 
-export async function logEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>): Promise<void> {
+export async function logEvent(
+  eventName: AnalyticsEventName,
+  metadata?: Record<string, unknown>,
+  userIdOverride?: string | null,
+): Promise<void> {
   if (!supabase) return;
   try {
     const session = await getSession();
     const utm = await getStoredUtmParams();
-    if (session && utm) await linkCampaignToCurrentUser();
+    // NO llamar linkCampaignToCurrentUser() acá (se llamaba antes, gateado
+    // por `session && utm`) -- es un RPC completo, y logEvent() corre en
+    // CADA evento de analítica de la app (incluido 'page_viewed' en cada
+    // cambio de ruta), así que hacerlo acá multiplica llamadas a Supabase
+    // sin ganar ningún dato nuevo en las repeticiones (hallazgo H1/H2 de
+    // la auditoría del dashboard de admin). La atribución real se liga UNA
+    // sola vez por sesión nueva, ver el efecto de sesión en
+    // RootNavigator.tsx.
+    const visitorId = await getCampaignVisitorId();
+    const enrichedMetadata = {
+      ...(utm ?? {}),
+      ...(visitorId ? { visitor_id: visitorId } : {}),
+      ...(metadata ?? {}),
+    };
     await supabase.from('analytics_events').insert({
       event_name: eventName,
-      user_id: session?.user.id ?? null,
-      metadata: utm ? { ...utm, ...(metadata ?? {}) } : (metadata ?? null),
+      user_id: userIdOverride ?? session?.user.id ?? null,
+      metadata: Object.keys(enrichedMetadata).length ? enrichedMetadata : null,
     });
-    trackMetaEvent(eventName, metadata);
+    trackMetaEvent(eventName, enrichedMetadata);
   } catch {
     // Nunca debe afectar el flujo real -- ver comentario de arriba.
     trackMetaEvent(eventName, metadata);
@@ -168,6 +195,28 @@ export function logAppOpenOnce(): void {
   if (appOpenLogged) return;
   appOpenLogged = true;
   logEvent('app_open');
+}
+
+/** Mismo patrón que logAppOpenOnce, pero para 'web_visit' -- ver el
+ * comentario del tipo del evento arriba. Guard en una property de
+ * `window` (no un módulo-level boolean como el de arriba) para que
+ * sobreviva a un hot-reload en dev sin volver a contar la misma carga. */
+export function logWebVisitOnce(): void {
+  if (typeof window === 'undefined') return;
+  const key = '__auravs_web_visit_logged__';
+  if ((window as typeof window & Record<string, unknown>)[key]) return;
+  (window as typeof window & Record<string, unknown>)[key] = true;
+  void logEvent('web_visit', {
+    path: window.location.pathname,
+    referrer: document.referrer || null,
+  });
+}
+
+/** Un 'page_viewed' por cambio de ruta -- ver RootNavigator.onReady/
+ * onStateChange. Best-effort como todo lo demás acá, nunca bloquea la
+ * navegación real. */
+export function logPageView(routeName: string): void {
+  void logEvent('page_viewed', { route: routeName });
 }
 
 /**

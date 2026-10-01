@@ -3,6 +3,7 @@ import { Session } from '@supabase/supabase-js';
 import { supabase } from './supabaseClient';
 
 export type SignUpStatus = 'signedIn' | 'confirmationRequired' | 'alreadyRegistered';
+export type SignUpResult = { status: SignUpStatus; userId: string | null };
 
 // A dónde manda Supabase el link "Confirmar correo" del email de
 // verificación. Bug real encontrado probando en dos celulares: sin esto,
@@ -29,7 +30,7 @@ const EMAIL_CONFIRMATION_REDIRECT_URL = 'https://auravs.app';
  * activada (el default). La pantalla usa este status para mostrar el
  * estado correcto en cada caso.
  */
-export async function signUp(email: string, password: string): Promise<SignUpStatus> {
+export async function signUp(email: string, password: string): Promise<SignUpResult> {
   if (!supabase) throw new Error('Supabase no está configurado');
   const { data, error } = await supabase.auth.signUp({
     email,
@@ -42,10 +43,10 @@ export async function signUp(email: string, password: string): Promise<SignUpSta
   // error para un email ya registrado y confirmado — pero `identities`
   // viene vacío en ese caso (a diferencia de un registro nuevo real).
   if (data.user && data.user.identities && data.user.identities.length === 0) {
-    return 'alreadyRegistered';
+    return { status: 'alreadyRegistered', userId: null };
   }
-  if (data.session) return 'signedIn';
-  return 'confirmationRequired';
+  if (data.session) return { status: 'signedIn', userId: data.user?.id ?? data.session.user.id };
+  return { status: 'confirmationRequired', userId: data.user?.id ?? null };
 }
 
 export async function signIn(email: string, password: string): Promise<void> {
