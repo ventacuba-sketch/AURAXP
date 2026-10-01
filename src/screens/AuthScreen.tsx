@@ -14,7 +14,6 @@ import {
   signUp,
 } from '../services/authService';
 import { hasReferralCodeInUrl } from '../services/referralService';
-import { supabase } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { RootStackParamList } from '../types';
 
@@ -100,16 +99,14 @@ export default function AuthScreen() {
           return;
         }
         logEvent('signup_started');
-        const status = await signUp(email.trim(), password);
+        const { status, userId } = await signUp(email.trim(), password);
         if (status === 'confirmationRequired') {
           setSuccessMessage('Cuenta creada. Revisa tu correo para confirmar el registro.');
-          const { data: { session } } = await supabase!.auth.getSession();
-          logEvent('signup_completed', undefined, session?.user.id ?? null);
+          logEvent('signup_completed', undefined, userId);
         } else if (status === 'alreadyRegistered') {
           setShowAlreadyRegistered(true);
         } else if (status === 'signedIn') {
-          const { data: { session } } = await supabase!.auth.getSession();
-          logEvent('signup_completed', undefined, session?.user.id ?? null);
+          logEvent('signup_completed', undefined, userId);
         }
         // 'signedIn' (proyectos sin confirmación de email activada) ->
         // onAuthStateChange resuelve la navegación solo, igual que el login.
