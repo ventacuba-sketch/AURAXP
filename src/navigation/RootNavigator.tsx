@@ -15,6 +15,7 @@ import { InstallInviteHost } from '../components/InstallInviteHost';
 import { NotificationInviteHost } from '../components/NotificationInviteHost';
 import { useAuth } from '../hooks/useAuth';
 import { acceptChallenge } from '../services/challengeService';
+import { claimGuestRewardIfAny } from '../services/chatService';
 import { consumePendingChallengeToken } from '../services/pendingChallenge';
 import { tryAttributePendingReferral } from '../services/referralService';
 import AnalyzingScreen from '../screens/AnalyzingScreen';
@@ -22,6 +23,7 @@ import AuthScreen from '../screens/AuthScreen';
 import BugReportScreen from '../screens/BugReportScreen';
 import ChallengeLandingScreen from '../screens/ChallengeLandingScreen';
 import ChallengeScreen from '../screens/ChallengeScreen';
+import ChatScreen from '../screens/ChatScreen';
 import HelpScreen from '../screens/HelpScreen';
 import InviteScreen from '../screens/InviteScreen';
 import LandingScreen from '../screens/LandingScreen';
@@ -144,6 +146,13 @@ export function RootNavigator() {
   useEffect(() => {
     if (!session) return;
     tryAttributePendingReferral();
+    // Chat V1 (Coins pendientes) -- si esta cuenta llegó por el chat como
+    // invitado y había una recompensa de bienvenida pendiente para su
+    // visitor_id, la reclama acá, UNA sola vez por sesión nueva, igual
+    // criterio que tryAttributePendingReferral de arriba. Idempotente del
+    // lado del servidor (ver claim_chat_guest_reward) -- llamarlo de más
+    // nunca duplica el crédito.
+    claimGuestRewardIfAny();
   }, [session]);
 
   if (isSupabaseConfigured && loading) {
@@ -223,6 +232,16 @@ export function RootNavigator() {
             <Stack.Screen name="ChallengeLanding" component={ChallengeLandingScreen} />
             <Stack.Screen name="PublicResult" component={PublicResultScreen} />
             <Stack.Screen name="PublicBattle" component={PublicBattleScreen} />
+            {/* Chat V1 -- la ÚNICA forma de que un visitante SIN sesión
+                llegue al chat (ver LandingScreen, botón "Entrar al Chat").
+                Registrada acá, junto a las otras rutas deliberadamente
+                públicas, a propósito -- a diferencia de PublicProfile/
+                Wallet/etc (solo dentro de `authed` arriba). Un usuario
+                autenticado normalmente entra por el tab (MainTabs -> Chat,
+                ver MainTabNavigator); este mismo ChatScreen resuelve
+                internamente si hay sesión o no, así que no hace falta
+                duplicar el componente. */}
+            <Stack.Screen name="Chat" component={ChatScreen} />
           </Stack.Navigator>
         </View>
         <BottomNavBar authed={authed} navigationRef={navigationRef} />

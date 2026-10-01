@@ -31,7 +31,12 @@ import { getRootRouteName } from '../utils/navRoute';
  * menos alto disponible cuando esto está visible -- ningún screen
  * individual necesita saber que existe ni agregar padding por su cuenta.
  */
-const HIDDEN_ROUTES = new Set(['MainTabs', 'Record', 'Analyzing', 'ResetPassword', 'Auth']);
+// 'Chat' acá además de 'MainTabs': el ChatScreen autenticado normalmente
+// vive DENTRO de MainTabs (ya cubierto), pero el root-level 'Chat'
+// standalone (acceso de invitado, ver RootNavigator) también puede
+// montarse para un usuario ya logueado -- sin esto, esta barra pisaría el
+// composer propio del chat en ese caso.
+const HIDDEN_ROUTES = new Set(['MainTabs', 'Record', 'Analyzing', 'ResetPassword', 'Auth', 'Chat']);
 
 interface Props {
   authed: boolean;

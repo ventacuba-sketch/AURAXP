@@ -95,6 +95,12 @@ export default function LandingScreen() {
         <Text style={styles.secondaryLine}>{SECONDARY_FEATURES_LINE}</Text>
       </View>
 
+      {/* Chat V1 -- puerta de entrada sin registro (ver sección "VISITANTE
+          -> CHAT" del pedido). Ghost/secundario a propósito: el CTA
+          principal de esta pantalla sigue siendo medir el Aura, esto es
+          un camino alternativo para quien todavía no quiere grabar nada. */}
+      <PrimaryButton label="💬 Entrar al Chat" variant="ghost" onPress={() => navigation.navigate('Chat')} />
+
       <Text style={styles.footnote}>Solo pedimos una cuenta gratis para guardar tu resultado y competir.</Text>
     </ScreenContainer>
   );

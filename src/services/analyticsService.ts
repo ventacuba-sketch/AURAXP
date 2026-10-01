@@ -123,7 +123,29 @@ export type AnalyticsEventName =
   | 'public_vote_cta_clicked'
   | 'public_battle_viewed'
   | 'public_battle_voted'
-  | 'public_battle_cta_clicked';
+  | 'public_battle_cta_clicked'
+  // Chat V1 (bloque chat) -- instrumentados desde el cliente:
+  // chat_viewed/chat_guest_created/chat_profile_opened/
+  // chat_signup_prompted/chat_signup_started/chat_scan_cta_clicked/
+  // chat_invite_clicked/chat_follow_clicked (ver ChatScreen.tsx).
+  // chat_message_sent/chat_reaction_added en cambio se loguean
+  // SERVER-SIDE (mismo criterio que wallet_created/referral_activated) --
+  // ver send_chat_message/toggle_chat_reaction en la migración, nunca
+  // desde acá, para no contarlos dos veces. NO existen 'chat_signup_
+  // completed'/'chat_first_scan_completed' separados a propósito: el
+  // funnel CHAT -> REGISTRO -> PRIMER SCAN ya se puede reconstruir
+  // cruzando por visitor_id contra signup_completed/first_scan_completed
+  // existentes, sin duplicar esos dos eventos.
+  | 'chat_viewed'
+  | 'chat_guest_created'
+  | 'chat_message_sent'
+  | 'chat_reaction_added'
+  | 'chat_profile_opened'
+  | 'chat_signup_prompted'
+  | 'chat_signup_started'
+  | 'chat_scan_cta_clicked'
+  | 'chat_invite_clicked'
+  | 'chat_follow_clicked';
 
 function trackMetaEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>): void {
   if (typeof window === 'undefined') return;

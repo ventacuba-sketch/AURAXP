@@ -11,6 +11,10 @@ import type { NavigatorScreenParams } from '@react-navigation/native';
 export type MainTabParamList = {
   Home: undefined;
   Scan: undefined;
+  /** Chat V1 -- sala global única, ver ChatScreen. Tab persistente (no un
+   * redirect como Scan): a diferencia de Upload/Capture, acá el usuario
+   * se queda. */
+  Chat: undefined;
   Profile: undefined;
 };
 
@@ -98,6 +102,13 @@ export type RootStackParamList = {
   BugReport: undefined;
   /** Código de referido propio + CTA de invitar -- ver InviteScreen. */
   Invite: undefined;
+  /** Chat V1 -- registrada además ACÁ (fuera del ternario authed/!authed
+   * en RootNavigator), a diferencia del resto de las pantallas de arriba:
+   * es la única forma de que un visitante SIN sesión llegue al chat (ver
+   * sección "VISITANTE -> CHAT" del pedido). Un usuario autenticado la
+   * alcanza normalmente por el tab (MainTabs -> Chat); este mismo
+   * ChatScreen cubre ambos casos, resolviendo adentro si hay sesión o no. */
+  Chat: undefined;
 };
 
 export interface User {

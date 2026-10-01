@@ -14,3 +14,8 @@ export function captureUtmFromUrl():void{
 }
 export async function getStoredUtmParams():Promise<UtmParams|null>{try{const r=await AsyncStorage.getItem(STORAGE_KEY);return r?JSON.parse(r):null;}catch{return null;}}
 export async function linkCampaignToCurrentUser():Promise<void>{try{if(!supabase)return;const p=await getStoredUtmParams();if(!p)return;const id=await visitorId();await supabase.rpc('capture_campaign_attribution',{p_visitor_id:id,p_source:p.utm_source??null,p_medium:p.utm_medium??null,p_campaign:p.utm_campaign??null,p_content:p.utm_content??null,p_term:p.utm_term??null,p_path:null});}catch{}}
+
+/** Expone el visitor_id ya existente (mismo id que usa la atribución de
+ * campañas) para Chat V1 -- reutilizado como identidad de invitado en vez
+ * de crear un segundo identificador, ver chatService.ts. */
+export async function getVisitorId():Promise<string>{return visitorId();}
