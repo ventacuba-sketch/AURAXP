@@ -238,6 +238,15 @@ begin
   values (v_uid, v_guest_id, v_body)
   returning public.chat_messages.id, public.chat_messages.created_at into v_id, v_created_at;
 
+  -- Recompensa de bienvenida del invitado (Coins pendientes): se asegura
+  -- ACÁ, como efecto de un mensaje REAL ya validado/rate-limited -- nunca
+  -- vía una RPC "dame una recompensa" separada y libremente invocable
+  -- (ver comentario de ensure_chat_guest_reward más abajo, por qué se le
+  -- revocó el EXECUTE a anon/authenticated).
+  if v_guest_id is not null then
+    perform public.ensure_chat_guest_reward(v_guest_id);
+  end if;
+
   begin
     insert into public.analytics_events (event_name, user_id, metadata)
     values ('chat_message_sent', v_uid, case when v_guest_id is not null then jsonb_build_object('visitor_id', v_guest_id) else null end);
@@ -320,6 +329,13 @@ begin
   insert into public.chat_reactions (message_id, user_id, guest_id, emoji)
   values (p_message_id, v_uid, v_guest_id, p_emoji);
 
+  -- Misma razón que en send_chat_message: una reacción real (ya validada
+  -- y rate-limited) también cuenta como la señal de intención que
+  -- habilita la recompensa de bienvenida del invitado.
+  if v_guest_id is not null then
+    perform public.ensure_chat_guest_reward(v_guest_id);
+  end if;
+
   begin
     insert into public.analytics_events (event_name, user_id, metadata)
     values ('chat_reaction_added', v_uid, jsonb_build_object('emoji', p_emoji) || case when v_guest_id is not null then jsonb_build_object('visitor_id', v_guest_id) else '{}'::jsonb end);
@@ -395,8 +411,17 @@ grant execute on function public.hide_chat_message(uuid) to authenticated;
 -- ensure_chat_guest_reward: idempotente por diseño (ON CONFLICT DO
 -- NOTHING sobre la PK guest_id) -- llamarla 1 o 1000 veces con el mismo
 -- guest_id nunca crea más de una fila ni cambia el monto ya fijado.
--- Llamarla recién ante una señal real de intención (primer mensaje o
--- primera reacción del invitado), no solo por abrir la pantalla.
+--
+-- SIN EXECUTE para anon/authenticated a propósito (auditoría de
+-- seguridad post-V1): esta función es quien CREA la fila de recompensa,
+-- así que si cualquiera pudiera invocarla directo contra el endpoint RPC
+-- de Supabase (sin pasar nunca por el Chat real), la "señal de intención
+-- real" del pedido original quedaría solo en el cliente -- exactamente lo
+-- que la app nunca debe confiar. Ahora SOLO la llaman send_chat_message y
+-- toggle_chat_reaction, DESPUÉS de insertar un mensaje/reacción real ya
+-- validado y rate-limited -- eso sí es una señal de intención real,
+-- verificada server-side. El estado sigue siendo consultable (de
+-- lectura, nunca crea nada) vía get_chat_guest_reward_status más abajo.
 create or replace function public.ensure_chat_guest_reward(p_guest_id text)
 returns table (amount bigint, claimed boolean, error_code text)
 language plpgsql
@@ -421,7 +446,33 @@ end;
 $$;
 
 revoke all on function public.ensure_chat_guest_reward(text) from public, anon, authenticated;
-grant execute on function public.ensure_chat_guest_reward(text) to anon, authenticated;
+-- Nota: sin GRANT para anon/authenticated -- ver el comentario de arriba.
+-- Solo invocable desde dentro de otra función SECURITY DEFINER (corre con
+-- los privilegios del owner, igual que apply_coin_transaction).
+
+-- get_chat_guest_reward_status: de solo lectura -- nunca inserta nada,
+-- así que exponerla ampliamente es seguro (el peor caso es que alguien
+-- consulte el estado de un guest_id que ya conoce; no puede fabricar uno
+-- nuevo). Esto es lo que el cliente usa para mostrar "ya tienes 200 Coins
+-- pendientes" -- si todavía no existe la fila (el invitado no mandó
+-- ningún mensaje/reacción real todavía), simplemente no devuelve filas.
+create or replace function public.get_chat_guest_reward_status(p_guest_id text)
+returns table (amount bigint, claimed boolean)
+language sql
+security definer
+set search_path = ''
+stable
+as $$
+  select r.amount, (r.claimed_at is not null)
+  from public.chat_guest_rewards r
+  where r.guest_id = p_guest_id
+    and p_guest_id is not null
+    and length(p_guest_id) >= 8
+    and length(p_guest_id) <= 200;
+$$;
+
+revoke all on function public.get_chat_guest_reward_status(text) from public, anon, authenticated;
+grant execute on function public.get_chat_guest_reward_status(text) to anon, authenticated;
 
 -- claim_chat_guest_reward: la ÚNICA función que de verdad acredita Coins,
 -- y solo con sesión real. Doble guardia de idempotencia: el claimed_at de
@@ -451,6 +502,18 @@ begin
     return;
   end if;
 
+  -- Bloquea la wallet de este usuario ANTES de revisar "¿ya reclamó
+  -- antes?" -- mismo orden que apply_coin_transaction (lock primero,
+  -- recién después revisar el estado). Sin esto, dos llamadas
+  -- concurrentes con DOS guest_id distintos (el visitor_id es client-side,
+  -- trivial de resetear) podían pasar la revisión de "ya reclamó" las DOS
+  -- al mismo tiempo -- ninguna veía todavía el claim de la otra -- y
+  -- terminar acreditando el bono dos veces a la misma cuenta real. Con el
+  -- lock primero, la segunda llamada queda bloqueada hasta que la primera
+  -- termine (commit), y para cuando puede seguir ya ve el claim recién
+  -- commiteado de la primera.
+  perform 1 from public.wallets where user_id = v_uid for update;
+
   select * into v_row from public.chat_guest_rewards where guest_id = p_guest_id for update;
   if not found then
     return query select false, 0::bigint, 'no_reward';
@@ -462,7 +525,8 @@ begin
   end if;
 
   -- El visitor_id no prueba identidad: es controlado por el cliente.
-  -- Bloquea el abuso de reclamar varios guest rewards con la misma cuenta.
+  -- Bloquea el abuso de reclamar varios guest rewards con la misma cuenta
+  -- -- ahora protegido contra la carrera gracias al lock de arriba.
   if exists (
     select 1 from public.chat_guest_rewards r
     where r.claimed_by_user_id = v_uid

@@ -15,7 +15,7 @@ import { InstallInviteHost } from '../components/InstallInviteHost';
 import { NotificationInviteHost } from '../components/NotificationInviteHost';
 import { useAuth } from '../hooks/useAuth';
 import { acceptChallenge } from '../services/challengeService';
-import { claimGuestRewardIfAny } from '../services/chatService';
+import { claimGuestRewardIfAny, fireChatSignupCompletedIfPending } from '../services/chatService';
 import { consumePendingChallengeToken } from '../services/pendingChallenge';
 import { tryAttributePendingReferral } from '../services/referralService';
 import AnalyzingScreen from '../screens/AnalyzingScreen';
@@ -153,6 +153,10 @@ export function RootNavigator() {
     // lado del servidor (ver claim_chat_guest_reward) -- llamarlo de más
     // nunca duplica el crédito.
     claimGuestRewardIfAny();
+    // Chat V1 (analítica de funnel) -- si esta sesión nueva vino de un
+    // CTA de registro del chat (ver ChatScreen.markChatSignupIntent),
+    // dispara 'chat_signup_completed' acá, una sola vez.
+    fireChatSignupCompletedIfPending();
   }, [session]);
 
   if (isSupabaseConfigured && loading) {

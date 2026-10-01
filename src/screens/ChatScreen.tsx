@@ -28,17 +28,20 @@ import {
   ChatReactionSummary,
   ChatSenderProfile,
   ChatStatusKey,
-  ensureGuestReward,
   fetchReactionSummaries,
   fetchRecentMessages,
   fetchSenderProfiles,
+  fireChatFirstScanCompletedIfPending,
+  getGuestRewardStatus,
   getGuestId,
+  markChatSignupIntent,
   sendChatMessage,
   setChatStatus,
   subscribeToNewMessages,
   subscribeToReactionChanges,
   toggleChatReaction,
 } from '../services/chatService';
+import { followUser } from '../services/followService';
 import { fetchMyReferralInfo } from '../services/referralService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { shareText } from '../utils/share';
@@ -98,7 +101,6 @@ export default function ChatScreen() {
   const [promptReason, setPromptReason] = useState<PromptReason | null>(null);
   const [pendingCoins, setPendingCoins] = useState<number | null>(null);
   const [statusPickerOpen, setStatusPickerOpen] = useState(false);
-  const hasEngagedRef = useRef(false);
 
   // Identidad del viewer -- sesión real si existe, si no el visitor_id ya
   // existente (ver getGuestId -- nunca un segundo identificador ni un
@@ -125,8 +127,13 @@ export default function ChatScreen() {
   }, []);
 
   useEffect(() => {
-    if (isFocused) logEvent('chat_viewed');
-  }, [isFocused]);
+    if (!isFocused) return;
+    logEvent('chat_viewed');
+    // Atribución chat -> primer Scan (ver chatService.ts): chequea cada
+    // vez que se vuelve a esta pantalla, no solo al loguearse, porque el
+    // Scan real pasa DESPUÉS, en otra pantalla.
+    if (viewer?.authed) void fireChatFirstScanCompletedIfPending();
+  }, [isFocused, viewer?.authed]);
 
   const hydrateExtras = useCallback(
     async (list: ChatMessage[]) => {
@@ -147,11 +154,15 @@ export default function ChatScreen() {
   const loadInitial = useCallback(async () => {
     setLoading(true);
     setLoadError(false);
-    const recent = await fetchRecentMessages();
+    const { messages: recent, error } = await fetchRecentMessages();
+    if (error) {
+      setLoadError(true);
+      setLoading(false);
+      return;
+    }
     const ordered = [...recent].reverse();
     setMessages(ordered);
     setHasMore(recent.length === CHAT_PAGE_SIZE);
-    if (!recent.length) setLoadError(false);
     await hydrateExtras(ordered);
     setLoading(false);
   }, [hydrateExtras]);
@@ -177,10 +188,15 @@ export default function ChatScreen() {
   // simplemente nunca dispara, nada se rompe). Un solo listener de cada
   // tipo durante toda la vida de la pantalla, limpiado al desmontar.
   useEffect(() => {
-    const unsubMessages = subscribeToNewMessages((msg) => {
-      setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
-      if (msg.userId) void hydrateExtras([msg]);
-    });
+    const unsubMessages = subscribeToNewMessages(
+      (msg) => {
+        setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+        if (msg.userId) void hydrateExtras([msg]);
+      },
+      (hiddenId) => {
+        setMessages((prev) => prev.filter((m) => m.id !== hiddenId));
+      },
+    );
     const unsubReactions = subscribeToReactionChanges(() => {
       void fetchReactionSummaries(
         messagesRef.current.map((m) => m.id),
@@ -197,21 +213,22 @@ export default function ChatScreen() {
   async function loadMore() {
     if (loadingMore || !hasMore || !messages.length) return;
     setLoadingMore(true);
-    const older = await fetchRecentMessages(messages[0].createdAt);
+    const { messages: older, error } = await fetchRecentMessages(messages[0].createdAt);
+    setLoadingMore(false);
+    if (error) return; // best-effort -- el usuario puede reintentar tocando "cargar más" de nuevo.
     setHasMore(older.length === CHAT_PAGE_SIZE);
     const ordered = [...older].reverse();
     setMessages((prev) => [...ordered, ...prev]);
     await hydrateExtras(ordered);
-    setLoadingMore(false);
   }
 
-  /** Primera señal real de intención del invitado (mensaje o reacción) --
-   * recién acá se le asegura (idempotente) su recompensa de bienvenida.
-   * Nunca al solo abrir la pantalla. */
-  async function markGuestEngagement() {
-    if (!viewer || viewer.authed || hasEngagedRef.current) return;
-    hasEngagedRef.current = true;
-    const reward = await ensureGuestReward(viewer.guestId!);
+  /** Llamar después de un mensaje/reacción real del invitado -- la fila
+   * de recompensa la crea el SERVIDOR como efecto de esa acción ya
+   * validada (ver send_chat_message/toggle_chat_reaction), esto solo
+   * refresca el banner leyendo el estado resultante. */
+  async function refreshGuestReward() {
+    if (!viewer || viewer.authed) return;
+    const reward = await getGuestRewardStatus(viewer.guestId!);
     if (reward && !reward.claimed) setPendingCoins(reward.amount);
   }
 
@@ -232,14 +249,14 @@ export default function ChatScreen() {
       return;
     }
     setDraft('');
-    await markGuestEngagement();
+    await refreshGuestReward();
     requestAnimationFrame(() => listRef.current?.scrollToEnd({ animated: true }));
   }
 
   async function handleReact(messageId: string, emoji: ChatReactionEmoji) {
     if (!viewer) return;
     await toggleChatReaction(messageId, emoji, viewer.guestId);
-    await markGuestEngagement();
+    await refreshGuestReward();
     const map = await fetchReactionSummaries([messageId], { userId: viewer.userId, guestId: viewer.guestId });
     setReactions((prev) => ({ ...prev, ...map }));
   }
@@ -252,6 +269,7 @@ export default function ChatScreen() {
   function handleSignupFromPrompt() {
     logEvent('chat_signup_started', { reason: promptReason });
     setPromptReason(null);
+    void markChatSignupIntent();
     navigation.navigate('Auth', { initialMode: 'signUp', context: 'measure_aura' });
   }
 
@@ -262,6 +280,15 @@ export default function ChatScreen() {
       return;
     }
     navigation.navigate('PublicProfile', { username });
+  }
+
+  async function handleFollowClick(username: string) {
+    logEvent('chat_follow_clicked');
+    if (!viewer?.authed) {
+      openSignupPrompt('follow');
+      return;
+    }
+    await followUser(username);
   }
 
   function handleScanCta() {
@@ -300,6 +327,7 @@ export default function ChatScreen() {
     const avatar = item.userId ? sender?.avatarEmoji ?? '🙂' : '👤';
     const status = item.userId ? statusLabel(sender?.chatStatus) : null;
     const messageReactions = reactions[item.id] ?? [];
+    const showFollow = Boolean(item.userId) && !isMine && name !== '...';
 
     return (
       <View style={[styles.messageRow, isMine && styles.messageRowMine]}>
@@ -314,6 +342,11 @@ export default function ChatScreen() {
           <View style={styles.messageHeader}>
             <Text style={styles.senderName}>{name}</Text>
             {status && <Text style={styles.statusTag}>{status}</Text>}
+            {showFollow && (
+              <Pressable onPress={() => handleFollowClick(name)} hitSlop={6}>
+                <Text style={styles.followTag}>+ Seguir</Text>
+              </Pressable>
+            )}
             <Text style={styles.timestamp}>{relativeTime(item.createdAt)}</Text>
           </View>
           <Text style={styles.messageText}>{item.body}</Text>
@@ -584,6 +617,12 @@ const styles = StyleSheet.create({
     ...typography.caption,
     color: colors.textMuted,
     fontSize: 11,
+  },
+  followTag: {
+    ...typography.caption,
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: '800',
   },
   timestamp: {
     ...typography.caption,

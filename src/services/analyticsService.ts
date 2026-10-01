@@ -131,11 +131,14 @@ export type AnalyticsEventName =
   // chat_message_sent/chat_reaction_added en cambio se loguean
   // SERVER-SIDE (mismo criterio que wallet_created/referral_activated) --
   // ver send_chat_message/toggle_chat_reaction en la migración, nunca
-  // desde acá, para no contarlos dos veces. NO existen 'chat_signup_
-  // completed'/'chat_first_scan_completed' separados a propósito: el
-  // funnel CHAT -> REGISTRO -> PRIMER SCAN ya se puede reconstruir
-  // cruzando por visitor_id contra signup_completed/first_scan_completed
-  // existentes, sin duplicar esos dos eventos.
+  // desde acá, para no contarlos dos veces.
+  // chat_signup_completed/chat_first_scan_completed se disparan desde
+  // chatService.ts (fireChatSignupCompletedIfPending/
+  // fireChatFirstScanCompletedIfPending) vía una intención guardada en
+  // AsyncStorage al salir del chat hacia Auth (mismo patrón que
+  // pendingChallenge.ts/referralService.ts) -- deliberadamente SEPARADOS
+  // de signup_completed/first_scan_completed (que siguen existiendo tal
+  // cual), nunca los reemplazan ni se disparan en su lugar.
   | 'chat_viewed'
   | 'chat_guest_created'
   | 'chat_message_sent'
@@ -143,7 +146,9 @@ export type AnalyticsEventName =
   | 'chat_profile_opened'
   | 'chat_signup_prompted'
   | 'chat_signup_started'
+  | 'chat_signup_completed'
   | 'chat_scan_cta_clicked'
+  | 'chat_first_scan_completed'
   | 'chat_invite_clicked'
   | 'chat_follow_clicked';
 
