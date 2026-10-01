@@ -18,10 +18,22 @@ Deno.serve(async (req) => {
     const { data: profile } = await adminDb.from("profiles").select("is_admin").eq("id", user.id).maybeSingle();
     if (!profile?.is_admin) throw new Error("not_authorized");
 
+    if (req.method !== "POST") throw new Error("method_not_allowed");
     const { userId } = await req.json();
     if (!userId) throw new Error("missing_user_id");
     const { data: target, error: userError } = await adminDb.auth.admin.getUserById(userId);
     if (userError || !target.user?.email) throw new Error("user_not_found");
+
+    const { count: scanCount, error: scanError } = await adminDb.from("scans")
+      .select("id", { count: "exact", head: true }).eq("user_id", userId).eq("status", "done");
+    if (scanError) throw scanError;
+    if ((scanCount ?? 0) > 0) throw new Error("already_scanned");
+
+    const since = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+    const { count: recentLinks } = await adminDb.from("user_recovery_attempts")
+      .select("id", { count: "exact", head: true }).eq("user_id", userId)
+      .eq("channel", "magic_link").eq("action", "generated").gte("created_at", since);
+    if ((recentLinks ?? 0) > 0) throw new Error("recovery_link_cooldown");
 
     const redirectTo = "https://auravs.app/recover-scan?channel=magic_link";
     const { data: linkData, error: linkError } = await adminDb.auth.admin.generateLink({
