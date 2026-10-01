@@ -149,6 +149,13 @@ create table if not exists public.chat_guest_rewards (
   claimed_by_user_id uuid references public.profiles(id) on delete set null
 );
 
+-- Una cuenta autenticada solo puede reclamar UNA recompensa de invitado.
+-- El guest_id vive en el cliente y no es una credencial; esta restricción
+-- evita que una misma cuenta fabrique múltiples visitor_id y cobre varias veces.
+create unique index if not exists chat_guest_rewards_one_claim_per_user
+  on public.chat_guest_rewards (claimed_by_user_id)
+  where claimed_by_user_id is not null;
+
 alter table public.chat_guest_rewards enable row level security;
 -- RLS habilitada, CERO policies -- deniega todo acceso directo de
 -- cliente (anon/authenticated), con o sin GRANT. Solo las funciones
@@ -451,6 +458,16 @@ begin
   end if;
   if v_row.claimed_at is not null then
     return query select true, 0::bigint, 'already_claimed';
+    return;
+  end if;
+
+  -- El visitor_id no prueba identidad: es controlado por el cliente.
+  -- Bloquea el abuso de reclamar varios guest rewards con la misma cuenta.
+  if exists (
+    select 1 from public.chat_guest_rewards r
+    where r.claimed_by_user_id = v_uid
+  ) then
+    return query select true, 0::bigint, 'user_already_claimed';
     return;
   end if;
 
