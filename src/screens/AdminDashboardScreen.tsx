@@ -410,7 +410,7 @@ function SourceTable({ sources }: { sources: AdminDashboardData['sources'] }) {
           </View>
           {sources.map((source, index) => (
             <View key={`${source.source}-${source.medium}-${source.campaign}-${index}`} style={styles.tableRow}>
-              <View style={[styles.cellView, styles.sourceCell]}>
+              <View style={styles.cellView}>
                 <Text style={styles.cellMain}>{source.source}</Text>
                 <Text style={styles.cellSub}>{source.medium} · {source.campaign}</Text>
               </View>

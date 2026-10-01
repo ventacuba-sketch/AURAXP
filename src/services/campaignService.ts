@@ -81,6 +81,14 @@ function referrerHost(): string | undefined {
   }
 }
 
+/**
+ * Reemplaza al viejo captureUtmFromUrl: antes solo se guardaba algo si la
+ * URL traía utm_*, dejando sin atribuir todo el tráfico orgánico/directo.
+ * Ahora corre SIEMPRE (haya o no utm_*) y además manda referrer/device/
+ * browser/os -- lo que necesita el admin dashboard para desglosar fuente/
+ * dispositivo/navegador (ver capture_campaign_attribution, migración
+ * 20260930100000_admin_analytics_dashboard_v2.sql).
+ */
 export async function captureWebVisit(): Promise<VisitContext | null> {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
 
@@ -143,6 +151,14 @@ export async function getStoredUtmParams(): Promise<UtmParams | null> {
   }
 }
 
+/**
+ * Re-liga la atribución guardada (utm + device/browser/os) a la cuenta ya
+ * autenticada -- llamarlo UNA sola vez por sesión nueva (ver el efecto de
+ * sesión en RootNavigator.tsx), nunca desde logEvent(): cada llamada es un
+ * RPC completo, así que hacerlo en cada evento de analítica multiplicaría
+ * las llamadas a Supabase sin ganar ningún dato nuevo en las repeticiones
+ * (hallazgo H1 de la auditoría del dashboard de admin).
+ */
 export async function linkCampaignToCurrentUser(): Promise<void> {
   try {
     if (Platform.OS !== 'web' || !supabase) return;

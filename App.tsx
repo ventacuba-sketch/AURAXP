@@ -12,16 +12,35 @@ import { checkStandaloneOnBoot, registerServiceWorker } from './src/services/ins
 import { captureReferralFromUrl } from './src/services/referralService';
 
 export default function App() {
+  // Analítica de funnel (L) -- una sola vez por carga de la app, ver
+  // logAppOpenOnce (el guard vive ahí, no acá, por si este componente
+  // remontara). No es literalmente "abrió la app" en un sentido nativo
+  // (no hay evento de sistema para eso en Expo web), pero es el proxy más
+  // fiel disponible sin agregar una librería nueva solo para esto.
   useEffect(() => {
     logAppOpenOnce();
-
-    // Acquisition telemetry: capture UTM/referrer/device context before
-    // logging the web visit so the dashboard can attribute traffic.
-    void captureWebVisit().then(() => logWebVisitOnce());
-
+    // PWA (R2/R8/R10/R12) -- ambos no-op fuera de web (Platform.OS
+    // guard adentro de cada uno, ver installService.ts). El SW no cachea
+    // nada (ver public/sw.js); el check de standalone es la única forma
+    // real de confirmar una instalación de iOS (no existe un evento
+    // "aceptó instalar" ahí, a diferencia de Android).
     registerServiceWorker();
     checkStandaloneOnBoot();
+    // Referidos (bloque referidos) -- captura ?ref= de la URL (solo web) y
+    // lo guarda pendiente; la atribución real a la cuenta pasa después, ya
+    // con sesión, en RootNavigator (ver tryAttributePendingReferral ahí).
     captureReferralFromUrl();
+    // Landing de adquisición (TikTok/Reels/Shorts) -- captura ?utm_* de la
+    // URL, mismo criterio y mismo storage por fuera de la navegación que
+    // el referido de arriba (ver campaignService.ts). Dashboard de admin:
+    // captureWebVisit() amplía la captura original a TODA visita (no solo
+    // las que traen utm_*), sumando referrer/device/browser/os -- antes
+    // solo se guardaba algo si había utm_* en la URL, dejando sin atribuir
+    // el tráfico orgánico/directo. logWebVisitOnce() es el mismo patrón
+    // que logAppOpenOnce (un solo 'web_visit' por carga), encadenado
+    // DESPUÉS de capturar el contexto para que el evento ya viaje con
+    // visitor_id/utm en su metadata.
+    void captureWebVisit().then(() => logWebVisitOnce());
   }, []);
 
   return (
