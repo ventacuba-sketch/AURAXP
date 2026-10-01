@@ -20,6 +20,9 @@ import { consumePendingChallengeToken } from '../services/pendingChallenge';
 import { tryAttributePendingReferral } from '../services/referralService';
 import { logPageView } from '../services/analyticsService';
 import AdminDashboardScreen from '../screens/AdminDashboardScreen';
+import AdminRecoveryScreen from '../screens/AdminRecoveryScreen';
+import RecoveryContactScreen from '../screens/RecoveryContactScreen';
+import RecoveryScanScreen from '../screens/RecoveryScanScreen';
 import AnalyzingScreen from '../screens/AnalyzingScreen';
 import AuthScreen from '../screens/AuthScreen';
 import BugReportScreen from '../screens/BugReportScreen';
@@ -79,6 +82,7 @@ const linking: LinkingOptions<RootStackParamList> = {
   config: {
     screens: {
       AdminDashboard: 'admin',
+      RecoveryScan: 'recover-scan',
       ChallengeLanding: 'c/:token',
       Auth: 'auth',
       Landing: 'aura',
@@ -272,6 +276,9 @@ export function RootNavigator() {
                     DEFINER) -- esto es la mitad de UI, no reemplaza esa
                     protección server-side. */}
                 <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
+                <Stack.Screen name="AdminRecovery" component={AdminRecoveryScreen} />
+                <Stack.Screen name="RecoveryContact" component={RecoveryContactScreen} />
+                <Stack.Screen name="RecoveryScan" component={RecoveryScanScreen} />
               </>
             ) : (
               <>

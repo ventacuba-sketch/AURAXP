@@ -9,6 +9,7 @@ import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useSmartBack } from '../hooks/useSmartBack';
 import { logEvent } from '../services/analyticsService';
 import { uploadAndSubmitScan, VideoTooLargeError } from '../services/scanService';
+import { shouldPromptWhatsAppRecovery } from '../services/recoveryService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { RootStackParamList } from '../types';
@@ -56,6 +57,17 @@ export default function UploadScreen() {
   // memoria, ver más abajo) del primer intento.
   const [slowUpload, setSlowUpload] = useState(false);
   const [uploadFailed, setUploadFailed] = useState(false);
+
+  // Antes del primer Scan, una sola vez y solo en el flujo normal, ofrecemos
+  // WhatsApp como canal VOLUNTARIO de recuperación. Challenges/revancha no se interrumpen.
+  useEffect(() => {
+    if (params?.challengeToken || params?.rematchTargetUsername || params?.recordedUri) return;
+    let active = true;
+    shouldPromptWhatsAppRecovery().then((shouldPrompt) => {
+      if (active && shouldPrompt) navigation.replace('RecoveryContact');
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [navigation, params?.challengeToken, params?.rematchTargetUsername, params?.recordedUri]);
 
   function notify(title: string, message: string) {
     if (Platform.OS === 'web') {
