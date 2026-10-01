@@ -153,7 +153,11 @@ function trackMetaEvent(eventName: AnalyticsEventName, metadata?: Record<string,
   }
 }
 
-export async function logEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>): Promise<void> {
+export async function logEvent(
+  eventName: AnalyticsEventName,
+  metadata?: Record<string, unknown>,
+  userIdOverride?: string | null,
+): Promise<void> {
   if (!supabase) return;
   try {
     const session = await getSession();
@@ -174,7 +178,7 @@ export async function logEvent(eventName: AnalyticsEventName, metadata?: Record<
     };
     await supabase.from('analytics_events').insert({
       event_name: eventName,
-      user_id: session?.user.id ?? null,
+      user_id: userIdOverride ?? session?.user.id ?? null,
       metadata: Object.keys(enrichedMetadata).length ? enrichedMetadata : null,
     });
     trackMetaEvent(eventName, enrichedMetadata);
