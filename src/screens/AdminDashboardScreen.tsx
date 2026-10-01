@@ -191,15 +191,20 @@ export default function AdminDashboardScreen() {
             <Text style={styles.title}>Analytics Dashboard</Text>
             <Text style={styles.muted}>{rangeLabel}</Text>
           </View>
-          <Pressable
-            style={styles.refreshButton}
-            onPress={() => {
-              setRefreshing(true);
-              void load();
-            }}
-          >
-            <Text style={styles.refreshText}>{refreshing ? '…' : '↻ Actualizar'}</Text>
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <Pressable style={styles.refreshButton} onPress={() => navigation.navigate('AdminRecovery')}>
+              <Text style={styles.refreshText}>↗ Recuperación</Text>
+            </Pressable>
+            <Pressable
+              style={styles.refreshButton}
+              onPress={() => {
+                setRefreshing(true);
+                void load();
+              }}
+            >
+              <Text style={styles.refreshText}>{refreshing ? '…' : '↻ Actualizar'}</Text>
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.filterRow}>
