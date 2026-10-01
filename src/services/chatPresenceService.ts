@@ -62,7 +62,11 @@ export function joinChatPresence(identity: { userId: string | null; guestId: str
     for (const entry of entries) {
       if (entry.user_id) onlineUserIds.add(entry.user_id);
     }
-    onChange({ subscribed, onlineCount: entries.length, onlineUserIds });
+    // Una misma identidad puede tener varias conexiones (pestañas/dispositivos)
+    // bajo la misma presence key. El contador visible representa personas/
+    // invitados únicos, no sockets abiertos.
+    const uniquePresenceKeys = Object.keys(state).length;
+    onChange({ subscribed, onlineCount: uniquePresenceKeys, onlineUserIds });
   }
 
   channel.on('presence', { event: 'sync' }, () => emit(true));
