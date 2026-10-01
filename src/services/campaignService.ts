@@ -145,7 +145,7 @@ export async function getStoredUtmParams(): Promise<UtmParams | null> {
 
 export async function linkCampaignToCurrentUser(): Promise<void> {
   try {
-    if (!supabase) return;
+    if (Platform.OS !== 'web' || !supabase) return;
     const params = await getStoredUtmParams();
     const id = await visitorId();
     await supabase.rpc('capture_campaign_attribution', {
