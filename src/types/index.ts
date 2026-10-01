@@ -26,6 +26,7 @@ export type MainTabParamList = {
  * both Analyzing and ScanResult fall back to mock data.
  */
 export type RootStackParamList = {
+  AdminDashboard: undefined;
   /** `{ screen: 'Profile' }` etc. salta directo a un tab puntual (p. ej.
    * desde el link "Ver perfil" del XP en ScanResult) -- `undefined` cae
    * en el tab por default (Home). */
