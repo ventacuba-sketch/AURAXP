@@ -186,7 +186,7 @@ begin
       'item_purchases', k.item_purchases, 'missions_completed', k.missions_completed, 'referrals_activated', k.referrals_activated,
       'pwa_installs', k.pwa_installs, 'push_subscriptions', k.push_subscriptions, 'bug_reports', k.bug_reports,
       'public_result_views', k.public_result_views, 'public_result_votes', k.public_result_votes, 'public_battle_views', k.public_battle_views, 'public_battle_votes', k.public_battle_votes,
-      'pro_checkout_opens', pro.pro_checkout_opens, 'active_pro_users', pro.active_pro_users, 'new_pro_users', pro.new_pro_users,
+      'pro_checkout_opens', k.pro_checkout_opens, 'active_pro_users', pro.active_pro_users, 'new_pro_users', pro.new_pro_users,
       'coins_earned', wallet.coins_earned, 'coins_spent', wallet.coins_spent, 'analytics_errors', k.analytics_errors
     ),
     'rates', jsonb_build_object(
