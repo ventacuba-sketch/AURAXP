@@ -17,6 +17,13 @@ export function WebMobileFrame({ children }: PropsWithChildren) {
     return <>{children}</>;
   }
 
+  // The admin analytics route is a desktop dashboard rather than the
+  // consumer mobile experience. Opening /admin directly therefore uses the
+  // full browser viewport while the public app keeps the phone frame.
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
+    return <View style={styles.adminOuter}>{children}</View>;
+  }
+
   return (
     <View style={styles.outer}>
       <View style={styles.phone}>{children}</View>
@@ -25,6 +32,12 @@ export function WebMobileFrame({ children }: PropsWithChildren) {
 }
 
 const styles = StyleSheet.create({
+  adminOuter: {
+    flex: 1,
+    width: '100%',
+    height: '100%',
+    backgroundColor: colors.background,
+  },
   outer: {
     flex: 1,
     width: '100%',
