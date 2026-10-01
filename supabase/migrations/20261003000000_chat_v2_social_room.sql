@@ -427,6 +427,20 @@ begin
     return;
   end if;
 
+  -- Si cualquiera bloqueó al otro después de que se creó la solicitud,
+  -- una solicitud vieja no puede usarse para saltarse el bloqueo.
+  if exists (
+    select 1 from public.chat_blocks b
+    where (b.blocker_id = v_req.requester_id and b.blocked_id = v_req.recipient_id)
+       or (b.blocker_id = v_req.recipient_id and b.blocked_id = v_req.requester_id)
+  ) then
+    update public.chat_private_requests
+      set status = 'rejected', responded_at = now()
+      where id = p_request_id;
+    return query select false, null::uuid, 'blocked';
+    return;
+  end if;
+
   if not p_accept then
     update public.chat_private_requests
       set status = 'rejected', responded_at = now()
@@ -716,6 +730,15 @@ begin
   insert into public.chat_blocks (blocker_id, blocked_id)
   values (v_uid, v_target_id)
   on conflict (blocker_id, blocked_id) do nothing;
+
+  -- Cualquier solicitud pendiente entre ambos queda cerrada. Así una
+  -- solicitud creada antes del bloqueo no sigue apareciendo ni puede
+  -- aceptarse después para saltarse la decisión de bloquear.
+  update public.chat_private_requests
+    set status = 'rejected', responded_at = now()
+    where status = 'pending'
+      and least(requester_id, recipient_id) = least(v_uid, v_target_id)
+      and greatest(requester_id, recipient_id) = greatest(v_uid, v_target_id);
 
   -- Oculta la conversación de MI bandeja (si existe) -- nunca borra ni
   -- oculta mensajes históricos, y nunca toca la bandeja del bloqueado
