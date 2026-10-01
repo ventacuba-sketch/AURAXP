@@ -35,7 +35,13 @@ create policy "recovery contact own update" on public.user_recovery_contacts for
 using (user_id = auth.uid()) with check (user_id = auth.uid());
 
 revoke all on public.user_recovery_attempts from anon, authenticated;
-grant select, insert, update on public.user_recovery_contacts to authenticated;
+-- Contact writes go only through set_whatsapp_recovery(): otherwise a client
+-- could forge consent timestamps/status with a direct table UPDATE.
+revoke insert, update, delete on public.user_recovery_contacts from anon, authenticated;
+grant select on public.user_recovery_contacts to authenticated;
+
+drop policy if exists "recovery contact own insert" on public.user_recovery_contacts;
+drop policy if exists "recovery contact own update" on public.user_recovery_contacts;
 
 create or replace function public.set_whatsapp_recovery(p_phone text, p_opt_in boolean)
 returns void language plpgsql security definer set search_path=public as $$
