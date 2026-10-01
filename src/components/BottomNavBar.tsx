@@ -31,7 +31,7 @@ import { getRootRouteName } from '../utils/navRoute';
  * menos alto disponible cuando esto está visible -- ningún screen
  * individual necesita saber que existe ni agregar padding por su cuenta.
  */
-const HIDDEN_ROUTES = new Set(['MainTabs', 'Record', 'Analyzing', 'ResetPassword', 'Auth', 'AdminDashboard']);
+const HIDDEN_ROUTES = new Set(['MainTabs', 'Record', 'Analyzing', 'ResetPassword', 'Auth', 'AdminDashboard', 'Chat']);
 
 interface Props {
   authed: boolean;
