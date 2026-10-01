@@ -6,8 +6,8 @@ import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { WebMobileFrame } from './src/components/WebMobileFrame';
 import { AuthProvider } from './src/hooks/useAuth';
 import { RootNavigator } from './src/navigation/RootNavigator';
-import { logAppOpenOnce } from './src/services/analyticsService';
-import { captureUtmFromUrl } from './src/services/campaignService';
+import { logAppOpenOnce, logWebVisitOnce } from './src/services/analyticsService';
+import { captureWebVisit } from './src/services/campaignService';
 import { checkStandaloneOnBoot, registerServiceWorker } from './src/services/installService';
 import { captureReferralFromUrl } from './src/services/referralService';
 
@@ -32,8 +32,15 @@ export default function App() {
     captureReferralFromUrl();
     // Landing de adquisición (TikTok/Reels/Shorts) -- captura ?utm_* de la
     // URL, mismo criterio y mismo storage por fuera de la navegación que
-    // el referido de arriba (ver campaignService.ts).
-    captureUtmFromUrl();
+    // el referido de arriba (ver campaignService.ts). Dashboard de admin:
+    // captureWebVisit() amplía la captura original a TODA visita (no solo
+    // las que traen utm_*), sumando referrer/device/browser/os -- antes
+    // solo se guardaba algo si había utm_* en la URL, dejando sin atribuir
+    // el tráfico orgánico/directo. logWebVisitOnce() es el mismo patrón
+    // que logAppOpenOnce (un solo 'web_visit' por carga), encadenado
+    // DESPUÉS de capturar el contexto para que el evento ya viaje con
+    // visitor_id/utm en su metadata.
+    void captureWebVisit().then(() => logWebVisitOnce());
   }, []);
 
   return (
