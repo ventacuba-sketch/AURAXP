@@ -32,6 +32,9 @@ export type RootStackParamList = {
    * PublicResult/PublicBattle -- la propia pantalla valida el acceso real
    * contra la RPC, no un gate de navegación. */
   AdminDashboard: undefined;
+  AdminRecovery: undefined;
+  RecoveryContact: undefined;
+  RecoveryScan: undefined;
   /** `{ screen: 'Profile' }` etc. salta directo a un tab puntual (p. ej.
    * desde el link "Ver perfil" del XP en ScanResult) -- `undefined` cae
    * en el tab por default (Home). */
