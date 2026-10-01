@@ -125,6 +125,24 @@ export type AnalyticsEventName =
   | 'public_battle_voted'
   | 'public_battle_cta_clicked';
 
+function trackMetaEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>): void {
+  if (typeof window === 'undefined') return;
+  const fbq = (window as typeof window & {
+    fbq?: (command: string, eventName: string, params?: Record<string, unknown>) => void;
+  }).fbq;
+  if (typeof fbq !== 'function') return;
+
+  try {
+    if (eventName === 'signup_completed') {
+      fbq('track', 'CompleteRegistration', metadata);
+    } else if (eventName === 'first_scan_completed') {
+      fbq('trackCustom', 'ScanCompleted', metadata);
+    }
+  } catch {
+    // Meta telemetry must never affect the AURA VS flow.
+  }
+}
+
 export async function logEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>): Promise<void> {
   if (!supabase) return;
   try {
@@ -136,8 +154,10 @@ export async function logEvent(eventName: AnalyticsEventName, metadata?: Record<
       user_id: session?.user.id ?? null,
       metadata: utm ? { ...utm, ...(metadata ?? {}) } : (metadata ?? null),
     });
+    trackMetaEvent(eventName, metadata);
   } catch {
     // Nunca debe afectar el flujo real -- ver comentario de arriba.
+    trackMetaEvent(eventName, metadata);
   }
 }
 
