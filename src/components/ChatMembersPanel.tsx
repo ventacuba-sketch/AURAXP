@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { ChatMember } from '../services/chatPrivateService';
+import { cancelPrivateChatRequest } from '../services/chatPrivateCancelService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -40,6 +41,27 @@ export function ChatMembersPanel({
   onChallenge,
   onPrivateMessage,
 }: ChatMembersPanelProps) {
+  const [cancellingUsername, setCancellingUsername] = useState<string | null>(null);
+  const [cancelErrorUsername, setCancelErrorUsername] = useState<string | null>(null);
+
+  async function handlePrivateAction(member: ChatMember, privatePending: boolean) {
+    if (!privatePending) {
+      onPrivateMessage(member);
+      return;
+    }
+
+    if (cancellingUsername) return;
+    setCancellingUsername(member.username);
+    setCancelErrorUsername(null);
+    const result = await cancelPrivateChatRequest(member.username);
+    setCancellingUsername(null);
+
+    if (!result.ok) {
+      setCancelErrorUsername(member.username);
+      setTimeout(() => setCancelErrorUsername(null), 3500);
+    }
+  }
+
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -65,6 +87,8 @@ export function ChatMembersPanel({
           const followStateKnown = Object.prototype.hasOwnProperty.call(followingByUsername, item.username);
           const isFollowing = followingByUsername[item.username] === true;
           const privatePending = pendingPrivateUsernames.has(item.username);
+          const cancelling = cancellingUsername === item.username;
+          const cancelError = cancelErrorUsername === item.username;
 
           return (
             <View style={styles.row}>
@@ -99,14 +123,15 @@ export function ChatMembersPanel({
                     <Text style={styles.actionChipText}>⚔️ Desafiar</Text>
                   </Pressable>
                   <Pressable
-                    style={[styles.actionChip, privatePending ? styles.pendingChip : styles.privateChip]}
-                    onPress={() => onPrivateMessage(item)}
-                    disabled={privatePending}
+                    style={[styles.actionChip, privatePending ? styles.cancelChip : styles.privateChip]}
+                    onPress={() => void handlePrivateAction(item, privatePending)}
+                    disabled={cancelling}
                   >
-                    <Text style={privatePending ? styles.pendingChipText : styles.privateChipText}>
-                      {privatePending ? '⏳ Invitación enviada' : '💬 Privado'}
+                    <Text style={privatePending ? styles.cancelChipText : styles.privateChipText}>
+                      {privatePending ? (cancelling ? 'Cancelando...' : '✕ Cancelar invitación') : '💬 Privado'}
                     </Text>
                   </Pressable>
+                  {cancelError && <Text style={styles.cancelError}>No se pudo cancelar. Intenta otra vez.</Text>}
                 </View>
               )}
             </View>
@@ -175,6 +200,7 @@ const styles = StyleSheet.create({
   followingText: { color: colors.textSecondary },
   privateChip: { borderColor: colors.accent },
   privateChipText: { ...typography.caption, color: colors.accent, fontWeight: '800', fontSize: 11 },
-  pendingChip: { borderColor: colors.border, opacity: 0.8 },
-  pendingChipText: { ...typography.caption, color: colors.textSecondary, fontWeight: '800', fontSize: 11 },
+  cancelChip: { borderColor: colors.danger },
+  cancelChipText: { ...typography.caption, color: colors.danger, fontWeight: '800', fontSize: 11 },
+  cancelError: { ...typography.caption, color: colors.danger, width: '100%', fontSize: 10 },
 });
