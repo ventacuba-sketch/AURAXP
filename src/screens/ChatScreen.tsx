@@ -44,7 +44,16 @@ import {
   toggleChatReaction,
 } from '../services/chatService';
 import { ChatPresenceState, joinChatPresence } from '../services/chatPresenceService';
-import { ChatMember, fetchChatMembers, fetchTotalUnreadPrivateCount, requestPrivateChat } from '../services/chatPrivateService';
+import {
+  ChatMember,
+  IncomingPrivateRequest,
+  fetchChatMembers,
+  fetchIncomingPrivateRequests,
+  fetchTotalUnreadPrivateCount,
+  requestPrivateChat,
+  respondToPrivateChatRequest,
+} from '../services/chatPrivateService';
+import { fetchOutgoingPendingPrivateUsernames, subscribeToPrivateRequestChanges } from '../services/chatPrivateUxService';
 import { fetchFollowStats, followUser, unfollowUser } from '../services/followService';
 import { fetchMyReferralInfo } from '../services/referralService';
 import { colors, radius, spacing, typography } from '../theme/colors';
@@ -122,6 +131,10 @@ export default function ChatScreen() {
   const [chatMembers, setChatMembers] = useState<ChatMember[]>([]);
   const [presence, setPresence] = useState<ChatPresenceState>({ subscribed: false, onlineCount: 0, onlineUserIds: new Set() });
   const [unreadPrivateCount, setUnreadPrivateCount] = useState(0);
+  const [incomingPrivateRequests, setIncomingPrivateRequests] = useState<IncomingPrivateRequest[]>([]);
+  const [pendingPrivateUsernames, setPendingPrivateUsernames] = useState<Set<string>>(new Set());
+  const [privateRequestSentTo, setPrivateRequestSentTo] = useState<string | null>(null);
+  const [respondingPrivateRequest, setRespondingPrivateRequest] = useState(false);
   const [memberActionMessage, setMemberActionMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -156,10 +169,30 @@ export default function ChatScreen() {
     return joinChatPresence({ userId: viewer.userId, guestId: viewer.guestId }, setPresence);
   }, [viewer]);
 
+  const refreshPrivateState = useCallback(async () => {
+    if (!viewer?.authed || !viewer.userId) return;
+    const [incoming, outgoing, unread] = await Promise.all([
+      fetchIncomingPrivateRequests(viewer.userId),
+      fetchOutgoingPendingPrivateUsernames(viewer.userId),
+      fetchTotalUnreadPrivateCount(),
+    ]);
+    setIncomingPrivateRequests(incoming);
+    setPendingPrivateUsernames(new Set(outgoing));
+    setUnreadPrivateCount(unread);
+  }, [viewer?.authed, viewer?.userId]);
+
   useEffect(() => {
     if (!isFocused || !viewer?.authed) return;
-    fetchTotalUnreadPrivateCount().then(setUnreadPrivateCount);
-  }, [isFocused, viewer?.authed]);
+    void refreshPrivateState();
+  }, [isFocused, viewer?.authed, refreshPrivateState]);
+
+  useEffect(() => {
+    if (!viewer?.authed || !viewer.userId) return;
+    const unsubscribe = subscribeToPrivateRequestChanges(viewer.userId, () => {
+      void refreshPrivateState();
+    });
+    return unsubscribe;
+  }, [viewer?.authed, viewer?.userId, refreshPrivateState]);
 
   const recentActiveUserIds = useCallback(() => {
     const cutoff = Date.now() - 10 * 60 * 1000;
@@ -174,6 +207,8 @@ export default function ChatScreen() {
   const activityLabel = presence.subscribed
     ? `● ${presence.onlineCount} conectado${presence.onlineCount === 1 ? '' : 's'}`
     : `~ ${effectiveMemberIds.size} activo${effectiveMemberIds.size === 1 ? '' : 's'} recientemente`;
+  const privateBadgeCount = unreadPrivateCount + incomingPrivateRequests.length;
+  const activeIncomingRequest = incomingPrivateRequests[0] ?? null;
 
   const hydrateFollowing = useCallback(
     async (usernames: string[]) => {
@@ -250,17 +285,48 @@ export default function ChatScreen() {
       openSignupPrompt('privateMessage');
       return;
     }
+    if (pendingPrivateUsernames.has(username)) return;
+
     const result = await requestPrivateChat(username);
     if (result.ok) {
-      setMemberActionMessage(`Solicitud privada enviada a ${username}. Debe aceptarla antes de poder escribirle.`);
+      setPendingPrivateUsernames((prev) => new Set([...prev, username]));
+      setPrivateRequestSentTo(username);
+      setMemberActionMessage(null);
     } else {
       setMemberActionMessage(PRIVATE_REQUEST_ERROR_COPY[result.errorCode ?? ''] ?? 'No pudimos enviar la solicitud privada.');
+      setTimeout(() => setMemberActionMessage(null), 4500);
     }
-    setTimeout(() => setMemberActionMessage(null), 4500);
   }
 
   async function handleMemberPrivateMessage(member: ChatMember) {
     await handlePrivateMessage(member.username);
+  }
+
+  async function handleIncomingPrivateResponse(accept: boolean) {
+    if (!activeIncomingRequest || respondingPrivateRequest) return;
+    setRespondingPrivateRequest(true);
+    const request = activeIncomingRequest;
+    const result = await respondToPrivateChatRequest(request.id, accept);
+    setRespondingPrivateRequest(false);
+
+    if (!result.ok) {
+      setMemberActionMessage('No pudimos responder la invitación. Intenta de nuevo.');
+      setTimeout(() => setMemberActionMessage(null), 4500);
+      await refreshPrivateState();
+      return;
+    }
+
+    setIncomingPrivateRequests((prev) => prev.filter((item) => item.id !== request.id));
+    await refreshPrivateState();
+
+    if (accept && result.conversationId) {
+      navigation.navigate('ChatPrivateConversation', {
+        conversationId: result.conversationId,
+        peerId: request.requesterId,
+        peerUsername: request.requesterUsername,
+        peerAvatarEmoji: request.requesterAvatarEmoji,
+      });
+    }
   }
 
   const hydrateExtras = useCallback(
@@ -432,6 +498,7 @@ export default function ChatScreen() {
     const showSocialActions = Boolean(item.userId) && !isMine && name !== '...';
     const followStateKnown = Object.prototype.hasOwnProperty.call(followingByUsername, name);
     const isFollowing = followingByUsername[name] === true;
+    const privatePending = pendingPrivateUsernames.has(name);
 
     return (
       <View style={[styles.messageRow, isMine && styles.messageRowMine]}>
@@ -451,8 +518,10 @@ export default function ChatScreen() {
                   <Text style={[styles.followTag, isFollowing && styles.followingTag]}>{isFollowing ? '✓ Siguiendo' : '+ Seguir'}</Text>
                 </Pressable>
               )}
-              <Pressable onPress={() => handlePrivateMessage(name)} hitSlop={6}>
-                <Text style={styles.privateTag}>💬 Privado</Text>
+              <Pressable onPress={() => handlePrivateMessage(name)} hitSlop={6} disabled={privatePending}>
+                <Text style={privatePending ? styles.privatePendingTag : styles.privateTag}>
+                  {privatePending ? '⏳ Invitación enviada' : '💬 Privado'}
+                </Text>
               </Pressable>
             </View>
           )}
@@ -486,6 +555,7 @@ export default function ChatScreen() {
       viewerAuthed={Boolean(viewer?.authed)}
       activityLabel={activityLabel}
       followingByUsername={followingByUsername}
+      pendingPrivateUsernames={pendingPrivateUsernames}
       onClose={isWideLayout ? undefined : () => setMembersOpen(false)}
       onViewProfile={handleMemberViewProfile}
       onFollow={handleFollowClick}
@@ -506,8 +576,13 @@ export default function ChatScreen() {
             <Pressable onPress={openMembersPanel} hitSlop={6}>
               <Text style={styles.headerActionText}>👥 Integrantes</Text>
             </Pressable>
-            <Pressable onPress={openPrivadosInbox} hitSlop={6}>
-              <Text style={styles.headerActionText}>💬 Privados{unreadPrivateCount > 0 ? ` (${unreadPrivateCount})` : ''}</Text>
+            <Pressable onPress={openPrivadosInbox} hitSlop={6} style={styles.privateHeaderButton}>
+              <Text style={styles.headerActionText}>💬 Privados</Text>
+              {privateBadgeCount > 0 && (
+                <View style={styles.privateAlertBadge}>
+                  <Text style={styles.privateAlertBadgeText}>{privateBadgeCount > 99 ? '99+' : privateBadgeCount}</Text>
+                </View>
+              )}
             </Pressable>
             {viewer?.authed && (
               <Pressable onPress={() => setStatusPickerOpen(true)} style={styles.statusButton} hitSlop={8}>
@@ -609,6 +684,46 @@ export default function ChatScreen() {
           </View>
         </Modal>
 
+        <Modal visible={!!privateRequestSentTo} transparent animationType="fade" onRequestClose={() => setPrivateRequestSentTo(null)}>
+          <View style={styles.modalBackdrop}>
+            <View style={styles.modalCard}>
+              <Text style={styles.modalIcon}>📨</Text>
+              <Text style={styles.modalTitle}>Invitación enviada</Text>
+              <Text style={styles.modalBody}>
+                Le enviamos una invitación a <Text style={styles.modalStrong}>{privateRequestSentTo}</Text>. Si la acepta, podrán hablar en privado.
+              </Text>
+              <Text style={styles.pendingExplanation}>⏳ Mientras esperas, verás “Invitación enviada” junto a su nombre.</Text>
+              <PrimaryButton label="ENTENDIDO" onPress={() => setPrivateRequestSentTo(null)} />
+            </View>
+          </View>
+        </Modal>
+
+        <Modal visible={!!activeIncomingRequest} transparent animationType="fade" onRequestClose={() => {}}>
+          <View style={styles.modalBackdrop}>
+            <View style={[styles.modalCard, styles.invitationCard]}>
+              <Text style={styles.modalIcon}>💬</Text>
+              <Text style={styles.modalTitle}>Nueva invitación privada</Text>
+              {activeIncomingRequest && (
+                <Text style={styles.modalBody}>
+                  <Text style={styles.modalStrong}>{activeIncomingRequest.requesterUsername}</Text> quiere iniciar una conversación privada contigo.
+                </Text>
+              )}
+              <Text style={styles.invitationConsent}>Solo podrá escribirte si aceptas la invitación.</Text>
+              <PrimaryButton
+                label={respondingPrivateRequest ? 'ACEPTANDO...' : 'ACEPTAR Y ABRIR CHAT'}
+                onPress={() => void handleIncomingPrivateResponse(true)}
+                disabled={respondingPrivateRequest}
+              />
+              <PrimaryButton
+                label="RECHAZAR"
+                variant="ghost"
+                onPress={() => void handleIncomingPrivateResponse(false)}
+                disabled={respondingPrivateRequest}
+              />
+            </View>
+          </View>
+        </Modal>
+
         <Modal visible={statusPickerOpen} transparent animationType="fade" onRequestClose={() => setStatusPickerOpen(false)}>
           <View style={styles.modalBackdrop}>
             <View style={styles.modalCard}>
@@ -662,6 +777,17 @@ const styles = StyleSheet.create({
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, flexWrap: 'wrap', justifyContent: 'flex-end' },
   headerActionsMobile: { width: '100%', justifyContent: 'space-between', gap: spacing.sm, flexWrap: 'nowrap' },
   headerActionText: { ...typography.caption, color: colors.accent, fontWeight: '800' },
+  privateHeaderButton: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  privateAlertBadge: {
+    minWidth: 19,
+    height: 19,
+    borderRadius: radius.pill,
+    backgroundColor: colors.danger,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 5,
+  },
+  privateAlertBadgeText: { ...typography.caption, color: '#fff', fontWeight: '900', fontSize: 10 },
   actionToast: {
     marginHorizontal: spacing.lg,
     marginBottom: spacing.sm,
@@ -719,6 +845,7 @@ const styles = StyleSheet.create({
   followTag: { ...typography.caption, color: colors.accent, fontSize: 11, fontWeight: '800' },
   followingTag: { color: colors.textSecondary },
   privateTag: { ...typography.caption, color: colors.accent, fontSize: 11, fontWeight: '800' },
+  privatePendingTag: { ...typography.caption, color: colors.textSecondary, fontSize: 11, fontWeight: '800' },
   timestamp: { ...typography.caption, color: colors.textMuted, fontSize: 11, marginLeft: 'auto' },
   messageText: { ...typography.body, color: colors.textPrimary, marginTop: 2 },
   reactionRow: { flexDirection: 'row', gap: spacing.xs, marginTop: spacing.xs },
@@ -773,8 +900,13 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.sm,
   },
+  invitationCard: { borderColor: colors.accent },
+  modalIcon: { fontSize: 32, textAlign: 'center' },
   modalTitle: { ...typography.title, color: colors.textPrimary },
   modalBody: { ...typography.body, color: colors.textSecondary, marginBottom: spacing.sm },
+  modalStrong: { color: colors.textPrimary, fontWeight: '900' },
+  pendingExplanation: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.sm },
+  invitationConsent: { ...typography.caption, color: colors.accent, fontWeight: '800', marginBottom: spacing.sm },
   statusOption: { paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
   statusOptionText: { ...typography.body, color: colors.textPrimary },
 });
