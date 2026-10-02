@@ -6,6 +6,8 @@ import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useSmartBack } from '../hooks/useSmartBack';
 import { logEvent } from '../services/analyticsService';
+import { getSession } from '../services/authService';
+import { cancelPrivateChatRequest } from '../services/chatPrivateCancelService';
 import {
   IncomingPrivateRequest,
   PrivateConversationSummary,
@@ -13,38 +15,32 @@ import {
   listPrivateConversations,
   respondToPrivateChatRequest,
 } from '../services/chatPrivateService';
-import { getSession } from '../services/authService';
+import { fetchOutgoingPendingPrivateUsernames } from '../services/chatPrivateUxService';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { formatRelativeTime } from '../utils/format';
 
-/**
- * Bandeja de Privados (Chat V2 "Sala Social", punto 6 del pedido) --
- * solicitudes entrantes pendientes primero (Aceptar/Rechazar in situ,
- * nunca se abre una conversación sin esa decisión explícita), después las
- * conversaciones ya aceptadas ordenadas por última actividad (lo resuelve
- * list_private_conversations). Solo registrada para autenticados (ver
- * RootNavigator) -- un invitado nunca llega acá.
- */
 export default function ChatPrivateInboxScreen() {
   const navigation = useRootNavigation();
   const goBack = useSmartBack();
-  const [myUserId, setMyUserId] = useState<string | null>(null);
   const [requests, setRequests] = useState<IncomingPrivateRequest[]>([]);
+  const [outgoing, setOutgoing] = useState<string[]>([]);
   const [conversations, setConversations] = useState<PrivateConversationSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [respondingId, setRespondingId] = useState<string | null>(null);
+  const [cancellingUsername, setCancellingUsername] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
     (async () => {
       const session = await getSession();
       const uid = session?.user.id ?? null;
-      setMyUserId(uid);
-      const [reqs, convs] = await Promise.all([
+      const [reqs, outgoingUsernames, convs] = await Promise.all([
         uid ? fetchIncomingPrivateRequests(uid) : Promise.resolve([]),
+        uid ? fetchOutgoingPendingPrivateUsernames(uid) : Promise.resolve([]),
         listPrivateConversations(),
       ]);
       setRequests(reqs);
+      setOutgoing(outgoingUsernames);
       setConversations(convs);
       setLoading(false);
     })();
@@ -74,6 +70,17 @@ export default function ChatPrivateInboxScreen() {
     }
   }
 
+  async function handleCancel(username: string) {
+    if (cancellingUsername) return;
+    setCancellingUsername(username);
+    const result = await cancelPrivateChatRequest(username);
+    setCancellingUsername(null);
+    if (result.ok || result.errorCode === 'not_pending') {
+      setOutgoing((prev) => prev.filter((name) => name !== username));
+    }
+    load();
+  }
+
   function openConversation(c: PrivateConversationSummary) {
     navigation.navigate('ChatPrivateConversation', {
       conversationId: c.conversationId,
@@ -82,6 +89,8 @@ export default function ChatPrivateInboxScreen() {
       peerAvatarEmoji: c.peerAvatarEmoji,
     });
   }
+
+  const hasHeaderContent = requests.length > 0 || outgoing.length > 0;
 
   return (
     <ScreenContainer onBack={goBack}>
@@ -96,38 +105,66 @@ export default function ChatPrivateInboxScreen() {
           data={conversations}
           keyExtractor={(c) => c.conversationId}
           ListHeaderComponent={
-            requests.length ? (
+            hasHeaderContent ? (
               <View style={styles.requestsBlock}>
-                <Text style={styles.sectionLabel}>SOLICITUDES</Text>
-                {requests.map((r) => (
-                  <View key={r.id} style={styles.requestCard}>
-                    <Text style={styles.requestText}>
-                      <Text style={styles.requestName}>{r.requesterUsername}</Text> quiere iniciar un chat privado contigo.
-                    </Text>
-                    <View style={styles.requestActions}>
-                      <Pressable
-                        style={[styles.requestButton, styles.requestAccept]}
-                        disabled={respondingId === r.id}
-                        onPress={() => handleRespond(r, true)}
-                      >
-                        <Text style={styles.requestAcceptText}>Aceptar</Text>
-                      </Pressable>
-                      <Pressable
-                        style={[styles.requestButton, styles.requestReject]}
-                        disabled={respondingId === r.id}
-                        onPress={() => handleRespond(r, false)}
-                      >
-                        <Text style={styles.requestRejectText}>Rechazar</Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                ))}
+                {requests.length > 0 && (
+                  <>
+                    <Text style={styles.sectionLabel}>INVITACIONES RECIBIDAS</Text>
+                    {requests.map((r) => (
+                      <View key={r.id} style={styles.requestCard}>
+                        <Text style={styles.requestText}>
+                          <Text style={styles.requestName}>{r.requesterUsername}</Text> quiere iniciar un chat privado contigo.
+                        </Text>
+                        <View style={styles.requestActions}>
+                          <Pressable
+                            style={[styles.requestButton, styles.requestAccept]}
+                            disabled={respondingId === r.id}
+                            onPress={() => handleRespond(r, true)}
+                          >
+                            <Text style={styles.requestAcceptText}>Aceptar</Text>
+                          </Pressable>
+                          <Pressable
+                            style={[styles.requestButton, styles.requestReject]}
+                            disabled={respondingId === r.id}
+                            onPress={() => handleRespond(r, false)}
+                          >
+                            <Text style={styles.requestRejectText}>Rechazar</Text>
+                          </Pressable>
+                        </View>
+                      </View>
+                    ))}
+                  </>
+                )}
+
+                {outgoing.length > 0 && (
+                  <>
+                    <Text style={styles.sectionLabel}>INVITACIONES ENVIADAS</Text>
+                    {outgoing.map((username) => (
+                      <View key={username} style={styles.outgoingCard}>
+                        <View style={styles.outgoingBody}>
+                          <Text style={styles.requestName}>{username}</Text>
+                          <Text style={styles.outgoingStatus}>⏳ Esperando respuesta</Text>
+                        </View>
+                        <Pressable
+                          style={styles.cancelButton}
+                          disabled={cancellingUsername === username}
+                          onPress={() => void handleCancel(username)}
+                        >
+                          <Text style={styles.cancelButtonText}>
+                            {cancellingUsername === username ? 'Cancelando...' : 'Cancelar invitación'}
+                          </Text>
+                        </Pressable>
+                      </View>
+                    ))}
+                  </>
+                )}
+
                 <Text style={styles.sectionLabel}>CONVERSACIONES</Text>
               </View>
             ) : null
           }
           ListEmptyComponent={
-            !requests.length ? (
+            !hasHeaderContent ? (
               <View style={styles.centerState}>
                 <Text style={styles.muted}>Todavía no tienes conversaciones privadas.</Text>
               </View>
@@ -162,33 +199,12 @@ export default function ChatPrivateInboxScreen() {
 }
 
 const styles = StyleSheet.create({
-  title: {
-    ...typography.title,
-    color: colors.textPrimary,
-    marginBottom: spacing.md,
-  },
-  centerState: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: spacing.xl,
-  },
-  muted: {
-    ...typography.body,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  list: {
-    paddingBottom: spacing.xl,
-  },
-  requestsBlock: {
-    marginBottom: spacing.sm,
-    gap: spacing.sm,
-  },
-  sectionLabel: {
-    ...typography.eyebrow,
-    color: colors.textMuted,
-    marginTop: spacing.sm,
-  },
+  title: { ...typography.title, color: colors.textPrimary, marginBottom: spacing.md },
+  centerState: { alignItems: 'center', justifyContent: 'center', paddingVertical: spacing.xl },
+  muted: { ...typography.body, color: colors.textSecondary, textAlign: 'center' },
+  list: { paddingBottom: spacing.xl },
+  requestsBlock: { marginBottom: spacing.sm, gap: spacing.sm },
+  sectionLabel: { ...typography.eyebrow, color: colors.textMuted, marginTop: spacing.sm },
   requestCard: {
     backgroundColor: colors.surfaceAlt,
     borderRadius: radius.md,
@@ -197,40 +213,35 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.sm,
   },
-  requestText: {
-    ...typography.body,
-    color: colors.textPrimary,
-  },
-  requestName: {
-    fontWeight: '800',
-  },
-  requestActions: {
+  requestText: { ...typography.body, color: colors.textPrimary },
+  requestName: { ...typography.body, color: colors.textPrimary, fontWeight: '800' },
+  requestActions: { flexDirection: 'row', gap: spacing.sm },
+  requestButton: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm, borderRadius: radius.pill },
+  requestAccept: { backgroundColor: colors.accent },
+  requestAcceptText: { ...typography.caption, color: colors.onAccent, fontWeight: '800' },
+  requestReject: { borderWidth: 1, borderColor: colors.border },
+  requestRejectText: { ...typography.caption, color: colors.textSecondary, fontWeight: '800' },
+  outgoingCard: {
     flexDirection: 'row',
-    gap: spacing.sm,
-  },
-  requestButton: {
-    flex: 1,
     alignItems: 'center',
-    paddingVertical: spacing.sm,
-    borderRadius: radius.pill,
-  },
-  requestAccept: {
-    backgroundColor: colors.accent,
-  },
-  requestAcceptText: {
-    ...typography.caption,
-    color: colors.onAccent,
-    fontWeight: '800',
-  },
-  requestReject: {
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
+    padding: spacing.md,
   },
-  requestRejectText: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    fontWeight: '800',
+  outgoingBody: { flex: 1, gap: 2 },
+  outgoingStatus: { ...typography.caption, color: colors.textSecondary },
+  cancelButton: {
+    borderWidth: 1,
+    borderColor: colors.danger,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
   },
+  cancelButtonText: { ...typography.caption, color: colors.danger, fontWeight: '800' },
   conversationRow: {
     flexDirection: 'row',
     gap: spacing.sm,
@@ -239,37 +250,13 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
     alignItems: 'center',
   },
-  conversationAvatar: {
-    fontSize: 24,
-  },
-  conversationBody: {
-    flex: 1,
-    gap: 2,
-  },
-  conversationHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  conversationName: {
-    ...typography.body,
-    color: colors.textPrimary,
-    fontWeight: '800',
-  },
-  conversationTime: {
-    ...typography.caption,
-    color: colors.textMuted,
-  },
-  conversationFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  conversationPreview: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    flex: 1,
-    marginRight: spacing.sm,
-  },
+  conversationAvatar: { fontSize: 24 },
+  conversationBody: { flex: 1, gap: 2 },
+  conversationHeader: { flexDirection: 'row', justifyContent: 'space-between' },
+  conversationName: { ...typography.body, color: colors.textPrimary, fontWeight: '800' },
+  conversationTime: { ...typography.caption, color: colors.textMuted },
+  conversationFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  conversationPreview: { ...typography.caption, color: colors.textSecondary, flex: 1, marginRight: spacing.sm },
   unreadBadge: {
     minWidth: 20,
     height: 20,
@@ -279,10 +266,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 6,
   },
-  unreadBadgeText: {
-    ...typography.caption,
-    color: colors.onAccent,
-    fontWeight: '800',
-    fontSize: 11,
-  },
+  unreadBadgeText: { ...typography.caption, color: colors.onAccent, fontWeight: '800', fontSize: 11 },
 });
