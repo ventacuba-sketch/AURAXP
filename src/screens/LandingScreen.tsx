@@ -9,21 +9,6 @@ import { logEvent } from '../services/analyticsService';
 import { getStoredUtmParams } from '../services/campaignService';
 import { colors, spacing, typography } from '../theme/colors';
 
-/**
- * Landing pública de adquisición -- pensada para tráfico de TikTok/Reels/
- * Shorts (ver `linking` en RootNavigator.tsx para la ruta exacta). Vende
- * la EXPERIENCIA antes que la cuenta: "¿cuánta Aura tienes?", no "crea tu
- * cuenta" -- el registro llega recién al tocar el CTA, y ahí mismo se
- * presenta como el paso para medir el Aura (ver AuthScreen, `context:
- * 'measure_aura'`), nunca como el producto en sí.
- *
- * Solo registrada cuando NO hay sesión (ver RootNavigator) -- alguien ya
- * logueado que toque el link de la campaña nunca ve esto, entra
- * directo a la app. Reutiliza ScreenContainer/Card/PrimaryButton/theme
- * tal cual el resto de AURA VS -- cero componentes ni estilos nuevos por
- * fuera del sistema ya existente, y cero animaciones (rendimiento en
- * móvil sobre TikTok es la prioridad explícita del pedido).
- */
 export default function LandingScreen() {
   const navigation = useRootNavigation();
 
@@ -31,218 +16,108 @@ export default function LandingScreen() {
     getStoredUtmParams().then((utm) => logEvent('landing_viewed', utm ? { ...utm } : undefined));
   }, []);
 
-  async function handleCta(position: 'hero' | 'example') {
+  async function handleCta(position: 'hero' | 'result') {
     const utm = await getStoredUtmParams();
     logEvent('landing_cta_clicked', { position, ...utm });
-    // Auth sigue siendo el único camino real a Upload/Scan sin sesión (esa
-    // pantalla ni existe en el stack no-autenticado, ver RootNavigator) --
-    // `context: 'measure_aura'` es solo copy distinto en Auth, ninguna
-    // lógica de autenticación cambia.
     navigation.navigate('Auth', { initialMode: 'signUp', context: 'measure_aura' });
+  }
+
+  async function handleChat() {
+    const utm = await getStoredUtmParams();
+    logEvent('landing_chat_clicked', utm ? { ...utm } : undefined);
+    navigation.navigate('Chat');
   }
 
   return (
     <ScreenContainer scroll style={styles.screen}>
-      {/* ── Hero: debe entenderse sin scroll ────────────────────────── */}
       <View style={styles.hero}>
         <Text style={styles.wordmark}>AURA VS</Text>
+        <Text style={styles.kicker}>🔥 EL RETO ES SIMPLE</Text>
         <Text style={styles.headline}>
-          ¿CUÁNTA <Text style={styles.headlineAccent}>AURA</Text> TIENES? 👀
-        </Text>
-        <Text style={styles.subheadline}>
-          Mide tu Aura <Text style={styles.free}>GRATIS</Text> con IA.
+          ¿CUÁNTA <Text style={styles.accent}>AURA</Text> TIENES?
         </Text>
         <Text style={styles.pitch}>
-          Graba 8 segundos. La IA mide tu Aura. Compite contra otros y demuestra quién tiene más.
+          Graba solo 8 segundos. Nuestra IA analiza tu presencia y te da tu puntuación de Aura.
         </Text>
 
+        <Card style={styles.resultCard}>
+          <Text style={styles.resultLabel}>ASÍ SE VE UN RESULTADO</Text>
+          <Text style={styles.resultScore}>917 AURA 🔥</Text>
+          <Text style={styles.resultChallenge}>¿Puedes superarlo?</Text>
+        </Card>
+
         <View style={styles.heroCta}>
-          <PrimaryButton label="⚡ MEDIR MI AURA GRATIS" onPress={() => handleCta('hero')} />
-          <Text style={styles.trustRow}>✓ Gratis · ✓ Con IA · ✓ Solo 8 segundos</Text>
+          <PrimaryButton label="🔥 DESCUBRIR MI AURA GRATIS" onPress={() => handleCta('hero')} />
+          <Text style={styles.trust}>✓ Gratis  ·  ✓ 8 segundos  ·  ✓ Resultado con IA</Text>
+          <Text style={styles.noCard}>Sin tarjeta. Crea tu cuenta gratis para guardar tu resultado.</Text>
         </View>
       </View>
 
-      {/* ── Qué puedes hacer -- los 4 mensajes principales, en cuadrícula
-          2x2 compacta (ajuste de conversión mobile, ver commit): ocupaban
-          demasiado espacio vertical como filas horizontales. */}
-      <View style={styles.features}>
-        <FeatureCard emoji="🤖" title="AURA SCAN IA" body="La IA mide tu presencia." />
-        <FeatureCard emoji="⚔️" title="CHALLENGES" body="Compite contra otros." />
-        <FeatureCard emoji="🌎" title="COMUNIDAD" body="Sigue y comparte." />
-        <FeatureCard emoji="🏆" title="RANKING" body="Sube y gana Coins." />
+      <View style={styles.steps}>
+        <Text style={styles.sectionTitle}>¿QUÉ PASA DESPUÉS?</Text>
+        <View style={styles.stepRow}>
+          <Step number="1" text="GRABA 8s" />
+          <Text style={styles.arrow}>→</Text>
+          <Step number="2" text="IA ANALIZA" />
+          <Text style={styles.arrow}>→</Text>
+          <Step number="3" text="RECIBE TU AURA" />
+        </View>
       </View>
 
-      {/* ── Cómo funciona -- una sola línea, sin explicaciones largas ─── */}
-      <Text style={styles.flowLine}>GRABA 8s → IA ANALIZA → DESCUBRE TU AURA → DESAFÍA → SUBE EN EL RANKING</Text>
-
-      {/* ── Ejemplo real de resultado (misma estética que ScanResult:
-          typography.display en accent, ver theme/colors.ts) -- etiquetado
-          como EJEMPLO a propósito, nunca se presenta como un dato real de
-          quien está mirando. */}
-      <Card style={styles.exampleCard}>
-        <Text style={styles.exampleTag}>EJEMPLO</Text>
-        <Text style={styles.exampleScore}>917 AURA 🔥</Text>
-        <Text style={styles.exampleCaption}>¿Puedes superarlo?</Text>
-      </Card>
-
-      <PrimaryButton label="⚡ MEDIR MI AURA GRATIS" onPress={() => handleCta('example')} />
-
-      {/* ── Funciones secundarias -- una sola línea compacta, sin competir
-          visualmente con los 4 mensajes principales de arriba (ajuste de
-          conversión mobile: antes eran 8 chips grandes). */}
-      <View style={styles.secondary}>
-        <Text style={styles.secondaryTitle}>Y TAMBIÉN</Text>
-        <Text style={styles.secondaryLine}>{SECONDARY_FEATURES_LINE}</Text>
+      <View style={styles.socialProof}>
+        <Text style={styles.sectionTitle}>NO TERMINA EN EL SCAN</Text>
+        <Text style={styles.socialText}>⚔️ Desafía a otros   🏆 Sube en el ranking</Text>
+        <Text style={styles.socialText}>💬 Entra a La Sala del Aura   👑 Compara tu nivel</Text>
       </View>
 
-      <PrimaryButton label="💬 Entrar al Chat" variant="ghost" onPress={() => navigation.navigate('Chat')} />
+      <PrimaryButton label="⚡ QUIERO SABER MI AURA" onPress={() => handleCta('result')} />
 
-      <Text style={styles.footnote}>Solo pedimos una cuenta gratis para guardar tu resultado y competir.</Text>
+      <View style={styles.chatBox}>
+        <Text style={styles.chatTitle}>🔥 LA SALA DEL AURA</Text>
+        <Text style={styles.chatBody}>Mira de qué habla la comunidad, conoce otros farmeadores y encuentra rivales.</Text>
+        <PrimaryButton label="💬 ENTRAR A LA SALA" variant="ghost" onPress={handleChat} />
+      </View>
+
+      <Text style={styles.footnote}>AURA VS · Mide tu Aura. Compite. Sube de nivel.</Text>
     </ScreenContainer>
   );
 }
 
-const SECONDARY_FEATURES_LINE = 'XP · Coins · Misiones · Rachas · Regalos · Tienda + más';
-
-function FeatureCard({ emoji, title, body }: { emoji: string; title: string; body: string }) {
+function Step({ number, text }: { number: string; text: string }) {
   return (
-    <Card style={styles.featureCard}>
-      <Text style={styles.featureEmoji}>{emoji}</Text>
-      <View style={styles.featureText}>
-        <Text style={styles.featureTitle}>{title}</Text>
-        <Text style={styles.featureBody}>{body}</Text>
-      </View>
-    </Card>
+    <View style={styles.step}>
+      <Text style={styles.stepNumber}>{number}</Text>
+      <Text style={styles.stepText}>{text}</Text>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    paddingTop: spacing.lg,
-  },
-  hero: {
-    alignItems: 'center',
-    marginBottom: spacing.xl,
-  },
-  wordmark: {
-    ...typography.eyebrow,
-    color: colors.secondary,
-    marginBottom: spacing.md,
-  },
-  headline: {
-    ...typography.hero,
-    fontSize: 34,
-    color: colors.textPrimary,
-    textAlign: 'center',
-  },
-  headlineAccent: {
-    color: colors.accent,
-  },
-  subheadline: {
-    ...typography.title,
-    color: colors.textPrimary,
-    textAlign: 'center',
-    marginTop: spacing.sm,
-  },
-  free: {
-    color: colors.accent,
-    fontWeight: '800',
-  },
-  pitch: {
-    ...typography.body,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginTop: spacing.sm,
-    maxWidth: 320,
-  },
-  heroCta: {
-    width: '100%',
-    marginTop: spacing.lg,
-    gap: spacing.sm,
-    alignItems: 'center',
-  },
-  trustRow: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  features: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  featureCard: {
-    width: '48%',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.xs,
-  },
-  featureEmoji: {
-    fontSize: 22,
-    marginBottom: 2,
-  },
-  featureText: {
-    alignItems: 'center',
-  },
-  featureTitle: {
-    ...typography.caption,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    textAlign: 'center',
-  },
-  featureBody: {
-    ...typography.caption,
-    fontSize: 11,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginTop: 2,
-  },
-  flowLine: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    fontWeight: '700',
-    marginBottom: spacing.sm,
-  },
-  exampleCard: {
-    alignItems: 'center',
-    borderColor: colors.accent,
-    marginBottom: spacing.md,
-  },
-  exampleTag: {
-    ...typography.eyebrow,
-    color: colors.textMuted,
-    marginBottom: spacing.xs,
-  },
-  exampleScore: {
-    ...typography.display,
-    color: colors.accent,
-  },
-  exampleCaption: {
-    ...typography.body,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  secondary: {
-    marginTop: spacing.xxl,
-    marginBottom: spacing.lg,
-  },
-  secondaryTitle: {
-    ...typography.eyebrow,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginBottom: spacing.sm,
-  },
-  secondaryLine: {
-    ...typography.caption,
-    color: colors.textMuted,
-    textAlign: 'center',
-  },
-  footnote: {
-    ...typography.caption,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginBottom: spacing.xl,
-  },
+  screen: { paddingTop: spacing.md },
+  hero: { alignItems: 'center', marginBottom: spacing.xl },
+  wordmark: { ...typography.eyebrow, color: colors.secondary, marginBottom: spacing.sm },
+  kicker: { ...typography.caption, color: colors.accent, fontWeight: '800', marginBottom: spacing.xs },
+  headline: { ...typography.hero, fontSize: 36, color: colors.textPrimary, textAlign: 'center' },
+  accent: { color: colors.accent },
+  pitch: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm, maxWidth: 330 },
+  resultCard: { width: '100%', alignItems: 'center', borderColor: colors.accent, marginTop: spacing.lg, marginBottom: spacing.md, paddingVertical: spacing.md },
+  resultLabel: { ...typography.eyebrow, color: colors.textMuted, marginBottom: spacing.xs },
+  resultScore: { ...typography.display, color: colors.accent },
+  resultChallenge: { ...typography.body, color: colors.textPrimary, fontWeight: '700', marginTop: spacing.xs },
+  heroCta: { width: '100%', gap: spacing.xs, alignItems: 'center' },
+  trust: { ...typography.caption, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xs },
+  noCard: { ...typography.caption, color: colors.textMuted, textAlign: 'center' },
+  sectionTitle: { ...typography.eyebrow, color: colors.textPrimary, textAlign: 'center', marginBottom: spacing.md },
+  steps: { marginBottom: spacing.xl },
+  stepRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  step: { flex: 1, alignItems: 'center' },
+  stepNumber: { color: colors.accent, fontWeight: '900', fontSize: 20 },
+  stepText: { ...typography.caption, color: colors.textSecondary, textAlign: 'center', fontWeight: '700', marginTop: 2 },
+  arrow: { color: colors.textMuted, fontSize: 18 },
+  socialProof: { marginBottom: spacing.lg },
+  socialText: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.xs },
+  chatBox: { marginTop: spacing.xl, marginBottom: spacing.lg, gap: spacing.sm },
+  chatTitle: { ...typography.title, color: colors.accent, textAlign: 'center' },
+  chatBody: { ...typography.body, color: colors.textSecondary, textAlign: 'center' },
+  footnote: { ...typography.caption, color: colors.textMuted, textAlign: 'center', marginBottom: spacing.xl },
 });
