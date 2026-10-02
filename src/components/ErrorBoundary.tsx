@@ -2,6 +2,7 @@ import React from 'react';
 import { Platform, StyleSheet, Text, View } from 'react-native';
 
 import { PrimaryButton } from './PrimaryButton';
+import { logEvent } from '../services/analyticsService';
 import { colors, spacing, typography } from '../theme/colors';
 
 interface Props {
@@ -35,14 +36,29 @@ export class ErrorBoundary extends React.Component<Props, State> {
   }
 
   componentDidCatch(error: unknown, info: { componentStack?: string | null }) {
+    const message = error instanceof Error ? error.message : String(error);
+    const stack = error instanceof Error ? error.stack ?? null : null;
+    const componentStack = info.componentStack ?? null;
+    const path = Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.pathname : null;
+
     console.error(
       JSON.stringify({
         src: 'ErrorBoundary',
         event: 'render_error',
-        message: error instanceof Error ? error.message : String(error),
-        componentStack: info.componentStack ?? null,
+        message,
+        componentStack,
       }),
     );
+
+    // Preview/producción: deja una huella diagnóstica best-effort en la
+    // misma telemetría existente. No contiene mensajes del chat ni datos
+    // privados; solo error técnico, stack de componentes y ruta.
+    void logEvent('client_render_error', {
+      message: message.slice(0, 1000),
+      stack: stack?.slice(0, 4000) ?? null,
+      component_stack: componentStack?.slice(0, 4000) ?? null,
+      path,
+    });
   }
 
   // En web, recargar la página es la recuperación más confiable (limpia
