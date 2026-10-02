@@ -18,6 +18,7 @@ export interface ChatMembersPanelProps {
   viewerAuthed: boolean;
   activityLabel: string;
   followingByUsername: Record<string, boolean>;
+  pendingPrivateUsernames: Set<string>;
   onClose?: () => void;
   onViewProfile: (username: string) => void;
   onFollow: (username: string) => void;
@@ -32,6 +33,7 @@ export function ChatMembersPanel({
   viewerAuthed,
   activityLabel,
   followingByUsername,
+  pendingPrivateUsernames,
   onClose,
   onViewProfile,
   onFollow,
@@ -62,6 +64,7 @@ export function ChatMembersPanel({
           const online = onlineUserIds.has(item.id);
           const followStateKnown = Object.prototype.hasOwnProperty.call(followingByUsername, item.username);
           const isFollowing = followingByUsername[item.username] === true;
+          const privatePending = pendingPrivateUsernames.has(item.username);
 
           return (
             <View style={styles.row}>
@@ -95,8 +98,14 @@ export function ChatMembersPanel({
                   <Pressable style={styles.actionChip} onPress={() => (viewerAuthed ? onChallenge(item.username) : onViewProfile(item.username))}>
                     <Text style={styles.actionChipText}>⚔️ Desafiar</Text>
                   </Pressable>
-                  <Pressable style={[styles.actionChip, styles.privateChip]} onPress={() => onPrivateMessage(item)}>
-                    <Text style={styles.privateChipText}>💬 Privado</Text>
+                  <Pressable
+                    style={[styles.actionChip, privatePending ? styles.pendingChip : styles.privateChip]}
+                    onPress={() => onPrivateMessage(item)}
+                    disabled={privatePending}
+                  >
+                    <Text style={privatePending ? styles.pendingChipText : styles.privateChipText}>
+                      {privatePending ? '⏳ Invitación enviada' : '💬 Privado'}
+                    </Text>
                   </Pressable>
                 </View>
               )}
@@ -166,4 +175,6 @@ const styles = StyleSheet.create({
   followingText: { color: colors.textSecondary },
   privateChip: { borderColor: colors.accent },
   privateChipText: { ...typography.caption, color: colors.accent, fontWeight: '800', fontSize: 11 },
+  pendingChip: { borderColor: colors.border, opacity: 0.8 },
+  pendingChipText: { ...typography.caption, color: colors.textSecondary, fontWeight: '800', fontSize: 11 },
 });
