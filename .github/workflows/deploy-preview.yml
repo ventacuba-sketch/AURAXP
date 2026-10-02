@@ -2,7 +2,7 @@ name: Deploy preview web
 
 on:
   push:
-    branches: [feature/admin-analytics-dashboard, integration/chat-v1-main]
+    branches: [feature/admin-analytics-dashboard, integration/chat-v1-main, feature/chat-v2-social-room]
   workflow_dispatch:
 
 jobs:
