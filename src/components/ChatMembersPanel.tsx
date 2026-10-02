@@ -11,23 +11,13 @@ const STATUS_LABELS: Record<string, string> = {
   top_aura: '👑 Top Aura',
 };
 
-/**
- * Lista de Integrantes (Chat V2 "Sala Social", punto 2-3 del pedido) --
- * componente puro: ChatScreen decide CÓMO se muestra (Modal/bottom-sheet
- * en mobile, columna lateral fija en desktop/tablet ancho, ver el
- * useWindowDimensions ahí) y le pasa exactamente los mismos props en
- * ambos casos, para no duplicar esta lista en dos lugares.
- *
- * Reutiliza EXACTAMENTE los servicios ya existentes de Profile/Follow/
- * Challenge (los handlers vienen del caller) -- este archivo no define
- * ninguna lógica de negocio nueva, solo el layout de cada fila.
- */
 export interface ChatMembersPanelProps {
   members: ChatMember[];
   onlineUserIds: Set<string>;
   viewerUserId: string | null;
   viewerAuthed: boolean;
   activityLabel: string;
+  followingByUsername: Record<string, boolean>;
   onClose?: () => void;
   onViewProfile: (username: string) => void;
   onFollow: (username: string) => void;
@@ -41,6 +31,7 @@ export function ChatMembersPanel({
   viewerUserId,
   viewerAuthed,
   activityLabel,
+  followingByUsername,
   onClose,
   onViewProfile,
   onFollow,
@@ -69,6 +60,9 @@ export function ChatMembersPanel({
         renderItem={({ item }) => {
           const isMe = item.id === viewerUserId;
           const online = onlineUserIds.has(item.id);
+          const followStateKnown = Object.prototype.hasOwnProperty.call(followingByUsername, item.username);
+          const isFollowing = followingByUsername[item.username] === true;
+
           return (
             <View style={styles.row}>
               <Pressable onPress={() => onViewProfile(item.username)} style={styles.rowMain} hitSlop={4}>
@@ -93,20 +87,16 @@ export function ChatMembersPanel({
 
               {!isMe && (
                 <View style={styles.actions}>
-                  <Pressable
-                    style={styles.actionChip}
-                    onPress={() => (viewerAuthed ? onFollow(item.username) : onViewProfile(item.username))}
-                  >
-                    <Text style={styles.actionChipText}>+ Seguir</Text>
-                  </Pressable>
-                  <Pressable
-                    style={styles.actionChip}
-                    onPress={() => (viewerAuthed ? onChallenge(item.username) : onViewProfile(item.username))}
-                  >
+                  {followStateKnown && (
+                    <Pressable style={styles.actionChip} onPress={() => (viewerAuthed ? onFollow(item.username) : onViewProfile(item.username))}>
+                      <Text style={[styles.actionChipText, isFollowing && styles.followingText]}>{isFollowing ? '✓ Siguiendo' : '+ Seguir'}</Text>
+                    </Pressable>
+                  )}
+                  <Pressable style={styles.actionChip} onPress={() => (viewerAuthed ? onChallenge(item.username) : onViewProfile(item.username))}>
                     <Text style={styles.actionChipText}>⚔️ Desafiar</Text>
                   </Pressable>
-                  <Pressable style={styles.actionChip} onPress={() => onPrivateMessage(item)}>
-                    <Text style={styles.actionChipText}>💬</Text>
+                  <Pressable style={[styles.actionChip, styles.privateChip]} onPress={() => onPrivateMessage(item)}>
+                    <Text style={styles.privateChipText}>💬 Privado</Text>
                   </Pressable>
                 </View>
               )}
@@ -119,10 +109,7 @@ export function ChatMembersPanel({
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.surface,
-  },
+  container: { flex: 1, backgroundColor: colors.surface },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -133,41 +120,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  title: {
-    ...typography.title,
-    color: colors.textPrimary,
-  },
-  activity: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  close: {
-    ...typography.title,
-    color: colors.textMuted,
-    paddingHorizontal: spacing.sm,
-  },
-  list: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-  },
-  empty: {
-    ...typography.body,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginTop: spacing.xl,
-  },
-  row: {
-    paddingVertical: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    gap: spacing.xs,
-  },
-  rowMain: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
+  title: { ...typography.title, color: colors.textPrimary },
+  activity: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+  close: { ...typography.title, color: colors.textMuted, paddingHorizontal: spacing.sm },
+  list: { paddingHorizontal: spacing.lg, paddingVertical: spacing.sm },
+  empty: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xl },
+  row: { paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border, gap: spacing.xs },
+  rowMain: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   avatarWrap: {
     width: 36,
     height: 36,
@@ -176,9 +135,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  avatar: {
-    fontSize: 18,
-  },
+  avatar: { fontSize: 18 },
   onlineDot: {
     position: 'absolute',
     right: -1,
@@ -190,51 +147,23 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colors.surface,
   },
-  rowText: {
-    flex: 1,
-    gap: 2,
-  },
-  nameLine: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    flexWrap: 'wrap',
-  },
-  username: {
-    ...typography.body,
-    color: colors.textPrimary,
-    fontWeight: '800',
-  },
-  level: {
-    ...typography.caption,
-    color: colors.textMuted,
-  },
-  aura: {
-    ...typography.caption,
-    color: colors.accent,
-    fontWeight: '700',
-  },
-  status: {
-    ...typography.caption,
-    color: colors.textSecondary,
-  },
-  actions: {
-    flexDirection: 'row',
-    gap: spacing.xs,
-    marginLeft: 44,
-  },
+  rowText: { flex: 1, gap: 2 },
+  nameLine: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' },
+  username: { ...typography.body, color: colors.textPrimary, fontWeight: '800' },
+  level: { ...typography.caption, color: colors.textMuted },
+  aura: { ...typography.caption, color: colors.accent, fontWeight: '700' },
+  status: { ...typography.caption, color: colors.textSecondary },
+  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginLeft: 44 },
   actionChip: {
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
-    paddingVertical: 4,
+    paddingVertical: 5,
     backgroundColor: colors.surfaceAlt,
   },
-  actionChipText: {
-    ...typography.caption,
-    color: colors.textPrimary,
-    fontWeight: '700',
-    fontSize: 11,
-  },
+  actionChipText: { ...typography.caption, color: colors.textPrimary, fontWeight: '700', fontSize: 11 },
+  followingText: { color: colors.textSecondary },
+  privateChip: { borderColor: colors.accent },
+  privateChipText: { ...typography.caption, color: colors.accent, fontWeight: '800', fontSize: 11 },
 });
