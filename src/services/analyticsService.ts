@@ -92,7 +92,8 @@ export type AnalyticsEventName =
   | 'chat_private_inbox_opened'
   | 'chat_private_conversation_opened'
   | 'chat_private_message_sent'
-  | 'chat_user_blocked';
+  | 'chat_user_blocked'
+  | 'client_render_error';
 
 function trackMetaEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>): void {
   if (typeof window === 'undefined') return;
