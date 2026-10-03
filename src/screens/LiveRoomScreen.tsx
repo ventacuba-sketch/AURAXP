@@ -93,6 +93,12 @@ export default function LiveRoomScreen() {
   const wasGuestRef = useRef(false);
   const viewerCountRef = useRef(0);
   const peakReportTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // 'live_left'/'live_reconnect' necesitan saber si YA hubo una conexión
+  // real antes -- sin esto, el primer intento de conexión se confundiría
+  // con una reconexión, y un desmontaje antes de conectar nunca con un
+  // abandono real (ver los dos efectos que usan estos refs más abajo).
+  const hasJoinedRef = useRef(false);
+  const roomIdRef = useRef<string | null>(null);
 
   const [room, setRoom] = useState<LiveRoom | null>(null);
   const [loadingRoom, setLoadingRoom] = useState(true);
@@ -207,7 +213,15 @@ export default function LiveRoomScreen() {
           token: tokenRes.token,
           role: isHost ? 'host' : 'viewer',
           videoContainer: container,
-          onConnectionStateChange: setConnectionState,
+          onConnectionStateChange: (state) => {
+            // 'live_reconnect': solo cuenta como reconexión si YA hubo una
+            // conexión real antes -- el primer 'connecting' -> 'connected'
+            // de la conexión inicial nunca es una reconexión.
+            if (state === 'reconnecting' && hasJoinedRef.current && roomIdRef.current) {
+              logEvent('live_reconnect', { live_room_id: roomIdRef.current });
+            }
+            setConnectionState(state);
+          },
           onViewerCountChange: (count) => {
             viewerCountRef.current = count;
             setViewerCount(count);
@@ -219,6 +233,8 @@ export default function LiveRoomScreen() {
           return;
         }
         mediaControllerRef.current = controller;
+        hasJoinedRef.current = true;
+        roomIdRef.current = room.id;
         logEvent('live_joined', { live_room_id: room.id, role: isHost ? 'host' : 'viewer' });
       } catch (e) {
         if (!cancelled) {
@@ -235,6 +251,19 @@ export default function LiveRoomScreen() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [room?.id, room?.status, isHost, session?.user.id, guestId]);
+
+  // 'live_left' -- abandono real de la sala. Deliberadamente en su propio
+  // efecto con deps vacías: el cleanup de ARRIBA corre en cada reconexión
+  // (cambio de sesión, cambio de estado de la sala, etc.), pero este solo
+  // corre una vez, cuando la pantalla se desmonta de verdad -- nunca se
+  // confunde una reconexión con un abandono.
+  useEffect(() => {
+    return () => {
+      if (hasJoinedRef.current && roomIdRef.current) {
+        logEvent('live_left', { live_room_id: roomIdRef.current });
+      }
+    };
+  }, []);
 
   // Host: reporta el pico real de espectadores cada ~20s (sección 36) --
   // nunca inventa un número, usa viewerCountRef (LiveKit real).

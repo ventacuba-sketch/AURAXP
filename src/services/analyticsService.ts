@@ -177,6 +177,14 @@ export type AnalyticsEventName =
   | 'live_join_attempted'
   | 'live_joined'
   | 'live_join_failed'
+  // 'live_left': abandono real de la sala (desmontar la pantalla con una
+  // conexión ya establecida) -- distinto de 'live_join_failed', que es
+  // nunca haber llegado a conectar. 'live_reconnect': LiveKit reporta
+  // 'reconnecting' después de haber estado 'connected' -- nunca se
+  // loguea en la conexión inicial (ver LiveRoomScreen, un ref guarda si
+  // ya hubo una conexión real antes de considerar esto una reconexión).
+  | 'live_left'
+  | 'live_reconnect'
   | 'live_comment_sent'
   | 'live_reaction_sent'
   | 'live_follow_clicked'

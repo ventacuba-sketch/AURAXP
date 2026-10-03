@@ -84,15 +84,23 @@ cero, dos veces. Batería de seguridad/concurrencia ejecutada y confirmada:
   siguieron funcionando exactamente igual después de aplicar esta
   migración (verificado).
 
-**Dos bugs reales encontrados y corregidos durante esta auditoría** (ambos
-solo en la copia de este branch — nunca se tocó la rama `feature/chat-v2-social-room` original ni PR #16):
+**Dos bugs reales encontrados y corregidos durante esta auditoría:**
 
-1. `20261003000000_chat_v2_social_room.sql` usaba `do $ ... $` (un solo
+1. `20261003000000_chat_v2_social_room.sql` usa `do $ ... $` (un solo
    signo `$`) para envolver el bloque de publicación de Realtime — sintaxis
    **inválida** en Postgres (el delimitador dollar-quote mínimo es `$$`).
-   Esto habría roto cualquier `supabase db push` real contra producción.
-   Corregido a `do $$ ... $$` en este branch; **recomendado aplicar el
-   mismo fix de una línea en la rama/PR de Chat V2 antes de fusionarla**.
+   Esto rompería cualquier `supabase db push` real contra producción en
+   ese statement exacto. **Este archivo ya está fusionado a `main`** (PR
+   #16, Chat V2) con el bug tal cual — confirmado: nunca se aplicó
+   exitosamente a producción (es sintaxis inválida, ninguna base pudo
+   haberlo corrido antes). Corregido a `do $$ ... $$` en esta rama
+   (`feature/aura-live-mvp`) porque la migración de AURA LIVE viene
+   justo después en la secuencia y nunca llegaría a aplicarse si la
+   anterior falla primero. **Recomiendo aplicar el mismo fix de una línea
+   directamente en `main`** (vía un PR mínimo y separado) antes de que
+   alguien intente un `supabase db push` real — mientras tanto, ningún
+   despliegue real de este proyecto puede completar su historial de
+   migraciones.
 2. `send_live_comment()` (migración de AURA LIVE) tenía una ambigüedad de
    columna `id` idéntica a un bug ya conocido del proyecto
    (`created_at` en `send_chat_message` de Chat V1) — el `RETURNS
@@ -236,14 +244,30 @@ verificación (revisión de código, no un navegador real).
 
 ## 7. Analytics
 
-22 eventos `live_*` agregados a `analyticsService.ts`. Varios se loguean
-**server-side** desde las RPCs (`live_created`, `live_started`,
-`live_ended`, `live_comment_sent`, `live_aura_check_started`,
-`live_poll_started`, `live_vote_cast`) — mismo criterio que
-`chat_message_sent` en Chat V1: un hecho real no debe depender de que el
-cliente siga conectado. El resto (vistas, intentos, reacciones efímeras,
-prompts de registro, conversión de invitado) solo existe del lado del
-cliente. Nunca se registran tokens de LiveKit ni secretos.
+24 eventos `live_*` agregados a `analyticsService.ts`: `live_lobby_viewed`,
+`live_create_viewed`, `live_start_attempted`, `live_started`,
+`live_start_failed`, `live_room_viewed`, `live_join_attempted`,
+`live_joined`, `live_join_failed`, `live_left`, `live_reconnect`,
+`live_comment_sent`, `live_reaction_sent`, `live_follow_clicked`,
+`live_share_clicked`, `live_signup_prompted`, `live_guest_converted`,
+`live_aura_check_started`, `live_aura_check_completed`,
+`live_aura_check_failed`, `live_poll_started`, `live_vote_cast`,
+`live_ended`, `live_created` (este último, igual que `live_started`/
+`live_ended`, solo existe server-side). Varios se loguean **server-side**
+desde las RPCs (`live_created`, `live_started`, `live_ended`,
+`live_comment_sent`, `live_aura_check_started`, `live_poll_started`,
+`live_vote_cast`) — mismo criterio que `chat_message_sent` en Chat V1: un
+hecho real no debe depender de que el cliente siga conectado. El resto
+(vistas, intentos, reacciones efímeras, prompts de registro, conversión
+de invitado, abandono, reconexión) solo existe del lado del cliente.
+Nunca se registran tokens de LiveKit ni secretos.
+
+`live_left` se loguea al desmontar `LiveRoomScreen` de verdad (nunca en
+una reconexión interna por cambio de sesión/estado de sala -- ver el
+`useEffect` dedicado de deps vacías en ese archivo). `live_reconnect` se
+loguea cuando LiveKit reporta `reconnecting` **después** de haber llegado
+a `connected` al menos una vez -- el primer intento de conexión nunca
+cuenta como reconexión.
 
 ---
 
