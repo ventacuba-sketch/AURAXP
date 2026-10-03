@@ -32,6 +32,8 @@ import ChatPrivateInboxScreen from '../screens/ChatPrivateInboxScreen';
 import HelpScreen from '../screens/HelpScreen';
 import InviteScreen from '../screens/InviteScreen';
 import LandingScreen from '../screens/LandingScreen';
+import LiveCreateScreen from '../screens/LiveCreateScreen';
+import LiveRoomScreen from '../screens/LiveRoomScreen';
 import MyChallengesScreen from '../screens/MyChallengesScreen';
 import NotificationsScreen from '../screens/NotificationsScreen';
 import ProScreen from '../screens/ProScreen';
@@ -89,6 +91,11 @@ const linking: LinkingOptions<RootStackParamList> = {
       Chat: 'chat',
       PublicResult: 'r/:token',
       PublicBattle: 'b/:token',
+      // AURA LIVE -- ruta pública propia (sección 16 del pedido), mismo
+      // criterio que ChallengeLanding/PublicResult/PublicBattle: debe
+      // poder abrirse desde WhatsApp/TikTok/IG sin sesión. `LiveCreate`
+      // SIN path -- transmitir no es un destino que se comparta por link.
+      LiveRoom: 'live/:slug',
     },
   },
 };
@@ -274,6 +281,11 @@ export function RootNavigator() {
                     server-side (auth.uid()), esto es solo la mitad de UI. */}
                 <Stack.Screen name="ChatPrivateInbox" component={ChatPrivateInboxScreen} />
                 <Stack.Screen name="ChatPrivateConversation" component={ChatPrivateConversationScreen} />
+                {/* AURA LIVE -- crear/transmitir, solo autenticado (igual
+                    criterio que Wallet/MyChallenges). Sin path propio:
+                    nunca se comparte un link a "crear un LIVE", solo al
+                    LIVE ya creado (LiveRoom, abajo, siempre público). */}
+                <Stack.Screen name="LiveCreate" component={LiveCreateScreen} options={{ gestureEnabled: false }} />
                 {/* Dashboard de admin (M1, auditoría del dashboard) --
                     registrada SOLO acá, igual que Wallet/Store/etc, NO en el
                     bloque siempre-registrado de abajo (ChallengeLanding/
@@ -304,6 +316,14 @@ export function RootNavigator() {
             <Stack.Screen name="PublicResult" component={PublicResultScreen} />
             <Stack.Screen name="PublicBattle" component={PublicBattleScreen} />
             <Stack.Screen name="Chat" component={ChatScreen} />
+            {/* AURA LIVE -- pública por diseño (sección 9: un invitado
+                debe poder ver un LIVE sin registrarse), igual criterio
+                que ChallengeLanding/PublicResult/PublicBattle/Chat. La
+                propia pantalla resuelve host/viewer/invitado contra
+                useAuth().session (reactivo, nunca un useEffect([]) de una
+                sola vez -- ver el comentario en LiveRoomScreen.tsx sobre
+                la clase de bug de Chat V2 que esto evita a propósito). */}
+            <Stack.Screen name="LiveRoom" component={LiveRoomScreen} options={{ gestureEnabled: false }} />
           </Stack.Navigator>
         </View>
         <BottomNavBar authed={authed} navigationRef={navigationRef} />

@@ -159,7 +159,36 @@ export type AnalyticsEventName =
   | 'chat_private_inbox_opened'
   | 'chat_private_conversation_opened'
   | 'chat_private_message_sent'
-  | 'chat_user_blocked';
+  | 'chat_user_blocked'
+  // AURA LIVE -- shows en vivo (ver docs/aura-live.md). Varios de estos
+  // se loguean SERVER-SIDE desde las RPCs de
+  // 20261004000000_aura_live_mvp.sql (live_created/live_started/
+  // live_ended/live_comment_sent/live_aura_check_started/
+  // live_poll_started/live_vote_cast) -- mismo criterio que
+  // chat_message_sent en Chat V1: un hecho real no debe depender de que
+  // el cliente relevante siga conectado. El resto (vistas, intentos,
+  // reacciones efímeras, prompts) solo existe del lado del cliente.
+  | 'live_lobby_viewed'
+  | 'live_create_viewed'
+  | 'live_start_attempted'
+  | 'live_started'
+  | 'live_start_failed'
+  | 'live_room_viewed'
+  | 'live_join_attempted'
+  | 'live_joined'
+  | 'live_join_failed'
+  | 'live_comment_sent'
+  | 'live_reaction_sent'
+  | 'live_follow_clicked'
+  | 'live_share_clicked'
+  | 'live_signup_prompted'
+  | 'live_guest_converted'
+  | 'live_aura_check_started'
+  | 'live_aura_check_completed'
+  | 'live_aura_check_failed'
+  | 'live_poll_started'
+  | 'live_vote_cast'
+  | 'live_ended';
 
 function trackMetaEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>): void {
   if (typeof window === 'undefined') return;

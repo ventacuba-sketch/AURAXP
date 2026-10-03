@@ -170,7 +170,7 @@ grant select on public.chat_private_messages to authenticated;
 -- Sin esto, el fallback HTTP funciona pero los mensajes/solicitudes de
 -- otros usuarios no aparecen en vivo. Guardado para que el replay siga
 -- siendo idempotente si la tabla ya fue añadida a la publicación.
-do $
+do $$
 begin
   if not exists (
     select 1 from pg_publication_tables
@@ -189,7 +189,7 @@ begin
     alter publication supabase_realtime add table public.chat_private_requests;
   end if;
 end
-$;
+$$;
 
 -- Sin INSERT directo -- todo vía send_private_message() (SECURITY
 -- DEFINER): ahí es donde vive la validación real de longitud, rate
