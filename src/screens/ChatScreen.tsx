@@ -15,6 +15,7 @@ import {
 import { useIsFocused } from '@react-navigation/native';
 
 import { ChatMembersPanel } from '../components/ChatMembersPanel';
+import { LiveLobbyCard } from '../components/LiveLobbyCard';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
@@ -554,6 +555,12 @@ export default function ChatScreen() {
           <Text style={styles.actionToastText}>{memberActionMessage}</Text>
         </View>
       )}
+
+      {/* AURA LIVE -- "EN VIVO AHORA" (sección 15 del pedido): el Chat es
+          el lobby, LIVE es el espectáculo. Componente propio, puramente
+          aditivo -- ver LiveLobbyCard.tsx, nunca datos falsos si no hay
+          ningún LIVE activo. */}
+      <LiveLobbyCard />
 
       {!viewer?.authed && (
         <View style={styles.guestBanner}>
