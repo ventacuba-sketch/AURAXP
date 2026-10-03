@@ -97,15 +97,25 @@ function playPrivateSound(): void {
   ]);
 }
 
-export function ChatSoundHost({ currentRouteName }: Props) {
+export function ChatSoundHost({ currentRouteName, userId }: Props) {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [preferenceLoaded, setPreferenceLoaded] = useState(false);
   const soundEnabledRef = useRef(true);
   const preferenceLoadedRef = useRef(false);
   const audioPrimedRef = useRef(false);
+  const lastPrivateSoundAtRef = useRef(0);
 
   const isChatRoute = currentRouteName === 'Chat' || currentRouteName === 'ChatPrivateInbox' || currentRouteName === 'ChatPrivateConversation';
   const showControl = isChatRoute;
+
+  function playPrivateOnce() {
+    if (!preferenceLoadedRef.current || !soundEnabledRef.current) return;
+    if (audioContext?.state !== 'running') return;
+    const now = Date.now();
+    if (now - lastPrivateSoundAtRef.current < 700) return;
+    lastPrivateSoundAtRef.current = now;
+    playPrivateSound();
+  }
 
   useEffect(() => {
     let active = true;
@@ -153,27 +163,31 @@ export function ChatSoundHost({ currentRouteName }: Props) {
       if (audioContext?.state !== 'running') audioPrimedRef.current = false;
     };
 
+    documentRef?.addEventListener?.('pointerdown', arm, true);
     documentRef?.addEventListener?.('click', arm, true);
     documentRef?.addEventListener?.('touchend', arm, true);
     documentRef?.addEventListener?.('visibilitychange', recoverWhenVisible);
     return () => {
+      documentRef?.removeEventListener?.('pointerdown', arm, true);
       documentRef?.removeEventListener?.('click', arm, true);
       documentRef?.removeEventListener?.('touchend', arm, true);
       documentRef?.removeEventListener?.('visibilitychange', recoverWhenVisible);
     };
   }, [isChatRoute]);
 
-  // Direct UI signal used by private chat and any local send path. This uses
-  // the same already-unlocked AudioContext as the test button, so Safari does
-  // not need a second audio mechanism.
+  // Direct UI signal used by the open private conversation. Keep this as a
+  // fast path, but dedupe it against the database listener below so the same
+  // incoming message can never produce two tones.
   useEffect(() => {
     if (Platform.OS !== 'web' || !isChatRoute) return;
     const scope = globalThis as any;
     const onChatSound = (event: any) => {
-      if (!preferenceLoadedRef.current || !soundEnabledRef.current) return;
-      if (audioContext?.state !== 'running') return;
-      if (event?.detail?.kind === 'private') playPrivateSound();
-      else playRoomSound();
+      if (event?.detail?.kind === 'private') playPrivateOnce();
+      else {
+        if (!preferenceLoadedRef.current || !soundEnabledRef.current) return;
+        if (audioContext?.state !== 'running') return;
+        playRoomSound();
+      }
     };
     scope.addEventListener?.(CHAT_SOUND_EVENT, onChatSound);
     return () => scope.removeEventListener?.(CHAT_SOUND_EVENT, onChatSound);
@@ -198,6 +212,32 @@ export function ChatSoundHost({ currentRouteName }: Props) {
       void supabase?.removeChannel(channel);
     };
   }, [currentRouteName]);
+
+  // Privados: listen at the app shell, not only inside the conversation
+  // screen. RLS means this authenticated client only receives private rows it
+  // is allowed to read. We ignore our own sends and play the distinct private
+  // tone for messages sent by the other participant. This also keeps working
+  // while the user is in the global room or private inbox.
+  useEffect(() => {
+    if (!supabase || !userId) return;
+
+    const channel = supabase
+      .channel(`aura-chat-private-sound-${userId}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_private_messages' },
+        (payload) => {
+          const row = payload.new as { sender_id?: string | null };
+          if (!row?.sender_id || row.sender_id === userId) return;
+          playPrivateOnce();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase?.removeChannel(channel);
+    };
+  }, [userId]);
 
   async function toggleSound() {
     const next = !soundEnabled;
