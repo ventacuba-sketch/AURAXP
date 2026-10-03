@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { getGuestId, subscribeToNewMessages } from '../services/chatService';
+import { getGuestId } from '../services/chatService';
 import { supabase } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
 
@@ -149,14 +149,26 @@ export function ChatSoundHost({ currentRouteName, userId }: Props) {
   }, [isChatRoute, userId]);
 
   useEffect(() => {
-    if (currentRouteName !== 'Chat') return;
+    if (currentRouteName !== 'Chat' || !supabase) return;
     if (!userId && !guestId) return;
 
-    return subscribeToNewMessages((message) => {
-      const isMine = userId ? message.userId === userId : message.guestId === guestId;
-      if (isMine || !preferenceLoadedRef.current || !soundEnabledRef.current) return;
-      playRoomSound();
-    });
+    const channel = supabase
+      .channel(`chat-sound-room-${userId ?? guestId}-${Date.now()}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'chat_messages' },
+        (payload) => {
+          const row = payload.new as { user_id?: string | null; guest_id?: string | null; hidden_at?: string | null };
+          const isMine = userId ? row.user_id === userId : row.guest_id === guestId;
+          if (row.hidden_at || isMine || !preferenceLoadedRef.current || !soundEnabledRef.current) return;
+          playRoomSound();
+        },
+      )
+      .subscribe();
+
+    return () => {
+      void supabase?.removeChannel(channel);
+    };
   }, [currentRouteName, userId, guestId]);
 
   useEffect(() => {
