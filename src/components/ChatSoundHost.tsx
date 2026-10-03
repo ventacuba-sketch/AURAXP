@@ -1,14 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
+import { supabase } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
 
 const SOUND_PREF_KEY = 'aura_chat_sound_enabled_v1';
-const SOUND_EVENT = 'aura-chat-incoming-sound';
 const SOUND_PREF_EVENT = 'aura-chat-sound-preference';
-
-type ChatSoundKind = 'room' | 'private';
+const GLOBAL_SOUND_TOPIC = 'aura-chat-global-sound';
 
 type ToneStep = {
   frequency: number;
@@ -21,10 +20,6 @@ type ToneStep = {
 type Props = {
   currentRouteName?: string;
   userId: string | null;
-};
-
-type SoundButtonProps = {
-  compact?: boolean;
 };
 
 let audioContext: any = null;
@@ -50,7 +45,6 @@ function getAudioContext(): any | null {
 async function unlockAudio(): Promise<boolean> {
   const ctx = getAudioContext();
   if (!ctx) return false;
-
   if (ctx.state !== 'running') {
     try {
       await ctx.resume?.();
@@ -58,7 +52,6 @@ async function unlockAudio(): Promise<boolean> {
       return false;
     }
   }
-
   return ctx.state === 'running';
 }
 
@@ -95,47 +88,35 @@ function playRoomSound(): void {
   ]);
 }
 
-function playPrivateSound(): void {
-  playPattern([
-    { frequency: 523.25, at: 0, duration: 0.12, gain: 0.17, type: 'triangle' },
-    { frequency: 783.99, at: 0.075, duration: 0.15, gain: 0.19, type: 'sine' },
-    { frequency: 1046.5, at: 0.16, duration: 0.18, gain: 0.16, type: 'triangle' },
-  ]);
-}
-
 /**
- * The screen that already received the Realtime message emits this event.
- * This deliberately avoids opening a second Postgres Changes subscription
- * only for audio: if the message is visible in the UI, the sound receives
- * the exact same delivery path.
- */
-export function notifyIncomingChatSound(kind: ChatSoundKind): void {
-  if (Platform.OS !== 'web') return;
-  const scope = globalThis as any;
-  try {
-    scope.dispatchEvent?.(new scope.CustomEvent(SOUND_EVENT, { detail: { kind } }));
-  } catch {
-    // Sound is progressive enhancement; chat delivery must never depend on it.
-  }
-}
-
-/**
- * Global audio engine. It owns the browser AudioContext but no longer draws a
- * floating control over the app. The actual control lives inside ChatScreen's
- * header so desktop/mobile layout cannot be covered by an absolute overlay.
+ * Global chat sound host.
+ *
+ * Important: the visible chat already has its own Postgres Changes channel.
+ * Opening a second Postgres Changes listener only for audio proved fragile on
+ * mobile Safari. Global message sounds now arrive through a tiny database
+ * Broadcast emitted by the chat_messages INSERT trigger. It is independent of
+ * the message-render subscription and includes no message body/private text.
  */
 export function ChatSoundHost({ currentRouteName }: Props) {
+  const { width } = useWindowDimensions();
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [preferenceLoaded, setPreferenceLoaded] = useState(false);
   const soundEnabledRef = useRef(true);
   const preferenceLoadedRef = useRef(false);
   const audioPrimedRef = useRef(false);
+
   const isChatRoute = currentRouteName === 'Chat' || currentRouteName === 'ChatPrivateInbox' || currentRouteName === 'ChatPrivateConversation';
+  const showControl = currentRouteName === 'Chat' && width < 800;
 
   useEffect(() => {
     let active = true;
     void AsyncStorage.getItem(SOUND_PREF_KEY).then((stored) => {
       if (!active) return;
-      soundEnabledRef.current = stored !== 'false';
+      const enabled = stored !== 'false';
+      soundEnabledRef.current = enabled;
       preferenceLoadedRef.current = true;
+      setSoundEnabled(enabled);
+      setPreferenceLoaded(true);
     });
     return () => {
       active = false;
@@ -146,8 +127,11 @@ export function ChatSoundHost({ currentRouteName }: Props) {
     if (Platform.OS !== 'web') return;
     const scope = globalThis as any;
     const onPreference = (event: any) => {
-      soundEnabledRef.current = event?.detail?.enabled !== false;
+      const enabled = event?.detail?.enabled !== false;
+      soundEnabledRef.current = enabled;
       preferenceLoadedRef.current = true;
+      setSoundEnabled(enabled);
+      setPreferenceLoaded(true);
     };
     scope.addEventListener?.(SOUND_PREF_EVENT, onPreference);
     return () => scope.removeEventListener?.(SOUND_PREF_EVENT, onPreference);
@@ -165,9 +149,6 @@ export function ChatSoundHost({ currentRouteName }: Props) {
       });
     };
 
-    // iOS Safari can interrupt audio after backgrounding. Do not create a new
-    // suspended context here; mark it unprimed and let the next real tap resume
-    // the existing context, which preserves autoplay permission reliably.
     const recoverWhenVisible = () => {
       if (documentRef?.visibilityState !== 'visible') return;
       if (audioContext?.state !== 'running') audioPrimedRef.current = false;
@@ -184,40 +165,25 @@ export function ChatSoundHost({ currentRouteName }: Props) {
   }, [isChatRoute]);
 
   useEffect(() => {
-    if (Platform.OS !== 'web') return;
-    const scope = globalThis as any;
-    const onIncoming = (event: any) => {
-      if (!isChatRoute || !preferenceLoadedRef.current || !soundEnabledRef.current) return;
-      const kind: ChatSoundKind = event?.detail?.kind === 'private' ? 'private' : 'room';
-      if (audioContext?.state !== 'running') return;
-      if (kind === 'private') playPrivateSound();
-      else playRoomSound();
-    };
-    scope.addEventListener?.(SOUND_EVENT, onIncoming);
-    return () => scope.removeEventListener?.(SOUND_EVENT, onIncoming);
-  }, [isChatRoute]);
+    if (!supabase || currentRouteName !== 'Chat') return;
 
-  return null;
-}
+    const channel = supabase
+      .channel(GLOBAL_SOUND_TOPIC)
+      .on('broadcast', { event: 'message_created' }, () => {
+        if (!preferenceLoadedRef.current || !soundEnabledRef.current) return;
+        if (audioContext?.state !== 'running') return;
+        playRoomSound();
+      })
+      .subscribe();
 
-export function ChatSoundButton({ compact = false }: SoundButtonProps) {
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    void AsyncStorage.getItem(SOUND_PREF_KEY).then((stored) => {
-      if (!active) return;
-      setSoundEnabled(stored !== 'false');
-      setLoaded(true);
-    });
     return () => {
-      active = false;
+      void supabase?.removeChannel(channel);
     };
-  }, []);
+  }, [currentRouteName]);
 
   async function toggleSound() {
     const next = !soundEnabled;
+    soundEnabledRef.current = next;
     setSoundEnabled(next);
     await AsyncStorage.setItem(SOUND_PREF_KEY, next ? 'true' : 'false');
 
@@ -231,55 +197,50 @@ export function ChatSoundButton({ compact = false }: SoundButtonProps) {
     }
 
     if (next) {
-      const ready = await unlockAudio();
-      if (ready) playRoomSound();
+      audioPrimedRef.current = await unlockAudio();
+      if (audioPrimedRef.current) playRoomSound();
     }
   }
 
-  if (!loaded) return null;
+  if (!showControl || !preferenceLoaded) return null;
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      accessibilityLabel={soundEnabled ? 'Silenciar sonidos del chat' : 'Activar sonidos del chat'}
-      onPress={() => void toggleSound()}
-      style={({ pressed }) => [styles.soundButton, compact && styles.soundButtonCompact, pressed && styles.soundButtonPressed]}
-      hitSlop={8}
-    >
-      <Text style={styles.soundIcon}>{soundEnabled ? '🔊' : '🔇'}</Text>
-      {!compact && <Text style={styles.soundLabel}>{soundEnabled ? 'Sonido' : 'Silencio'}</Text>}
-    </Pressable>
+    <View pointerEvents="box-none" style={styles.overlay}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={soundEnabled ? 'Silenciar sonidos del chat' : 'Activar sonidos del chat'}
+        onPress={() => void toggleSound()}
+        style={({ pressed }) => [styles.soundButton, pressed && styles.soundButtonPressed]}
+        hitSlop={8}
+      >
+        <Text style={styles.soundIcon}>{soundEnabled ? '🔊' : '🔇'}</Text>
+      </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  overlay: {
+    position: 'absolute',
+    top: 8,
+    right: spacing.sm,
+    zIndex: 1000,
+  },
   soundButton: {
-    flexDirection: 'row',
+    width: 32,
+    height: 32,
     alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6,
+    justifyContent: 'center',
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  soundButtonCompact: {
-    width: 32,
-    height: 32,
-    paddingHorizontal: 0,
-    paddingVertical: 0,
-    justifyContent: 'center',
+    backgroundColor: 'rgba(15, 15, 18, 0.94)',
   },
   soundButtonPressed: {
     opacity: 0.72,
   },
   soundIcon: {
-    fontSize: 13,
-  },
-  soundLabel: {
     ...typography.caption,
-    color: colors.textSecondary,
-    fontWeight: '700',
+    fontSize: 14,
   },
 });
