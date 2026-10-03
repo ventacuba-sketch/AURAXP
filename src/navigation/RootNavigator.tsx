@@ -21,7 +21,7 @@ import { linkCampaignToCurrentUser } from '../services/campaignService';
 import { consumePendingChallengeToken } from '../services/pendingChallenge';
 import { tryAttributePendingReferral } from '../services/referralService';
 import { logPageView } from '../services/analyticsService';
-import AdminDashboardScreen from '../screens/AdminDashboardScreen';
+import AdminDashboardScreen from '../screens/AdminDashboardRouterScreen';
 import AnalyzingScreen from '../screens/AnalyzingScreen';
 import AuthScreen from '../screens/AuthScreen';
 import BugReportScreen from '../screens/BugReportScreen';
