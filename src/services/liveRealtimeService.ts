@@ -101,17 +101,22 @@ export type LiveReactionEmoji = (typeof LIVE_REACTION_EMOJIS)[number];
 
 interface ReactionPayload {
   emoji: LiveReactionEmoji;
-  senderId: string;
 }
 
 /** Un solo canal Broadcast por sala -- cada reacción es un mensaje
  * efímero, nunca una fila. `self: false` evita que el propio emisor se
  * vuelva a recibir su reacción (la pantalla ya la anima localmente al
- * tocar el botón, ver LiveRoomScreen). */
+ * tocar el botón, ver LiveRoomScreen). `private: true` (auditoría GPT
+ * hallazgo #5) es lo que hace que ESTE canal pase por Realtime
+ * Authorization -- la policy de SELECT sobre `realtime.messages` que
+ * agrega la migración, acotada a este patrón de topic -- en vez del
+ * relay clásico sin autorización; el payload ya NO trae `senderId`
+ * (send_live_reaction() nunca lo manda, ver la migración: la UI nunca
+ * necesitó saber quién reaccionó, solo animar el emoji). */
 export function subscribeToLiveReactions(roomId: string, onReaction: (payload: ReactionPayload) => void): () => void {
   if (!supabase) return () => {};
   const channel = supabase
-    .channel(`live-reactions-${roomId}`, { config: { broadcast: { self: false } } })
+    .channel(`live-reactions-${roomId}`, { config: { broadcast: { self: false }, private: true } })
     .on('broadcast', { event: 'reaction' }, ({ payload }) => onReaction(payload as ReactionPayload))
     .subscribe();
 
@@ -120,29 +125,37 @@ export function subscribeToLiveReactions(roomId: string, onReaction: (payload: R
   };
 }
 
-/** Throttle cliente básico (sección 38: "no permitir que un script mande
- * millones de mensajes") -- máx 1 reacción cada 300ms por remitente,
- * puramente para no saturar el propio canal de este dispositivo; el
- * límite real contra abuso server-side queda documentado como pendiente
- * (Broadcast no pasa por una RPC propia, ver el reporte final). */
+/** Debounce de UX puramente local (evita mandar la misma reacción varias
+ * veces si alguien toca el botón como loco) -- esto NO es protección
+ * contra abuso, solo evita llamadas redundantes a la RPC. La protección
+ * REAL contra abuso vive 100% server-side en send_live_reaction()
+ * (auditoría GPT hallazgo #5: el throttle anterior vivía SOLO acá y se
+ * presentaba como si fuera seguridad, cuando cualquier script podía
+ * saltarse el cliente y mandar un Broadcast directo). */
 const lastSentAt = new Map<string, number>();
-const REACTION_THROTTLE_MS = 300;
+const REACTION_UX_DEBOUNCE_MS = 150;
 
-export function sendLiveReaction(roomId: string, emoji: LiveReactionEmoji, senderId: string): void {
-  if (!supabase) return;
+export interface SendLiveReactionResult {
+  ok: boolean;
+  errorCode?: string;
+}
+
+/** ÚNICO camino que usa el cliente de AURA VS para mandar una reacción --
+ * nunca un `channel.send()` directo (eso es lo que de verdad permitía a
+ * cualquiera saltarse el throttle). `send_live_reaction()` resuelve la
+ * identidad server-side (auth.uid() o p_guestId validado), aplica un
+ * rate limit real vía upsert, y es quien de verdad emite el Broadcast
+ * (`realtime.send()` desde la base) -- ver la migración para la
+ * limitación honesta documentada sobre qué SÍ y qué NO queda cerrado. */
+export async function sendLiveReaction(roomId: string, emoji: LiveReactionEmoji, guestId?: string | null): Promise<SendLiveReactionResult> {
+  if (!supabase) return { ok: false, errorCode: 'not_configured' };
   const now = Date.now();
   const last = lastSentAt.get(roomId) ?? 0;
-  if (now - last < REACTION_THROTTLE_MS) return;
+  if (now - last < REACTION_UX_DEBOUNCE_MS) return { ok: false, errorCode: 'debounced' };
   lastSentAt.set(roomId, now);
 
-  const channel = supabase.channel(`live-reactions-${roomId}`, { config: { broadcast: { self: false } } });
-  channel.subscribe((status) => {
-    if (status === 'SUBSCRIBED') {
-      void channel.send({ type: 'broadcast', event: 'reaction', payload: { emoji, senderId } });
-      // Canal de un solo uso para enviar -- se cierra apenas despacha
-      // (la pantalla mantiene su propia suscripción activa de LECTURA vía
-      // subscribeToLiveReactions, separada de esta de escritura puntual).
-      setTimeout(() => supabase?.removeChannel(channel), 500);
-    }
-  });
+  const { data, error } = await supabase.rpc('send_live_reaction', { p_room_id: roomId, p_emoji: emoji, p_guest_id: guestId ?? null });
+  if (error) return { ok: false, errorCode: 'rpc_error' };
+  const row = Array.isArray(data) ? data[0] : data;
+  return { ok: Boolean(row?.ok), errorCode: row?.error_code ?? undefined };
 }

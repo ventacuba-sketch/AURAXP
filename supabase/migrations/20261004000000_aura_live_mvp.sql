@@ -107,6 +107,103 @@ grant select on public.live_comments to anon, authenticated;
 -- Sin INSERT/UPDATE directo -- vía send_live_comment()/hide_live_comment().
 
 -- ============================================================
+-- C-bis) Reacciones -- rate limit REAL server-side (auditoría GPT
+--    hallazgo #5: el throttle de 300ms que vivía solo en el cliente
+--    (REACTION_THROTTLE_MS) NO es protección real -- cualquier script
+--    puede saltarse el cliente y mandar un Broadcast directo, y
+--    `senderId` lo manda el cliente, así que no es confiable. Esta tabla
+--    es UNA fila por (sala, identidad) que se SOBRESCRIBE en cada
+--    intento (upsert, nunca insert nuevo) -- el tamaño está acotado por
+--    participantes activos reaccionando, no por cantidad de reacciones,
+--    así que no genera la tormenta de inserts que sección 12 prohíbe.
+--    Además de la RPC, se cierra el canal Broadcast en sí con "Realtime
+--    Authorization" (políticas RLS sobre `realtime.messages`, canal
+--    marcado `private: true` -- ver subscribeToLiveReactions/
+--    sendLiveReaction más abajo en el código): esquema y comportamiento
+--    por defecto CONFIRMADOS contra el código fuente real de
+--    github.com/supabase/realtime (no documentación de terceros, no
+--    supuestos) -- `realtime.messages(topic text, extension text,
+--    payload jsonb, ...)`, RLS habilitada con CERO policies propias del
+--    producto (default deny real, mismo criterio que cada tabla de este
+--    proyecto con "RLS habilitada, cero policies"), y `realtime.send()`
+--    insertando ahí mismo como función de un rol administrador que sí
+--    puede escribir pese al default-deny. Solo se agrega acá una policy
+--    de SELECT (recibir), acotada por `topic like 'live-reactions-%'` --
+--    nunca una de INSERT, así que un `channel.send()` directo sobre un
+--    canal `private: true` para ese topic sigue sin política que lo
+--    permita.
+--    LIMITACIÓN HONESTA QUE SIGUE DOCUMENTADA (ver docs/aura-live.md):
+--    lo de arriba cierra el canal "autorizado" (`private: true`) que
+--    usa nuestra propia app. Lo que este sandbox NO pudo verificar
+--    (requiere un proyecto Supabase real con Realtime corriendo) es si
+--    el protocolo Realtime del proyecto en uso todavía acepta, para el
+--    mismo nombre de topic, una conexión que NUNCA declara
+--    `private: true` y por lo tanto nunca pasa por `realtime.messages`
+--    en absoluto (el relay "clásico" de Broadcast, anterior a esta
+--    función, que no toca Postgres). Si ese modo clásico sigue
+--    disponible en el servidor Realtime del proyecto, un script que lo
+--    use explícitamente seguiría pudiendo mandar al mismo topic sin
+--    pasar por el rate limit. Cerrar ESO por completo (si hiciera
+--    falta) requeriría confirmarlo contra el proyecto real desplegado.
+-- ============================================================
+create table if not exists public.live_reaction_throttle (
+  live_room_id uuid not null references public.live_rooms(id) on delete cascade,
+  identity text not null,
+  window_start timestamptz not null default now(),
+  count int not null default 0,
+  primary key (live_room_id, identity)
+);
+
+alter table public.live_reaction_throttle enable row level security;
+-- RLS habilitada, CERO policies -- solo send_live_reaction() (SECURITY
+-- DEFINER) la toca. Ningún cliente necesita verla ni mucho menos
+-- escribirla directo (mismo criterio que live_webhook_events).
+
+-- Nota de housekeeping (deliberadamente NO implementada en este MVP,
+-- para no ampliar el alcance de esta corrección): filas de salas ya
+-- 'ended' hace mucho tiempo se acumulan acá indefinidamente -- costo de
+-- storage despreciable (una fila por participante que alguna vez
+-- reaccionó), pero un futuro job de limpieza periódica (`delete from
+-- live_reaction_throttle using live_rooms where live_rooms.id =
+-- live_reaction_throttle.live_room_id and live_rooms.status = 'ended'
+-- and live_rooms.ended_at < now() - interval '30 days'`) sería el lugar
+-- natural para acotarlo si hace falta.
+
+-- Realtime Authorization (ver nota larga arriba) -- SOLO una policy de
+-- SELECT (recibir), acotada al patrón de topic que usa
+-- subscribeToLiveReactions/sendLiveReaction. Deliberadamente sin ninguna
+-- policy de INSERT/UPDATE/DELETE: el default-deny de RLS que ya trae
+-- `realtime.messages` (confirmado contra el código fuente real, ver
+-- arriba) sigue vigente para escrituras de cliente en este topic -- solo
+-- `realtime.send()` (invocado desde send_live_reaction(), nunca
+-- directo) puede insertar ahí.
+--
+-- Envuelto en `to_regclass(...) is not null` porque `realtime.messages`
+-- es una tabla que trae la PLATAFORMA Supabase (extensión Realtime), no
+-- algo que creen las migraciones de este proyecto -- en un Postgres
+-- "pelado" (como el stub local usado para el replay de verificación de
+-- este mismo PR) ese esquema no existe, y sin esta guarda la migración
+-- completa fallaría ahí con "relation realtime.messages does not
+-- exist". En cualquier proyecto Supabase real, `realtime.messages`
+-- siempre existe, así que la condición es efectivamente siempre
+-- verdadera ahí -- esto nunca deja la policy real sin crearse en
+-- producción, solo evita romper un entorno de prueba que no tiene el
+-- esquema de la plataforma.
+do $$
+begin
+  if to_regclass('realtime.messages') is not null then
+    execute 'drop policy if exists "live_reactions_broadcast_select" on realtime.messages';
+    execute $sql$
+      create policy "live_reactions_broadcast_select" on realtime.messages
+        for select
+        to anon, authenticated
+        using (realtime.messages.extension = 'broadcast' and realtime.messages.topic like 'live-reactions-%')
+    $sql$;
+  end if;
+end
+$$;
+
+-- ============================================================
 -- D) Aura Check -- puntual, nunca económico (punto 18)
 -- ============================================================
 create table if not exists public.live_aura_checks (
@@ -238,12 +335,25 @@ alter table public.live_poll_votes enable row level security;
 -- ============================================================
 create table if not exists public.live_webhook_events (
   id uuid primary key default gen_random_uuid(),
+  -- `id` ÚNICO que manda LiveKit en cada entrega de webhook (campo `id`
+  -- del WebhookEvent real del SDK oficial, sección "unique event uuid")
+  -- -- LiveKit reintenta entregas que no confirman 200 a tiempo, así que
+  -- sin esto un reintento auditaría/reconciliaría el mismo evento dos
+  -- veces (auditoría GPT: "webhook idempotente"). Nullable porque el
+  -- primer insert de auditoría ocurre ANTES de verificar la firma (sigue
+  -- queriendo quedar logueado un intento con firma inválida, que nunca
+  -- trae un id confiable).
+  livekit_event_id text,
   event_type text not null,
   livekit_room_name text,
   raw jsonb not null,
   created_at timestamptz not null default now(),
   processed_at timestamptz
 );
+
+create unique index if not exists live_webhook_events_livekit_event_id_key
+  on public.live_webhook_events (livekit_event_id)
+  where livekit_event_id is not null;
 
 alter table public.live_webhook_events enable row level security;
 -- RLS habilitada, CERO policies -- solo service_role (el webhook Edge
@@ -638,6 +748,81 @@ $$;
 
 revoke all on function public.hide_live_comment(uuid) from public, anon, authenticated;
 grant execute on function public.hide_live_comment(uuid) to authenticated;
+
+-- send_live_reaction: ÚNICO camino que usa el cliente de AURA VS para
+-- mandar una reacción (auditoría GPT hallazgo #5) -- identidad SIEMPRE
+-- resuelta server-side (auth.uid() si hay sesión, invitado solo si
+-- p_guest_id tiene forma válida -- mismo criterio que livekit-token),
+-- NUNCA un senderId que mande el cliente. Rate limit real vía upsert
+-- sobre live_reaction_throttle (ver esa tabla arriba): máx 6 reacciones
+-- cada 3 segundos por (sala, identidad). Emite el Broadcast real desde
+-- la base vía `realtime.send()` (función de Supabase para "Broadcast
+-- from Database", `private := true` para que pase por la policy de
+-- Realtime Authorization de arriba) -- si esa función no está
+-- disponible o falla, la reacción NUNCA debe tumbar el rate limit ya
+-- aplicado (ver bloque exception abajo); en el peor caso, simplemente
+-- no aparece en otros dispositivos, nunca un error 500 para el usuario
+-- que reaccionó.
+create or replace function public.send_live_reaction(p_room_id uuid, p_emoji text, p_guest_id text default null)
+returns table (ok boolean, error_code text)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_uid uuid := (select auth.uid());
+  v_identity text;
+  v_room public.live_rooms%rowtype;
+  v_now timestamptz := now();
+  v_window_seconds constant int := 3;
+  v_max_per_window constant int := 6;
+  v_count int;
+begin
+  if p_emoji is null or p_emoji not in ('🔥', '⚡', '❤️') then
+    return query select false, 'invalid_emoji';
+    return;
+  end if;
+
+  if v_uid is not null then
+    v_identity := 'user:' || v_uid::text;
+  else
+    if p_guest_id is null or length(p_guest_id) < 8 or length(p_guest_id) > 200 then
+      return query select false, 'guest_id_required';
+      return;
+    end if;
+    v_identity := 'guest:' || p_guest_id;
+  end if;
+
+  select * into v_room from public.live_rooms where live_rooms.id = p_room_id;
+  if not found or v_room.status <> 'live' or not v_room.reactions_enabled then
+    return query select false, 'room_not_live';
+    return;
+  end if;
+
+  insert into public.live_reaction_throttle as t (live_room_id, identity, window_start, count)
+  values (p_room_id, v_identity, v_now, 1)
+  on conflict (live_room_id, identity) do update
+    set window_start = case when t.window_start < v_now - make_interval(secs => v_window_seconds) then v_now else t.window_start end,
+        count = case when t.window_start < v_now - make_interval(secs => v_window_seconds) then 1 else t.count + 1 end
+  returning t.count into v_count;
+
+  if v_count > v_max_per_window then
+    return query select false, 'rate_limited';
+    return;
+  end if;
+
+  begin
+    perform realtime.send(jsonb_build_object('emoji', p_emoji), 'reaction', 'live-reactions-' || p_room_id::text, true);
+  exception when others then
+    raise warning 'send_live_reaction: realtime.send failed for room %: %', p_room_id, sqlerrm;
+  end;
+
+  return query select true, null::text;
+end;
+$$;
+
+revoke all on function public.send_live_reaction(uuid, text, text) from public;
+grant execute on function public.send_live_reaction(uuid, text, text) to anon, authenticated;
 
 -- request_live_aura_check: host-only para V1 (evita que cualquier
 -- espectador dispare llamadas a Gemini a discreción -- control de costo,

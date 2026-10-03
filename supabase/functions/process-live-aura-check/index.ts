@@ -29,11 +29,36 @@ function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } });
 }
 
+/**
+ * Aura Check es efímero (sección 18/auditoría GPT hallazgo #6): el clip
+ * original en Storage NO debe acumularse indefinidamente una vez que el
+ * procesamiento llega a un estado TERMINAL (done/failed, con cualquier
+ * error_message -- moderación, Gemini no disponible, fallo de red, etc).
+ * Best-effort a propósito: un fallo al BORRAR nunca debe convertir un
+ * análisis que sí funcionó en un error para el usuario -- solo se
+ * registra con `console.warn`, nunca se relanza. Llamar esto únicamente
+ * con un `storagePath` que YA pasó la validación `startsWith(user.id/)`
+ * de abajo -- nunca con un path todavía no confirmado como propio del
+ * usuario (ver el comentario en la rama `invalid_path`).
+ */
+async function cleanupStorageClip(admin: ReturnType<typeof createClient>, storagePath: string, checkId: string): Promise<void> {
+  try {
+    const { error } = await admin.storage.from(BUCKET).remove([storagePath]);
+    if (error) console.warn(JSON.stringify({ src: 'process-live-aura-check', event: 'storage_cleanup_failed', checkId, message: error.message }));
+  } catch (e) {
+    console.warn(JSON.stringify({ src: 'process-live-aura-check', event: 'storage_cleanup_failed', checkId, message: String(e) }));
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   let checkId: string | undefined;
   let admin: ReturnType<typeof createClient> | undefined;
+  // Solo se setea DESPUÉS de pasar la validación `startsWith(user.id/)`
+  // de abajo -- el catch externo nunca debe intentar borrar un path que
+  // todavía no se confirmó como propio del usuario.
+  let validatedStoragePath: string | undefined;
 
   try {
     const authHeader = req.headers.get('Authorization') ?? '';
@@ -69,21 +94,29 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: true, status: check.status });
     }
     if (!check.storage_path.startsWith(`${user.id}/`)) {
+      // NUNCA borrar acá -- este path todavía no se confirmó como propio
+      // del usuario (defensa en profundidad contra un p_storage_path mal
+      // formado o manipulado desde algún bug upstream en
+      // request_live_aura_check); borrar con el cliente service_role un
+      // path no validado sería un primitivo de borrado arbitrario.
       await admin.from('live_aura_checks').update({ status: 'failed', error_message: 'invalid_path' }).eq('id', checkId);
       return jsonResponse({ error: 'Path inválido' }, 400);
     }
+    validatedStoragePath = check.storage_path;
 
     await admin.from('live_aura_checks').update({ status: 'processing' }).eq('id', checkId);
 
     const { data: videoInfo, error: infoErr } = await admin.storage.from(BUCKET).info(check.storage_path);
     if (infoErr || !videoInfo) {
       await admin.from('live_aura_checks').update({ status: 'failed', error_message: 'video_info_failed' }).eq('id', checkId);
+      await cleanupStorageClip(admin, check.storage_path, checkId);
       return jsonResponse({ error: 'No se pudo leer el clip' }, 500);
     }
 
     const { data: videoStream, error: streamErr } = await admin.storage.from(BUCKET).download(check.storage_path).asStream();
     if (streamErr || !videoStream) {
       await admin.from('live_aura_checks').update({ status: 'failed', error_message: 'download_failed' }).eq('id', checkId);
+      await cleanupStorageClip(admin, check.storage_path, checkId);
       return jsonResponse({ error: 'No se pudo leer el clip' }, 500);
     }
 
@@ -103,6 +136,9 @@ Deno.serve(async (req: Request) => {
         .from('live_aura_checks')
         .update({ status: 'failed', error_message: `video_upload_failed: ${String(e)}` })
         .eq('id', checkId);
+      // prepareGeminiVideoFile ya terminó (con error) de leer el stream
+      // de Storage acá -- seguro borrar, nada más lo va a volver a leer.
+      await cleanupStorageClip(admin, check.storage_path, checkId);
       return jsonResponse({ error: 'No se pudo preparar el clip' }, 500);
     }
 
@@ -118,6 +154,10 @@ Deno.serve(async (req: Request) => {
     } catch (e) {
       const errorMessage = e instanceof GeminiUnavailableError ? 'gemini_unavailable' : String(e);
       await admin.from('live_aura_checks').update({ status: 'failed', error_message: errorMessage }).eq('id', checkId);
+      // analyzeVideo ya devolvió (con error) -- Gemini ya terminó de
+      // consumir el fileUri que subió prepareGeminiVideoFile; el objeto
+      // ORIGINAL de nuestro Storage ya no hace falta.
+      await cleanupStorageClip(admin, check.storage_path, checkId);
       return jsonResponse({ error: 'Análisis falló' }, 502);
     } finally {
       deleteGeminiFile(GEMINI_API_KEY, videoFile.name, checkId).catch((e) => console.warn('gemini file cleanup failed', e));
@@ -131,6 +171,7 @@ Deno.serve(async (req: Request) => {
         .from('live_aura_checks')
         .update({ status: 'failed', error_message: 'moderation_flagged' })
         .eq('id', checkId);
+      await cleanupStorageClip(admin, check.storage_path, checkId);
       return jsonResponse({ ok: true, rejected: true });
     }
 
@@ -155,6 +196,7 @@ Deno.serve(async (req: Request) => {
       .from('live_aura_checks')
       .update({ status: 'done', result, completed_at: new Date().toISOString() })
       .eq('id', checkId);
+    await cleanupStorageClip(admin, check.storage_path, checkId);
 
     // NUNCA: profiles.xp/level, wallets, coin_transactions,
     // daily_scan_counts, scans -- ver el comentario de arriba del archivo.
@@ -168,6 +210,12 @@ Deno.serve(async (req: Request) => {
       } catch (updateErr) {
         console.error('No se pudo marcar el Aura Check como failed en el catch externo', updateErr);
       }
+      // Este catch es SIEMPRE un estado terminal para este checkId (un
+      // reintento del cliente encuentra status != 'pending' y nunca
+      // vuelve a leer el storage_path) -- limpiar acá también, pero
+      // SOLO si ya pasamos la validación de path (nunca con un path sin
+      // confirmar, mismo criterio que la rama invalid_path de arriba).
+      if (validatedStoragePath) await cleanupStorageClip(admin, validatedStoragePath, checkId);
     }
     return jsonResponse({ error: 'Error interno' }, 500);
   }

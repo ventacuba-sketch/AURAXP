@@ -25,18 +25,35 @@ export interface ConnectLiveMediaOptions {
   livekitUrl: string;
   token: string;
   role: 'host' | 'viewer';
+  /** Identidad LiveKit del host (`user:<hostUserId>`, mismo formato que
+   * emite livekit-token) -- necesaria para que el viewer count EXCLUYA
+   * siempre al host, sin importar si quien pregunta es el propio host
+   * (donde remoteParticipants ya son solo viewers) o un viewer (donde
+   * remoteParticipants incluye al host + otros viewers -- auditoría
+   * GPT hallazgo #3: antes se usaba remoteParticipants.size crudo, que
+   * daba números distintos según quién preguntara). */
+  hostIdentity: string;
   /** Contenedor DOM real donde se monta el <video> principal -- para un
    * host, su propio preview local; para un viewer, el track remoto del
    * host (sección 4: un solo publisher, muchos subscribers). */
   videoContainer: HTMLElement;
   onConnectionStateChange?: (state: LiveConnectionState) => void;
-  /** Conteo real de PARTICIPANTES REMOTOS -- nunca incluye al propio
-   * participante local, así que funciona como "espectadores" sin
-   * importar si quien pregunta es el host o un viewer (sección 36: "no
-   * contar... host como viewer"). Única fuente de verdad del viewer
-   * count en esta pantalla -- ver LiveRoomScreen. */
+  /** Conteo real de ESPECTADORES -- participantes remotos EXCLUYENDO al
+   * host por identidad (nunca por posición/orden), así que da el mismo
+   * número sin importar si quien pregunta es el host o un viewer
+   * (sección 36: "no contar... host como viewer"). Única fuente de
+   * verdad del viewer count en esta pantalla -- ver LiveRoomScreen. */
   onViewerCountChange?: (count: number) => void;
   onError?: (message: string) => void;
+  /** AUDITORÍA GPT hallazgo #4: Safari/iOS bloquea el autoplay de medios
+   * remotos con audio hasta que hay un gesto real del usuario. Se llama
+   * cuando CUALQUIER track remoto (video o audio) falla al reproducirse
+   * por esa política -- nunca se oculta el error ni se deja el audio
+   * bloqueado en silencio. La UI (LiveRoomScreen) debe mostrar algo como
+   * "🔊 Toca para activar el audio" y, al tocar, llamar a
+   * `resumeAudio()` del controller (ESE tap es el gesto real que Safari
+   * exige para reintentar `.play()`). */
+  onAudioBlocked?: () => void;
 }
 
 export interface LiveMediaController {
@@ -53,6 +70,11 @@ export interface LiveMediaController {
    * para analizar"). */
   getLocalVideoTrack: () => MediaStreamTrack | null;
   getLocalAudioTrack: () => MediaStreamTrack | null;
+  /** Reintenta `.play()` en TODOS los elementos remotos (video + audio)
+   * dentro del gesto de click/tap real del usuario -- la única forma de
+   * levantar el bloqueo de autoplay de Safari/iOS. Devuelve `true` si
+   * todos los elementos quedaron reproduciéndose. */
+  resumeAudio: () => Promise<boolean>;
 }
 
 function mapConnectionState(state: ConnectionState): LiveConnectionState {
@@ -108,9 +130,49 @@ export async function connectToLiveRoom(opts: ConnectLiveMediaOptions): Promise<
   room.on(RoomEvent.ConnectionStateChanged, (state) => setState(mapConnectionState(state)));
   room.on(RoomEvent.Disconnected, () => setState('disconnected'));
 
-  const emitViewerCount = () => opts.onViewerCountChange?.(room.remoteParticipants.size);
+  // Cuenta remoteParticipants EXCLUYENDO explícitamente al host por
+  // identidad -- nunca por "el primero que entró" ni por posición. Si
+  // quien pregunta es el propio host, esto es un no-op (su identidad
+  // local nunca aparece en remoteParticipants); si quien pregunta es un
+  // viewer, esto resta exactamente al host de su propia lista de
+  // remotos. Mismo resultado desde cualquier dispositivo.
+  const countViewers = (): number => {
+    let count = 0;
+    for (const p of room.remoteParticipants.values()) {
+      if (p.identity !== opts.hostIdentity) count += 1;
+    }
+    return count;
+  };
+  const emitViewerCount = () => opts.onViewerCountChange?.(countViewers());
   room.on(RoomEvent.ParticipantConnected, emitViewerCount);
   room.on(RoomEvent.ParticipantDisconnected, emitViewerCount);
+
+  // AUDITORÍA GPT hallazgo #4 -- se guarda una referencia real a CADA
+  // elemento remoto adjuntado (video Y audio). Antes, el track de audio
+  // remoto se adjuntaba con `track.attach()` y el elemento devuelto se
+  // descartaba sin guardarlo ni montarlo en el DOM -- sin una referencia
+  // viva ni estar en el árbol, nada garantiza que el navegador lo
+  // mantenga reproduciendo. Ahora cada audio remoto se monta oculto en
+  // `document.body` (necesita estar en el documento para que Safari lo
+  // trate como una reproducción real), se reintenta `.play()` acá
+  // mismo, y CUALQUIER elemento (video o audio) que falle por política
+  // de autoplay dispara `onAudioBlocked` -- nunca se oculta el error ni
+  // queda audio bloqueado en silencio.
+  const remoteMediaElements = new Set<HTMLMediaElement>();
+
+  function tryPlay(el: HTMLMediaElement): void {
+    const playResult = el.play();
+    if (!playResult || typeof playResult.then !== 'function') return;
+    playResult.catch((e) => {
+      // NotAllowedError (Safari/Chrome autoplay policy) es el caso
+      // esperado -- cualquier OTRO error también se reporta, nunca se
+      // traga en silencio (sección: "No ocultes errores").
+      opts.onAudioBlocked?.();
+      if (!(e instanceof DOMException) || e.name !== 'NotAllowedError') {
+        opts.onError?.(e instanceof Error ? e.message : String(e));
+      }
+    });
+  }
 
   if (opts.role === 'viewer') {
     room.on(RoomEvent.TrackSubscribed, (track) => {
@@ -123,8 +185,31 @@ export async function connectToLiveRoom(opts: ConnectLiveMediaOptions): Promise<
         el.style.objectFit = 'cover';
         opts.videoContainer.innerHTML = '';
         opts.videoContainer.appendChild(el);
+        remoteMediaElements.add(el);
+        tryPlay(el);
       } else {
-        track.attach();
+        // Track de audio remoto (mic del host) -- elemento real montado
+        // oculto en <body>, con referencia retenida en
+        // `remoteMediaElements` para que resumeAudio() pueda
+        // reintentarlo dentro de un gesto real del usuario.
+        const el = track.attach() as HTMLAudioElement;
+        el.autoplay = true;
+        el.style.display = 'none';
+        document.body.appendChild(el);
+        remoteMediaElements.add(el);
+        tryPlay(el);
+      }
+    });
+
+    room.on(RoomEvent.TrackUnsubscribed, (track) => {
+      // Limpieza real -- nunca dejar elementos huérfanos ni tracks
+      // remotos colgando después de que LiveKit los desuscribe (host
+      // apagó cámara/mic, o la sala terminó).
+      for (const el of track.detach()) {
+        remoteMediaElements.delete(el);
+        el.pause();
+        el.srcObject = null;
+        el.remove();
       }
     });
   }
@@ -169,10 +254,38 @@ export async function connectToLiveRoom(opts: ConnectLiveMediaOptions): Promise<
       pub.track?.stop();
     }
     await room.disconnect();
+    // Red de seguridad -- TrackUnsubscribed ya debería haber limpiado
+    // cada elemento remoto, pero si room.disconnect() no llegó a
+    // dispararlo para alguno (p. ej. una desconexión abrupta), esto
+    // garantiza que ningún <audio>/<video> remoto quede reproduciendo
+    // de fondo ni montado en <body> después de salir del LIVE.
+    for (const el of remoteMediaElements) {
+      el.pause();
+      el.srcObject = null;
+      el.remove();
+    }
+    remoteMediaElements.clear();
   }
 
   return {
     disconnect,
+    resumeAudio: async () => {
+      // Único lugar donde `.play()` se llama DENTRO del gesto real del
+      // usuario (el tap en "🔊 Toca para activar el audio") -- es lo que
+      // Safari/iOS exige para levantar el bloqueo de autoplay. Reintenta
+      // TODOS los elementos remotos, no solo el de audio, por si el
+      // video también quedó pausado por la misma política.
+      let allOk = true;
+      for (const el of remoteMediaElements) {
+        try {
+          await el.play();
+        } catch (e) {
+          allOk = false;
+          opts.onError?.(e instanceof Error ? e.message : String(e));
+        }
+      }
+      return allOk;
+    },
     setMicEnabled: async (enabled) => {
       await room.localParticipant.setMicrophoneEnabled(enabled);
     },

@@ -5,12 +5,83 @@ transmisiones en vivo de AURA VS: un anfitrión autorizado transmite un show
 real (minutos u horas, no un clip de 8s) y cualquier persona — con o sin
 cuenta — puede entrar a verlo, comentar (si tiene cuenta) y reaccionar.
 
-Rama: `feature/aura-live-mvp`, creada desde `feature/chat-v2-social-room`
-(Chat V2 "Sala Social", PR #16, todavía sin fusionar a `main` al momento de
-escribir esto). **Ningún merge, deploy ni migración real se hizo como parte
-de este trabajo** — todo lo de abajo describe código probado localmente
-(Postgres descartable, `tsc`, `regression-gate`, `expo export`), nunca
-contra el proyecto Supabase real ni contra un servidor LiveKit real.
+Rama: `feature/aura-live-mvp-v2`, reconstruida desde `main` una vez que Chat
+V2 "Sala Social" (PR #16) y los contratos de CI de PR #18 ya estaban
+fusionados ahí. PR activo: **#19 "feat: AURA LIVE MVP"**, en draft, contra
+`main`. **Ningún merge, deploy ni migración real se hizo como parte de este
+trabajo** — todo lo de abajo describe código probado localmente (Postgres
+descartable, `tsc`, `regression-gate`, `expo export`, y — donde se indica —
+la fuente real de `github.com/supabase/realtime` y del paquete
+`livekit-server-sdk` instalado), nunca contra el proyecto Supabase real ni
+contra un servidor LiveKit real.
+
+---
+
+## 0. Auditoría externa (GPT) — hallazgos y correcciones aplicadas
+
+Una auditoría externa encontró 7 bloqueos antes de considerar este PR listo.
+Los 7 se corrigieron en la misma rama; resumen (detalle completo en cada
+sección referenciada):
+
+1. **Migración histórica tocada.** `20261003000000_chat_v2_social_room.sql`
+   (ya fusionada en `main`) se había modificado (arreglando su bug conocido
+   de `do $` → `do $$`). Revertida byte a byte al estado exacto de `main`.
+   Ese fix, aunque correcto, debe ir en un PR aparte contra `main` — nunca
+   reescribiendo una migración ya aplicada.
+2. **Preview no se disparaba para esta rama.** `deploy-preview.yml` solo
+   escuchaba `feature/aura-live-mvp`, no `feature/aura-live-mvp-v2` (el
+   nombre real de este PR, ver la nota sobre por qué cambió el nombre más
+   abajo). Agregado.
+3. **Viewer count inconsistente.** `room.remoteParticipants.size` incluye
+   al host cuando quien pregunta es un viewer, pero no cuando pregunta el
+   propio host -- números distintos según el dispositivo. Corregido
+   excluyendo siempre al host por **identidad** (`hostIdentity`, formato
+   `user:<hostUserId>`, el mismo que emite `livekit-token`), nunca por
+   posición. Ver sección 4.
+4. **Audio remoto sin estrategia de autoplay Safari/iOS.** El track de
+   audio remoto se adjuntaba con `track.attach()` sin guardar la
+   referencia ni montarlo en el DOM (bug real adicional, encontrado en esta
+   auditoría: sin referencia viva el navegador puede no mantenerlo
+   reproduciendo). Corregido: cada elemento remoto (video y audio) se
+   monta de verdad, se reintenta `.play()`, y si falla por política de
+   autoplay la UI muestra "🔊 Toca para activar el audio" — un tap real
+   llama a `resumeAudio()`, que reintenta `.play()` en todos los elementos
+   remotos dentro de ESE gesto (lo único que Safari acepta). Nunca se
+   oculta el error. Ver sección 4.
+5. **Throttle de reacciones solo en el cliente.** `REACTION_THROTTLE_MS`
+   vivía únicamente en `liveRealtimeService.ts` y `senderId` lo mandaba el
+   cliente -- ninguno de los dos es protección real. Corregido con
+   `send_live_reaction()` (RPC `SECURITY DEFINER`): identidad resuelta
+   server-side, rate limit real vía upsert acotado (una fila por
+   sala+identidad, nunca una tormenta de inserts), y el Broadcast lo emite
+   la propia base vía `realtime.send()` (Supabase "Broadcast from
+   Database"). Además se cerró el canal en sí con **Realtime
+   Authorization** real: una policy de `SELECT` sobre `realtime.messages`
+   acotada al topic `live-reactions-%`, sin ninguna policy de `INSERT` --
+   verificado de punta a punta contra un stub real de `realtime.messages`
+   (ver sección 2). Limitación que sigue documentada: ver sección 8.
+6. **Clips de Aura Check sin limpiar.** `process-live-aura-check` borraba
+   el archivo temporal de Gemini pero nunca el clip original en el bucket
+   `live-aura-checks`. Agregado `cleanupStorageClip()` best-effort en
+   TODOS los estados terminales (done/failed con cualquier motivo),
+   siempre después de que el clip ya fue leído/consumido, nunca antes;
+   nunca convierte un análisis exitoso en error si solo falla el borrado.
+7. **JWT/webhook de LiveKit reconstruidos a mano, nunca probados.** Se
+   investigó con evidencia real (no solo memoria/documentación): LiveKit
+   documenta que `livekit-server-sdk` v2 corre en Node/Deno/Bun; el
+   paquete instalado (v2.19.1, leído directo de `node_modules`) depende
+   solo de `jose` (JWT basado en Web Crypto, sin dependencias nativas de
+   Node). Se reemplazó la implementación manual por el SDK oficial
+   (`AccessToken`/`WebhookReceiver`) y se corrió de verdad contra Node
+   (mismo JS que ejecutaría Deno): generó un token válido, aceptó un
+   webhook firmado correctamente y **rechazó uno con el body alterado**.
+   Ver sección 3 para el detalle exacto de qué quedó probado y qué no.
+
+**Bugs adicionales encontrados durante la auditoría** (no pedidos
+explícitamente, corregidos igual): el track de audio remoto sin referencia
+retenida (parte del punto 4); webhook no idempotente ante reintentos de
+LiveKit (agregado `live_webhook_events.livekit_event_id`, índice único
+parcial, `upsert ... ignoreDuplicates`).
 
 ---
 
@@ -279,16 +350,37 @@ y pasa `tsc`/`regression-gate`/`expo export`/pruebas SQL reales, pero
 **nunca se probó end-to-end**:
 
 - Conexión real a un servidor LiveKit (publish/subscribe real).
-- El formato exacto del JWT de `livekit-token` contra un servidor LiveKit
-  real (la forma de claims es la documentada públicamente por LiveKit,
-  pero nunca se confirmó un `room.connect()` real aceptándolo).
-- La verificación de firma de `livekit-webhook` contra una entrega real
-  de webhook de LiveKit.
+- El token de `livekit-token` y el webhook de `livekit-webhook` ahora usan
+  el SDK oficial `livekit-server-sdk` (ver sección 0, hallazgo #7) en vez
+  de JWT/HMAC reconstruido a mano -- se corrió de verdad `AccessToken.
+  toJwt()` y `WebhookReceiver.receive()` contra Node (mismo JS que Deno
+  ejecutaría), confirmando que el flujo completo (firmar → verificar →
+  rechazar alterado) funciona con el SDK real. Lo que **sigue sin
+  confirmarse**: que `npm:livekit-server-sdk` resuelva igual dentro del
+  runtime Edge Function ya desplegado (Deno Deploy), y que un servidor
+  LiveKit real acepte/firme exactamente así. Esto es una verificación
+  bastante más fuerte que antes, pero NO es lo mismo que un
+  `room.connect()` real contra LiveKit -- eso sigue sin poder probarse
+  desde este sandbox.
 - Safari/iOS real: `getUserMedia`, `MediaRecorder`, reconexión en
-  background, cámara frontal/trasera.
-- Dos dispositivos reales (host + viewer) viéndose entre sí.
+  background, cámara frontal/trasera, y el desbloqueo de audio por tap
+  (sección 0, hallazgo #4) -- implementado y revisado contra el
+  comportamiento documentado de autoplay de Safari, pero nunca ejecutado
+  en un Safari/iPhone real.
+- Dos dispositivos reales (host + viewer) viéndose Y ESCUCHÁNDOSE entre
+  sí.
 - La transición invitado→login dentro de un LIVE en un navegador real
   (verificado solo por revisión de código, ver sección 5).
+- **Reacciones (sección 0, hallazgo #5):** el rate limit real server-side
+  y la policy de Realtime Authorization sobre `realtime.messages` SÍ se
+  verificaron de punta a punta contra un stub de Postgres que replica el
+  esquema real de `realtime.messages` (confirmado contra el código fuente
+  de `github.com/supabase/realtime`) -- incluyendo que un `INSERT` directo
+  de un cliente `anon` es rechazado por RLS. Lo que NO se pudo confirmar:
+  si el servidor Realtime del proyecto real todavía acepta, para el mismo
+  topic, una conexión que nunca declara `private: true` y por lo tanto
+  nunca pasa por `realtime.messages` (el relay "clásico" anterior a esta
+  función) -- eso requeriría el proyecto Supabase real desplegado.
 
 **Antes de considerar esto listo para cualquier usuario real**: crear un
 proyecto LiveKit (Cloud o self-hosted), configurar los secrets (sección

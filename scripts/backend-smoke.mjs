@@ -64,5 +64,10 @@ await bestEffort('livekit-token (no room/guestId)',async()=>{
 // limpio (401/403) o -- antes de desplegar la migración -- 404.
 await bestEffort('create_live_room (anon)',()=>rpc('create_live_room',{p_title:'__smoke__'},[200,401,403,404]));
 await bestEffort('send_live_comment (anon)',()=>rpc('send_live_comment',{p_room_id:'00000000-0000-0000-0000-000000000000',p_body:'__smoke__'},[200,401,403,404]));
+// send_live_reaction (auditoría GPT hallazgo #5): sin guestId y sin
+// sesión, debe fallar limpio con 'guest_id_required' (200, ok:false) o
+// 404 si la migración todavía no está aplicada -- NUNCA un 500 de SQL
+// roto, y nunca toca una sala real (room_id inventado).
+await bestEffort('send_live_reaction (anon, no guestId)',()=>rpc('send_live_reaction',{p_room_id:'00000000-0000-0000-0000-000000000000',p_emoji:'🔥'},[200,404]));
 
 console.log('Production backend + battle contracts OK (AURA LIVE checks are best-effort until the migration is deployed)');

@@ -107,6 +107,12 @@ export default function LiveRoomScreen() {
 
   const [connectionState, setConnectionState] = useState<LiveConnectionState>('connecting');
   const [mediaError, setMediaError] = useState<string | null>(null);
+  // Auditoría GPT hallazgo #4 -- Safari/iOS bloquea el autoplay del
+  // audio/video remoto hasta un gesto real del usuario. `resumeAudio()`
+  // (ver liveMediaService.web.ts) SOLO funciona si se llama dentro del
+  // handler de un tap real -- por eso este botón, nunca un reintento
+  // automático.
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const [viewerCount, setViewerCount] = useState(0);
   const [micEnabled, setMicEnabled] = useState(true);
   const [cameraEnabled, setCameraEnabled] = useState(true);
@@ -212,6 +218,12 @@ export default function LiveRoomScreen() {
           livekitUrl: LIVEKIT_URL,
           token: tokenRes.token,
           role: isHost ? 'host' : 'viewer',
+          // Identidad LiveKit del host -- SIEMPRE `user:<hostUserId>`
+          // (room.hostUserId es la columna `host_user_id`, solo
+          // cuentas autenticadas pueden hostear). Usada para excluir
+          // al host del viewer count sin importar quién pregunta
+          // (auditoría GPT hallazgo #3).
+          hostIdentity: `user:${room.hostUserId}`,
           videoContainer: container,
           onConnectionStateChange: (state) => {
             // 'live_reconnect': solo cuenta como reconexión si YA hubo una
@@ -227,6 +239,7 @@ export default function LiveRoomScreen() {
             setViewerCount(count);
           },
           onError: (message) => setMediaError(message),
+          onAudioBlocked: () => setAudioBlocked(true),
         });
         if (cancelled) {
           await controller.disconnect();
@@ -382,7 +395,11 @@ export default function LiveRoomScreen() {
     const id = `${Date.now()}-local`;
     setReactions((prev) => [...prev, { id, emoji }]);
     setTimeout(() => setReactions((prev) => prev.filter((r) => r.id !== id)), REACTION_DISPLAY_MS);
-    sendLiveReaction(room.id, emoji, session?.user.id ?? guestId ?? 'anon');
+    // send_live_reaction() resuelve la identidad real server-side
+    // (auth.uid() si hay sesión) -- guestId solo se manda cuando no hay
+    // sesión, nunca como un "senderId" de confianza (auditoría GPT
+    // hallazgo #5).
+    void sendLiveReaction(room.id, emoji, session ? null : guestId);
     logEvent('live_reaction_sent', { emoji, live_room_id: room.id });
   }
 
@@ -400,6 +417,14 @@ export default function LiveRoomScreen() {
     if (!room) return;
     logEvent('live_share_clicked');
     await shareText('🔴 Estamos EN VIVO en AURA VS ⚡\nEntra a ver la Batalla de Aura:', liveShareUrl(room.slug));
+  }
+
+  async function handleUnlockAudio() {
+    // Este handler SOLO existe para ejecutarse dentro de un tap real del
+    // usuario -- es la única forma de que Safari/iOS acepte reanudar
+    // `.play()` en medios ya bloqueados por su política de autoplay.
+    const ok = await mediaControllerRef.current?.resumeAudio();
+    if (ok) setAudioBlocked(false);
   }
 
   async function handleToggleMic() {
@@ -531,6 +556,12 @@ export default function LiveRoomScreen() {
           <Text style={styles.closeButtonText}>✕</Text>
         </Pressable>
       </View>
+
+      {audioBlocked && (
+        <Pressable style={styles.audioUnlockButton} onPress={handleUnlockAudio}>
+          <Text style={styles.audioUnlockText}>🔊 Toca para activar el audio</Text>
+        </Pressable>
+      )}
 
       {auraCheck?.result && (
         <View style={styles.auraCheckOverlay}>
@@ -747,6 +778,21 @@ const styles = StyleSheet.create({
   closeButtonText: {
     ...typography.title,
     color: '#fff',
+  },
+  audioUnlockButton: {
+    position: 'absolute',
+    top: '42%',
+    alignSelf: 'center',
+    backgroundColor: colors.accent,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    zIndex: 10,
+  },
+  audioUnlockText: {
+    ...typography.body,
+    color: colors.onAccent,
+    fontWeight: '800',
   },
   auraCheckOverlay: {
     position: 'absolute',

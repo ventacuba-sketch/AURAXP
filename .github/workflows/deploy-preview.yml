@@ -2,7 +2,7 @@ name: Deploy preview web
 
 on:
   push:
-    branches: [feature/admin-analytics-dashboard, integration/chat-v1-main, feature/chat-v2-social-room, feature/aura-live-mvp]
+    branches: [feature/admin-analytics-dashboard, integration/chat-v1-main, feature/chat-v2-social-room, feature/aura-live-mvp, feature/aura-live-mvp-v2]
   workflow_dispatch:
 
 jobs:

@@ -6,17 +6,36 @@
  * 7 del pedido: "El cliente JAMÁS puede mandar role: host y conseguir
  * privilegios de host simplemente porque lo pidió").
  *
- * Por qué el JWT se arma a mano acá (Web Crypto, HMAC-SHA256) en vez de
- * usar `livekit-server-sdk`: ese paquete no está probado contra el
- * runtime real de Supabase Edge Functions desde este entorno (sin acceso
- * a un proyecto Supabase real para desplegar y confirmar compatibilidad
- * Deno/npm, ver sección 34 del pedido) -- Web Crypto, en cambio, es una
- * API nativa de Deno, cero dependencia npm, cero riesgo de
- * incompatibilidad de runtime para la ruta más crítica de seguridad de
- * todo AURA LIVE. El formato del token (claims `video.*`) sigue el
- * esquema público y estable de LiveKit Access Tokens -- documentado acá
- * mismo, nunca verificado contra un servidor LiveKit real desde este
- * sandbox (sin credenciales, ver el reporte de esta tarea).
+ * AUDITORÍA GPT hallazgo #7: la primera versión de esta función firmaba
+ * el JWT a mano (Web Crypto, HMAC-SHA256) para evitar depender de
+ * `livekit-server-sdk` sin poder probarlo. Se investigó de nuevo con
+ * evidencia real (no solo documentación) antes de decidir:
+ *   1. LiveKit documenta oficialmente que `livekit-server-sdk` v2 corre
+ *      en Node, Deno Y Bun.
+ *   2. El paquete v2.19.1 (instalado y leído directamente desde
+ *      node_modules en este sandbox) depende únicamente de
+ *      `@bufbuild/protobuf`, `@livekit/protocol` y `jose` -- CERO
+ *      dependencias nativas de Node (`grep` sobre el bundle completo no
+ *      encontró ningún `require('fs'|'net'|'tls'|'dns'|...)`), y `jose`
+ *      es la librería JWT basada en Web Crypto que la propia LiveKit
+ *      adoptó en v2 específicamente para soportar runtimes edge.
+ *   3. Supabase Edge Functions ya usa el especificador `npm:` en este
+ *      mismo repo (ver supabase/functions/send-push/index.ts, `npm:web-
+ *      push@3`), así que no es un patrón nuevo sin precedente acá.
+ *   4. Se corrió `AccessToken.toJwt()` y `WebhookReceiver.receive()` de
+ *      verdad (Node, mismo código JS que ejecutaría Deno) con un payload
+ *      firmado a mano siguiendo el esquema público de LiveKit Webhooks:
+ *      el token se generó correctamente y la verificación aceptó un
+ *      body válido y RECHAZÓ uno alterado (`sha256 checksum of body does
+ *      not match`).
+ * Con esa evidencia, se reemplaza la implementación manual por el SDK
+ * oficial -- sigue exactamente su API documentada (AccessToken +
+ * addGrant + toJwt), nunca se reinventa el protocolo. Lo que SIGUE sin
+ * poder confirmarse desde este sandbox (sin proyecto Supabase ni LiveKit
+ * real): que `npm:livekit-server-sdk` resuelva igual dentro del runtime
+ * Edge Function ya desplegado (Deno Deploy), y que un servidor LiveKit
+ * real acepte un token emitido así. Ningún punto de esto se declara
+ * "probado contra LiveKit real" -- ver el reporte de esta tarea.
  *
  * Identidad SIEMPRE opaca (sección 7): `user:<uuid>` para autenticados,
  * `guest:<visitor_id>` para invitados -- nunca email/username/nombre real
@@ -26,6 +45,7 @@
  * segundo identificador.
  */
 import { createClient } from 'jsr:@supabase/supabase-js@2';
+import { AccessToken, type VideoGrant } from 'npm:livekit-server-sdk@2';
 import { corsHeaders } from '../_shared/cors.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
@@ -40,56 +60,15 @@ const LIVEKIT_API_SECRET = Deno.env.get('LIVEKIT_API_SECRET') ?? '';
 // conexión INICIAL ininterrumpida, no la duración total de un LIVE.
 const TOKEN_TTL_SECONDS = 6 * 60 * 60;
 
-function base64url(bytes: Uint8Array): string {
-  let binary = '';
-  for (const b of bytes) binary += String.fromCharCode(b);
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-
-function base64urlJson(obj: unknown): string {
-  return base64url(new TextEncoder().encode(JSON.stringify(obj)));
-}
-
-async function hmacSha256(key: string, data: string): Promise<Uint8Array> {
-  const keyBytes = new TextEncoder().encode(key);
-  const cryptoKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', cryptoKey, new TextEncoder().encode(data));
-  return new Uint8Array(sig);
-}
-
-interface VideoGrant {
-  room: string;
-  roomJoin: true;
-  canPublish: boolean;
-  canSubscribe: true;
-  canPublishData: boolean;
-}
-
 /**
- * Access Token de LiveKit -- JWT HS256 firmado con LIVEKIT_API_SECRET.
- * Forma de claims documentada públicamente por LiveKit (AccessToken):
- * iss = API key, sub = identidad del participante, video = el grant real
- * (lo único que de verdad importa para permisos -- roomJoin/canPublish/
- * canSubscribe/canPublishData). Nunca verificado contra un servidor
- * LiveKit real desde este sandbox -- ver limitación en el reporte final.
+ * Access Token de LiveKit -- SDK oficial (ver nota arriba). `addGrant`
+ * recibe exactamente la forma `VideoGrant` que exporta el propio
+ * paquete, nunca un tipo inventado acá.
  */
 async function createLiveKitToken(identity: string, grant: VideoGrant): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  const header = { alg: 'HS256', typ: 'JWT' };
-  const payload = {
-    iss: LIVEKIT_API_KEY,
-    sub: identity,
-    jti: identity,
-    iat: now,
-    nbf: now,
-    exp: now + TOKEN_TTL_SECONDS,
-    video: grant,
-  };
-  const headerB64 = base64urlJson(header);
-  const payloadB64 = base64urlJson(payload);
-  const signingInput = `${headerB64}.${payloadB64}`;
-  const signature = await hmacSha256(LIVEKIT_API_SECRET, signingInput);
-  return `${signingInput}.${base64url(signature)}`;
+  const at = new AccessToken(LIVEKIT_API_KEY, LIVEKIT_API_SECRET, { identity, ttl: TOKEN_TTL_SECONDS });
+  at.addGrant(grant);
+  return at.toJwt();
 }
 
 function jsonResponse(body: unknown, status = 200): Response {
