@@ -7,21 +7,22 @@ const MAX_WIDTH = 430; // mobile viewport target (~390-430px)
 const MAX_HEIGHT = 932; // resembles a modern phone's logical viewport height
 
 /**
- * Web-only: centers the app inside a mobile-sized container so it doesn't
- * stretch across a wide desktop browser window. Native iOS/Android render
- * `children` directly with no extra wrapping view — this is a structural
- * no-op there, so native layout is completely unaffected.
+ * Web-only: most consumer screens stay centered inside a phone-sized frame.
+ * Admin and Chat are exceptions: both have responsive desktop layouts and
+ * must receive the real browser width. Previously /chat stayed capped at
+ * 430px while ChatScreen read the desktop window width and rendered its
+ * 2-column layout inside that tiny frame, which squeezed/broke desktop chat.
  */
 export function WebMobileFrame({ children }: PropsWithChildren) {
   if (Platform.OS !== 'web') {
     return <>{children}</>;
   }
 
-  // The admin analytics route is a desktop dashboard rather than the
-  // consumer mobile experience. Opening /admin directly therefore uses the
-  // full browser viewport while the public app keeps the phone frame.
-  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/admin')) {
-    return <View style={styles.adminOuter}>{children}</View>;
+  if (typeof window !== 'undefined') {
+    const path = window.location.pathname;
+    if (path.startsWith('/admin') || path.startsWith('/chat')) {
+      return <View style={styles.fullWidthOuter}>{children}</View>;
+    }
   }
 
   return (
@@ -32,7 +33,7 @@ export function WebMobileFrame({ children }: PropsWithChildren) {
 }
 
 const styles = StyleSheet.create({
-  adminOuter: {
+  fullWidthOuter: {
     flex: 1,
     width: '100%',
     height: '100%',
