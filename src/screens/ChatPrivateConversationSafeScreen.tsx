@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -39,6 +40,16 @@ function relativeTime(iso: string): string {
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
   return `${Math.floor(hours / 24)}d`;
+}
+
+function emitPrivateSound(): void {
+  if (Platform.OS !== 'web') return;
+  const scope = globalThis as any;
+  try {
+    scope.dispatchEvent?.(new scope.CustomEvent('aura-chat-sound', { detail: { kind: 'private' } }));
+  } catch {
+    // El sonido es accesorio: nunca debe romper el chat.
+  }
 }
 
 /**
@@ -119,9 +130,10 @@ export default function ChatPrivateConversationSafeScreen() {
     if (!conversationId) return;
     return subscribeToPrivateMessages(conversationId, (msg) => {
       setMessages((prev) => (prev.some((m) => m.id === msg.id) ? prev : [...prev, msg]));
+      if (myUserId && msg.senderId !== myUserId) emitPrivateSound();
       void markPrivateConversationRead(conversationId);
     });
-  }, [conversationId]);
+  }, [conversationId, myUserId]);
 
   async function loadMore() {
     if (!conversationId || loadingMore || !hasMore || !messages.length) return;
@@ -150,6 +162,7 @@ export default function ChatPrivateConversationSafeScreen() {
       );
       return;
     }
+    emitPrivateSound();
     setDraft('');
     void logEvent('chat_private_message_sent', { conversation_id: conversationId });
     await loadInitial();
