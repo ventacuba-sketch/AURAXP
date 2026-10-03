@@ -33,21 +33,27 @@ self.addEventListener('fetch', (event) => {
 // muestra un aviso genérico en vez de fallar en silencio (mejor una
 // notificación con menos detalle que ninguna).
 self.addEventListener('push', (event) => {
-  let data = { title: 'AURA VS', body: 'Tienes una novedad ⚔️', url: '/' };
+  let data = { title: 'AURA VS', body: 'Tienes una novedad ⚔️', url: '/', kind: null };
   try {
     if (event.data) data = { ...data, ...event.data.json() };
   } catch {
     // payload no-JSON -- se queda con el genérico de arriba.
   }
 
-  event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
-      data: { url: data.url },
-    }),
-  );
+  const isPrivateChat = typeof data.kind === 'string' && data.kind.startsWith('chat_private_');
+  const options = {
+    body: data.body,
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    data: { url: data.url },
+  };
+
+  // Android y otros navegadores compatibles pueden dar un patrón háptico
+  // propio a los privados. Safari/iOS puede ignorarlo; en ese caso el SO
+  // conserva su comportamiento normal de notificación sin romper nada.
+  if (isPrivateChat) options.vibrate = [120, 70, 180];
+
+  event.waitUntil(self.registration.showNotification(data.title, options));
 });
 
 // Deep link (E): SIEMPRE /c/<token> -- ChallengeLandingScreen entra
