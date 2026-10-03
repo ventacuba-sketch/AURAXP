@@ -31,7 +31,20 @@ import { getRootRouteName } from '../utils/navRoute';
  * menos alto disponible cuando esto está visible -- ningún screen
  * individual necesita saber que existe ni agregar padding por su cuenta.
  */
-const HIDDEN_ROUTES = new Set(['MainTabs', 'Record', 'Analyzing', 'ResetPassword', 'Auth', 'AdminDashboard', 'Chat']);
+const HIDDEN_ROUTES = new Set([
+  'MainTabs',
+  'Record',
+  'Analyzing',
+  'ResetPassword',
+  'Auth',
+  'AdminDashboard',
+  'Chat',
+  // Chat V2 "Sala Social" -- conversación privada 1:1 ocupa toda la
+  // pantalla (punto 10 del pedido: mobile-first, inmersiva), igual
+  // criterio que Chat. ChatPrivateInbox SÍ muestra la barra (es una
+  // lista, mismo criterio que Notifications/MyChallenges).
+  'ChatPrivateConversation',
+]);
 
 interface Props {
   authed: boolean;

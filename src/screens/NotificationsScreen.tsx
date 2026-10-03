@@ -30,6 +30,10 @@ const COPY: Record<string, (rival: string) => string> = {
   // follower nuevo o un regalo recibido.
   referral_activated: (rival) => `🎉 @${rival} hizo su primer Scan -- ganaste 5.000 Coins`,
   new_follower: (rival) => `@${rival} empezó a seguirte`,
+  // Chat V2 "Sala Social" -- privados con consentimiento.
+  chat_private_request: (rival) => `💬 @${rival} quiere iniciar un chat privado contigo`,
+  chat_private_request_accepted: (rival) => `✅ @${rival} aceptó tu solicitud de chat privado`,
+  chat_private_message: (rival) => `💬 @${rival} te envió un mensaje privado`,
 };
 
 /** Bug UX corregido: antes siempre "te mandó un regalo", sin decir cuál.
@@ -51,6 +55,9 @@ function notificationText(n: AppNotification): string {
   if (n.kind === 'referral_activated') return COPY.referral_activated(rival);
   if (n.kind === 'new_follower') return COPY.new_follower(rival);
   if (n.kind === 'gift_received') return giftReceivedText(rival, n.giftName, n.giftAssetRef);
+  if (n.kind === 'chat_private_request') return COPY.chat_private_request(rival);
+  if (n.kind === 'chat_private_request_accepted') return COPY.chat_private_request_accepted(rival);
+  if (n.kind === 'chat_private_message') return COPY.chat_private_message(rival);
   if (n.result === 'won') return COPY.challenge_completed_won(rival);
   if (n.result === 'lost') return COPY.challenge_completed_lost(rival);
   return COPY.challenge_completed_tie(rival);
@@ -96,7 +103,25 @@ export default function NotificationsScreen() {
       }
       return;
     }
-    if (n.challengeShareToken) {
+    if (
+      (n.kind === 'chat_private_request_accepted' || n.kind === 'chat_private_message') &&
+      n.privateConversationId &&
+      n.rivalUserId &&
+      n.rivalUsername
+    ) {
+      // 'chat_private_request' (todavía sin aceptar) va a la bandeja de
+      // Privados, no directo a una conversación que puede no existir
+      // todavía -- ChatPrivateInboxScreen es quien resuelve
+      // solicitudes entrantes pendientes.
+      navigation.navigate('ChatPrivateConversation', {
+        conversationId: n.privateConversationId,
+        peerId: n.rivalUserId,
+        peerUsername: n.rivalUsername,
+        peerAvatarEmoji: n.rivalAvatarEmoji ?? '🙂',
+      });
+    } else if (n.kind === 'chat_private_request') {
+      navigation.navigate('ChatPrivateInbox');
+    } else if (n.challengeShareToken) {
       navigation.navigate('Challenge', { challengeToken: n.challengeShareToken });
     } else if (n.kind === 'referral_activated') {
       // Mismo destino natural que el push equivalente ("🎉 Coins ganados") --

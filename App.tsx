@@ -4,42 +4,38 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ErrorBoundary } from './src/components/ErrorBoundary';
 import { WebMobileFrame } from './src/components/WebMobileFrame';
-import { AuthProvider } from './src/hooks/useAuth';
+import { AuthProvider, useAuth } from './src/hooks/useAuth';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { logAppOpenOnce, logWebVisitOnce } from './src/services/analyticsService';
 import { captureWebVisit } from './src/services/campaignService';
 import { checkStandaloneOnBoot, registerServiceWorker } from './src/services/installService';
 import { captureReferralFromUrl } from './src/services/referralService';
 
+/**
+ * Chat is intentionally registered on both sides of the auth gate so guests
+ * can use the public room. React Navigation can therefore keep that screen
+ * mounted while a guest signs in. Keying the navigator by auth identity
+ * guarantees a clean remount on guest -> account (and account -> guest), so
+ * Presence, members and private-chat permissions never retain stale guest
+ * state after authentication.
+ */
+function AuthenticatedAppShell() {
+  const { session } = useAuth();
+  const identityKey = session?.user.id ?? 'guest';
+
+  return (
+    <WebMobileFrame>
+      <RootNavigator key={identityKey} />
+    </WebMobileFrame>
+  );
+}
+
 export default function App() {
-  // Analítica de funnel (L) -- una sola vez por carga de la app, ver
-  // logAppOpenOnce (el guard vive ahí, no acá, por si este componente
-  // remontara). No es literalmente "abrió la app" en un sentido nativo
-  // (no hay evento de sistema para eso en Expo web), pero es el proxy más
-  // fiel disponible sin agregar una librería nueva solo para esto.
   useEffect(() => {
     logAppOpenOnce();
-    // PWA (R2/R8/R10/R12) -- ambos no-op fuera de web (Platform.OS
-    // guard adentro de cada uno, ver installService.ts). El SW no cachea
-    // nada (ver public/sw.js); el check de standalone es la única forma
-    // real de confirmar una instalación de iOS (no existe un evento
-    // "aceptó instalar" ahí, a diferencia de Android).
     registerServiceWorker();
     checkStandaloneOnBoot();
-    // Referidos (bloque referidos) -- captura ?ref= de la URL (solo web) y
-    // lo guarda pendiente; la atribución real a la cuenta pasa después, ya
-    // con sesión, en RootNavigator (ver tryAttributePendingReferral ahí).
     captureReferralFromUrl();
-    // Landing de adquisición (TikTok/Reels/Shorts) -- captura ?utm_* de la
-    // URL, mismo criterio y mismo storage por fuera de la navegación que
-    // el referido de arriba (ver campaignService.ts). Dashboard de admin:
-    // captureWebVisit() amplía la captura original a TODA visita (no solo
-    // las que traen utm_*), sumando referrer/device/browser/os -- antes
-    // solo se guardaba algo si había utm_* en la URL, dejando sin atribuir
-    // el tráfico orgánico/directo. logWebVisitOnce() es el mismo patrón
-    // que logAppOpenOnce (un solo 'web_visit' por carga), encadenado
-    // DESPUÉS de capturar el contexto para que el evento ya viaje con
-    // visitor_id/utm en su metadata.
     void captureWebVisit().then(() => logWebVisitOnce());
   }, []);
 
@@ -48,9 +44,7 @@ export default function App() {
       <SafeAreaProvider>
         <StatusBar style="light" />
         <AuthProvider>
-          <WebMobileFrame>
-            <RootNavigator />
-          </WebMobileFrame>
+          <AuthenticatedAppShell />
         </AuthProvider>
       </SafeAreaProvider>
     </ErrorBoundary>

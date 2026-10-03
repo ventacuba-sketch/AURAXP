@@ -16,13 +16,21 @@ export type NotificationKind =
   | 'challenge_rejected'
   | 'referral_activated'
   | 'new_follower'
-  | 'gift_received';
+  | 'gift_received'
+  // Chat V2 "Sala Social" -- privados con consentimiento (ver
+  // supabase/migrations/20261003000000_chat_v2_social_room.sql). Mismo
+  // choke point de Push ya existente (notify_push, trigger AFTER INSERT
+  // en esta tabla) -- ningún sistema de Push nuevo.
+  | 'chat_private_request'
+  | 'chat_private_request_accepted'
+  | 'chat_private_message';
 export type NotificationResult = 'won' | 'lost' | 'tie';
 
 export interface AppNotification {
   id: string;
   kind: NotificationKind;
   challengeShareToken: string | null;
+  rivalUserId: string | null;
   rivalUsername: string | null;
   rivalAvatarEmoji: string | null;
   result: NotificationResult | null;
@@ -36,6 +44,10 @@ export interface AppNotification {
    * genérico anterior, nunca rompe. */
   giftName: string | null;
   giftAssetRef: string | null;
+  /** Solo en los 3 kinds de Chat V2 ('chat_private_request'/
+   * '_accepted'/'_message') -- navega directo a la conversación al tocar,
+   * mismo criterio que challengeShareToken. null en cualquier otro kind. */
+  privateConversationId: string | null;
 }
 
 interface NotificationRow {
@@ -47,6 +59,7 @@ interface NotificationRow {
   result: NotificationResult | null;
   read_at: string | null;
   created_at: string;
+  private_conversation_id: string | null;
 }
 
 const DEFAULT_LIMIT = 30;
@@ -58,7 +71,7 @@ export async function fetchNotifications(limit = DEFAULT_LIMIT): Promise<AppNoti
 
   const { data: rows, error } = await supabase
     .from('notifications')
-    .select('id, kind, challenge_share_token, rival_user_id, gift_id, result, read_at, created_at')
+    .select('id, kind, challenge_share_token, rival_user_id, gift_id, result, read_at, created_at, private_conversation_id')
     .order('created_at', { ascending: false })
     .limit(limit);
 
@@ -103,11 +116,13 @@ export async function fetchNotifications(limit = DEFAULT_LIMIT): Promise<AppNoti
       id: r.id,
       kind: r.kind,
       challengeShareToken: r.challenge_share_token,
+      rivalUserId: r.rival_user_id,
       rivalUsername: rival?.username ?? null,
       rivalAvatarEmoji: rival?.avatar_emoji ?? null,
       result: r.result,
       read: r.read_at != null,
       createdAt: r.created_at,
+      privateConversationId: r.private_conversation_id,
       giftName: giftItem?.name ?? null,
       giftAssetRef: giftItem?.asset_ref ?? null,
     };

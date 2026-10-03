@@ -9,9 +9,11 @@ const checks=[
  ['src/screens/MyChallengesScreen.tsx',[/rematchTargetUsername/]],
  ['src/screens/AnalyzingScreen.tsx',[/rematchTargetUsername/,/createDirectChallenge/]],
  ['src/types/index.ts',[/rematchTargetUsername/,/targetUsername/]],
- ['src/services/analyticsService.ts',[/signup_viewed/,/scan_started/,/scan_completed/,/public_battle_voted/]]
+ ['src/services/analyticsService.ts',[/signup_viewed/,/scan_started/,/scan_completed/,/public_battle_voted/]],
+ ['src/components/WebMobileFrame.tsx',[/pathname\.startsWith\('\/chat'\)/,/desktopOuter/]],
+ ['App.tsx',[/AuthenticatedAppShell/,/RootNavigator key=\{identityKey\}/]]
 ];
 let bad=[];
 for(const [file,patterns] of checks){if(!fs.existsSync(file)){bad.push(file+' missing');continue;}const s=fs.readFileSync(file,'utf8');for(const p of patterns)if(!p.test(s))bad.push(file+' missing '+p);}
 if(bad.length){console.error('REGRESSION GATE FAILED\n'+bad.join('\n'));process.exit(1);}
-console.log('Critical frontend + battle contracts OK:',checks.length,'files');
+console.log('Critical frontend + battle + Chat V2 contracts OK:',checks.length,'files');
