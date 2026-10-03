@@ -24,34 +24,74 @@ type Props = {
 
 let audioContext: any = null;
 
-function getAudioContext(): any | null {
+function createAudioContext(): any | null {
   if (Platform.OS !== 'web') return null;
   const scope = globalThis as any;
   const AudioContextCtor = scope.AudioContext ?? scope.webkitAudioContext;
   if (!AudioContextCtor) return null;
-  if (!audioContext) audioContext = new AudioContextCtor();
-  return audioContext;
-}
-
-async function unlockAudio(): Promise<void> {
-  const ctx = getAudioContext();
-  if (!ctx) return;
-  if (ctx.state === 'suspended') {
-    try {
-      await ctx.resume();
-    } catch {
-      // Safari puede rechazar resume fuera de un gesto. El siguiente gesto
-      // vuelve a intentarlo; nunca bloqueamos el chat por audio.
-    }
+  try {
+    return new AudioContextCtor();
+  } catch {
+    return null;
   }
 }
 
+function getAudioContext(): any | null {
+  if (Platform.OS !== 'web') return null;
+  if (!audioContext || audioContext.state === 'closed') audioContext = createAudioContext();
+  return audioContext;
+}
+
+function resetAudioContext(): any | null {
+  try {
+    void audioContext?.close?.();
+  } catch {
+    // best effort only
+  }
+  audioContext = createAudioContext();
+  return audioContext;
+}
+
+/**
+ * iPhone/Safari can expose a non-standard `interrupted` AudioContext state.
+ * Resume on a real click when possible; if the context is interrupted, replace
+ * it instead of keeping a permanently silent instance.
+ */
+async function unlockAudio(): Promise<boolean> {
+  let ctx = getAudioContext();
+  if (!ctx) return false;
+
+  if (ctx.state === 'interrupted') ctx = resetAudioContext();
+  if (!ctx) return false;
+
+  if (ctx.state !== 'running') {
+    try {
+      await ctx.resume?.();
+    } catch {
+      // A later user click will retry.
+    }
+  }
+
+  if (ctx.state === 'interrupted') {
+    ctx = resetAudioContext();
+    try {
+      await ctx?.resume?.();
+    } catch {
+      return false;
+    }
+  }
+
+  return ctx?.state === 'running';
+}
+
 function playPattern(steps: ToneStep[]): void {
-  const ctx = getAudioContext();
+  let ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === 'interrupted') ctx = resetAudioContext();
   if (!ctx || ctx.state !== 'running') return;
 
   const master = ctx.createGain();
-  master.gain.setValueAtTime(0.72, ctx.currentTime);
+  master.gain.setValueAtTime(0.92, ctx.currentTime);
   master.connect(ctx.destination);
 
   for (const step of steps) {
@@ -79,16 +119,16 @@ function playPattern(steps: ToneStep[]): void {
  */
 function playRoomSound(): void {
   playPattern([
-    { frequency: 880, at: 0, duration: 0.095, gain: 0.055, type: 'sine' },
-    { frequency: 1174.66, at: 0.055, duration: 0.12, gain: 0.045, type: 'triangle' },
+    { frequency: 880, at: 0, duration: 0.105, gain: 0.18, type: 'sine' },
+    { frequency: 1174.66, at: 0.06, duration: 0.14, gain: 0.15, type: 'triangle' },
   ]);
 }
 
 function playPrivateSound(): void {
   playPattern([
-    { frequency: 523.25, at: 0, duration: 0.11, gain: 0.055, type: 'triangle' },
-    { frequency: 783.99, at: 0.07, duration: 0.13, gain: 0.06, type: 'sine' },
-    { frequency: 1046.5, at: 0.15, duration: 0.16, gain: 0.05, type: 'triangle' },
+    { frequency: 523.25, at: 0, duration: 0.12, gain: 0.17, type: 'triangle' },
+    { frequency: 783.99, at: 0.075, duration: 0.15, gain: 0.19, type: 'sine' },
+    { frequency: 1046.5, at: 0.16, duration: 0.18, gain: 0.16, type: 'triangle' },
   ]);
 }
 
@@ -98,6 +138,7 @@ export function ChatSoundHost({ currentRouteName, userId }: Props) {
   const [guestId, setGuestId] = useState<string | null>(null);
   const soundEnabledRef = useRef(true);
   const preferenceLoadedRef = useRef(false);
+  const audioPrimedRef = useRef(false);
 
   const isChatRoute = Boolean(currentRouteName && CHAT_ROUTES.has(currentRouteName));
 
@@ -123,14 +164,30 @@ export function ChatSoundHost({ currentRouteName, userId }: Props) {
   useEffect(() => {
     if (Platform.OS !== 'web' || !isChatRoute) return;
     const scope = globalThis as any;
-    const arm = () => void unlockAudio();
-    scope.addEventListener?.('pointerdown', arm, { passive: true });
-    scope.addEventListener?.('touchstart', arm, { passive: true });
-    scope.addEventListener?.('keydown', arm);
+    const documentRef = scope.document as any;
+
+    // Safari/iOS is most reliable when AudioContext.resume() is called from a
+    // genuine click/tap activation. Once primed, incoming Realtime events can
+    // use the same context without another tap.
+    const arm = () => {
+      if (audioPrimedRef.current || !soundEnabledRef.current) return;
+      void unlockAudio().then((ready) => {
+        if (ready) audioPrimedRef.current = true;
+      });
+    };
+    const recoverWhenVisible = () => {
+      if (documentRef?.visibilityState !== 'visible') return;
+      if (audioContext?.state === 'interrupted') {
+        resetAudioContext();
+        audioPrimedRef.current = false;
+      }
+    };
+
+    documentRef?.addEventListener?.('click', arm, true);
+    documentRef?.addEventListener?.('visibilitychange', recoverWhenVisible);
     return () => {
-      scope.removeEventListener?.('pointerdown', arm);
-      scope.removeEventListener?.('touchstart', arm);
-      scope.removeEventListener?.('keydown', arm);
+      documentRef?.removeEventListener?.('click', arm, true);
+      documentRef?.removeEventListener?.('visibilitychange', recoverWhenVisible);
     };
   }, [isChatRoute]);
 
@@ -198,12 +255,14 @@ export function ChatSoundHost({ currentRouteName, userId }: Props) {
     setSoundEnabled(next);
     await AsyncStorage.setItem(SOUND_PREF_KEY, next ? 'true' : 'false');
     if (next) {
-      await unlockAudio();
-      playRoomSound();
+      audioPrimedRef.current = await unlockAudio();
+      if (audioPrimedRef.current) playRoomSound();
     }
   }
 
-  if (!isChatRoute || !preferenceLoaded) return null;
+  // The preference controls both Global and Privados, but the button lives in
+  // Sala Global so it never floats over the private-chat headers/status UI.
+  if (currentRouteName !== 'Chat' || !preferenceLoaded) return null;
 
   return (
     <View pointerEvents="box-none" style={styles.overlay}>
@@ -224,7 +283,7 @@ export function ChatSoundHost({ currentRouteName, userId }: Props) {
 const styles = StyleSheet.create({
   overlay: {
     position: 'absolute',
-    top: 58,
+    top: 8,
     right: spacing.sm,
     zIndex: 1000,
   },
@@ -233,11 +292,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
     paddingHorizontal: spacing.sm,
-    paddingVertical: 7,
+    paddingVertical: 6,
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: 'rgba(15, 15, 18, 0.92)',
+    backgroundColor: 'rgba(15, 15, 18, 0.94)',
   },
   soundButtonPressed: {
     opacity: 0.72,
