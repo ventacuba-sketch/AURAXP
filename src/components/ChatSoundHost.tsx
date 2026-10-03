@@ -1,13 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text } from 'react-native';
 
-import { getGuestId } from '../services/chatService';
-import { supabase } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
 
 const SOUND_PREF_KEY = 'aura_chat_sound_enabled_v1';
-const CHAT_ROUTES = new Set(['Chat', 'ChatPrivateInbox', 'ChatPrivateConversation']);
+const SOUND_EVENT = 'aura-chat-incoming-sound';
+const SOUND_PREF_EVENT = 'aura-chat-sound-preference';
+
+type ChatSoundKind = 'room' | 'private';
 
 type ToneStep = {
   frequency: number;
@@ -20,6 +21,10 @@ type ToneStep = {
 type Props = {
   currentRouteName?: string;
   userId: string | null;
+};
+
+type SoundButtonProps = {
+  compact?: boolean;
 };
 
 let audioContext: any = null;
@@ -42,52 +47,23 @@ function getAudioContext(): any | null {
   return audioContext;
 }
 
-function resetAudioContext(): any | null {
-  try {
-    void audioContext?.close?.();
-  } catch {
-    // best effort only
-  }
-  audioContext = createAudioContext();
-  return audioContext;
-}
-
-/**
- * iPhone/Safari can expose a non-standard `interrupted` AudioContext state.
- * Resume on a real click when possible; if the context is interrupted, replace
- * it instead of keeping a permanently silent instance.
- */
 async function unlockAudio(): Promise<boolean> {
-  let ctx = getAudioContext();
-  if (!ctx) return false;
-
-  if (ctx.state === 'interrupted') ctx = resetAudioContext();
+  const ctx = getAudioContext();
   if (!ctx) return false;
 
   if (ctx.state !== 'running') {
     try {
       await ctx.resume?.();
     } catch {
-      // A later user click will retry.
-    }
-  }
-
-  if (ctx.state === 'interrupted') {
-    ctx = resetAudioContext();
-    try {
-      await ctx?.resume?.();
-    } catch {
       return false;
     }
   }
 
-  return ctx?.state === 'running';
+  return ctx.state === 'running';
 }
 
 function playPattern(steps: ToneStep[]): void {
-  let ctx = getAudioContext();
-  if (!ctx) return;
-  if (ctx.state === 'interrupted') ctx = resetAudioContext();
+  const ctx = getAudioContext();
   if (!ctx || ctx.state !== 'running') return;
 
   const master = ctx.createGain();
@@ -112,11 +88,6 @@ function playPattern(steps: ToneStep[]): void {
   }
 }
 
-/**
- * Sonidos AURA originales, sintetizados en el dispositivo: no usan samples
- * de Messenger/Facebook ni archivos con copyright. La cadencia busca la
- * familiaridad de los mensajeros clásicos sin copiar ninguna notificación.
- */
 function playRoomSound(): void {
   playPattern([
     { frequency: 880, at: 0, duration: 0.105, gain: 0.18, type: 'sine' },
@@ -132,25 +103,39 @@ function playPrivateSound(): void {
   ]);
 }
 
-export function ChatSoundHost({ currentRouteName, userId }: Props) {
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const [preferenceLoaded, setPreferenceLoaded] = useState(false);
-  const [guestId, setGuestId] = useState<string | null>(null);
+/**
+ * The screen that already received the Realtime message emits this event.
+ * This deliberately avoids opening a second Postgres Changes subscription
+ * only for audio: if the message is visible in the UI, the sound receives
+ * the exact same delivery path.
+ */
+export function notifyIncomingChatSound(kind: ChatSoundKind): void {
+  if (Platform.OS !== 'web') return;
+  const scope = globalThis as any;
+  try {
+    scope.dispatchEvent?.(new scope.CustomEvent(SOUND_EVENT, { detail: { kind } }));
+  } catch {
+    // Sound is progressive enhancement; chat delivery must never depend on it.
+  }
+}
+
+/**
+ * Global audio engine. It owns the browser AudioContext but no longer draws a
+ * floating control over the app. The actual control lives inside ChatScreen's
+ * header so desktop/mobile layout cannot be covered by an absolute overlay.
+ */
+export function ChatSoundHost({ currentRouteName }: Props) {
   const soundEnabledRef = useRef(true);
   const preferenceLoadedRef = useRef(false);
   const audioPrimedRef = useRef(false);
-
-  const isChatRoute = Boolean(currentRouteName && CHAT_ROUTES.has(currentRouteName));
+  const isChatRoute = currentRouteName === 'Chat' || currentRouteName === 'ChatPrivateInbox' || currentRouteName === 'ChatPrivateConversation';
 
   useEffect(() => {
     let active = true;
     void AsyncStorage.getItem(SOUND_PREF_KEY).then((stored) => {
       if (!active) return;
-      const enabled = stored !== 'false';
-      soundEnabledRef.current = enabled;
+      soundEnabledRef.current = stored !== 'false';
       preferenceLoadedRef.current = true;
-      setSoundEnabled(enabled);
-      setPreferenceLoaded(true);
     });
     return () => {
       active = false;
@@ -158,135 +143,116 @@ export function ChatSoundHost({ currentRouteName, userId }: Props) {
   }, []);
 
   useEffect(() => {
-    soundEnabledRef.current = soundEnabled;
-  }, [soundEnabled]);
+    if (Platform.OS !== 'web') return;
+    const scope = globalThis as any;
+    const onPreference = (event: any) => {
+      soundEnabledRef.current = event?.detail?.enabled !== false;
+      preferenceLoadedRef.current = true;
+    };
+    scope.addEventListener?.(SOUND_PREF_EVENT, onPreference);
+    return () => scope.removeEventListener?.(SOUND_PREF_EVENT, onPreference);
+  }, []);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !isChatRoute) return;
     const scope = globalThis as any;
     const documentRef = scope.document as any;
 
-    // Safari/iOS is most reliable when AudioContext.resume() is called from a
-    // genuine click/tap activation. Once primed, incoming Realtime events can
-    // use the same context without another tap.
     const arm = () => {
       if (audioPrimedRef.current || !soundEnabledRef.current) return;
       void unlockAudio().then((ready) => {
         if (ready) audioPrimedRef.current = true;
       });
     };
+
+    // iOS Safari can interrupt audio after backgrounding. Do not create a new
+    // suspended context here; mark it unprimed and let the next real tap resume
+    // the existing context, which preserves autoplay permission reliably.
     const recoverWhenVisible = () => {
       if (documentRef?.visibilityState !== 'visible') return;
-      if (audioContext?.state === 'interrupted') {
-        resetAudioContext();
-        audioPrimedRef.current = false;
-      }
+      if (audioContext?.state !== 'running') audioPrimedRef.current = false;
     };
 
     documentRef?.addEventListener?.('click', arm, true);
+    documentRef?.addEventListener?.('touchend', arm, true);
     documentRef?.addEventListener?.('visibilitychange', recoverWhenVisible);
     return () => {
       documentRef?.removeEventListener?.('click', arm, true);
+      documentRef?.removeEventListener?.('touchend', arm, true);
       documentRef?.removeEventListener?.('visibilitychange', recoverWhenVisible);
     };
   }, [isChatRoute]);
 
   useEffect(() => {
-    if (!isChatRoute || userId) {
-      setGuestId(null);
-      return;
-    }
+    if (Platform.OS !== 'web') return;
+    const scope = globalThis as any;
+    const onIncoming = (event: any) => {
+      if (!isChatRoute || !preferenceLoadedRef.current || !soundEnabledRef.current) return;
+      const kind: ChatSoundKind = event?.detail?.kind === 'private' ? 'private' : 'room';
+      if (audioContext?.state !== 'running') return;
+      if (kind === 'private') playPrivateSound();
+      else playRoomSound();
+    };
+    scope.addEventListener?.(SOUND_EVENT, onIncoming);
+    return () => scope.removeEventListener?.(SOUND_EVENT, onIncoming);
+  }, [isChatRoute]);
+
+  return null;
+}
+
+export function ChatSoundButton({ compact = false }: SoundButtonProps) {
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
     let active = true;
-    void getGuestId().then((id) => {
-      if (active) setGuestId(id);
+    void AsyncStorage.getItem(SOUND_PREF_KEY).then((stored) => {
+      if (!active) return;
+      setSoundEnabled(stored !== 'false');
+      setLoaded(true);
     });
     return () => {
       active = false;
     };
-  }, [isChatRoute, userId]);
-
-  useEffect(() => {
-    if (currentRouteName !== 'Chat' || !supabase) return;
-    if (!userId && !guestId) return;
-
-    const channel = supabase
-      .channel(`chat-sound-room-${userId ?? guestId}-${Date.now()}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chat_messages' },
-        (payload) => {
-          const row = payload.new as { user_id?: string | null; guest_id?: string | null; hidden_at?: string | null };
-          const isMine = userId ? row.user_id === userId : row.guest_id === guestId;
-          if (row.hidden_at || isMine || !preferenceLoadedRef.current || !soundEnabledRef.current) return;
-          playRoomSound();
-        },
-      )
-      .subscribe();
-
-    return () => {
-      void supabase?.removeChannel(channel);
-    };
-  }, [currentRouteName, userId, guestId]);
-
-  useEffect(() => {
-    if (!isChatRoute || !userId || !supabase) return;
-
-    const channel = supabase
-      .channel(`chat-sound-private-${userId}-${Date.now()}`)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chat_private_messages' },
-        (payload) => {
-          const row = payload.new as { sender_id?: string };
-          if (row.sender_id === userId || !preferenceLoadedRef.current || !soundEnabledRef.current) return;
-          playPrivateSound();
-        },
-      )
-      .subscribe();
-
-    return () => {
-      void supabase?.removeChannel(channel);
-    };
-  }, [isChatRoute, userId]);
+  }, []);
 
   async function toggleSound() {
     const next = !soundEnabled;
-    soundEnabledRef.current = next;
     setSoundEnabled(next);
     await AsyncStorage.setItem(SOUND_PREF_KEY, next ? 'true' : 'false');
+
+    if (Platform.OS === 'web') {
+      const scope = globalThis as any;
+      try {
+        scope.dispatchEvent?.(new scope.CustomEvent(SOUND_PREF_EVENT, { detail: { enabled: next } }));
+      } catch {
+        // best effort only
+      }
+    }
+
     if (next) {
-      audioPrimedRef.current = await unlockAudio();
-      if (audioPrimedRef.current) playRoomSound();
+      const ready = await unlockAudio();
+      if (ready) playRoomSound();
     }
   }
 
-  // The preference controls both Global and Privados, but the button lives in
-  // Sala Global so it never floats over the private-chat headers/status UI.
-  if (currentRouteName !== 'Chat' || !preferenceLoaded) return null;
+  if (!loaded) return null;
 
   return (
-    <View pointerEvents="box-none" style={styles.overlay}>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel={soundEnabled ? 'Silenciar sonidos del chat' : 'Activar sonidos del chat'}
-        onPress={() => void toggleSound()}
-        style={({ pressed }) => [styles.soundButton, pressed && styles.soundButtonPressed]}
-        hitSlop={8}
-      >
-        <Text style={styles.soundIcon}>{soundEnabled ? '🔊' : '🔇'}</Text>
-        <Text style={styles.soundLabel}>{soundEnabled ? 'Sonido' : 'Silencio'}</Text>
-      </Pressable>
-    </View>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={soundEnabled ? 'Silenciar sonidos del chat' : 'Activar sonidos del chat'}
+      onPress={() => void toggleSound()}
+      style={({ pressed }) => [styles.soundButton, compact && styles.soundButtonCompact, pressed && styles.soundButtonPressed]}
+      hitSlop={8}
+    >
+      <Text style={styles.soundIcon}>{soundEnabled ? '🔊' : '🔇'}</Text>
+      {!compact && <Text style={styles.soundLabel}>{soundEnabled ? 'Sonido' : 'Silencio'}</Text>}
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    position: 'absolute',
-    top: 8,
-    right: spacing.sm,
-    zIndex: 1000,
-  },
   soundButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -296,7 +262,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: 'rgba(15, 15, 18, 0.94)',
+    backgroundColor: colors.surface,
+  },
+  soundButtonCompact: {
+    width: 32,
+    height: 32,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    justifyContent: 'center',
   },
   soundButtonPressed: {
     opacity: 0.72,
