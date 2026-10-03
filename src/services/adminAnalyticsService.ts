@@ -100,10 +100,82 @@ export interface AdminDashboardData {
   recommendations: DashboardRecommendation[];
 }
 
-export async function getAdminDashboard(
-  start: Date,
-  end: Date,
-): Promise<AdminDashboardData> {
+export interface ChatDashboardKpis {
+  chat_views: number;
+  unique_chat_visitors: number;
+  registered_chat_viewers: number;
+  returning_chat_visitors: number;
+  global_messages: number;
+  global_unique_senders: number;
+  registered_global_senders: number;
+  guest_global_senders: number;
+  avg_global_message_length: number | null;
+  reactions: number;
+  unique_reactors: number;
+  hidden_global_messages: number;
+  guest_created: number;
+  guest_rewards_issued: number;
+  guest_rewards_claimed: number;
+  guest_reward_coins_issued: number;
+  guest_reward_coins_claimed: number;
+  signup_prompted: number;
+  signup_started_visitors: number;
+  signup_completed_visitors: number;
+  first_scan_visitors: number;
+  scan_cta_clicks: number;
+  invite_clicks: number;
+  members_opens: number;
+  profile_opens: number;
+  follow_clicks: number;
+  private_inbox_opens: number;
+  private_conversation_opens: number;
+  private_requests: number;
+  private_requests_accepted: number;
+  private_requests_rejected: number;
+  private_requests_cancelled: number;
+  private_requests_pending: number;
+  private_conversations_created: number;
+  private_messages: number;
+  private_unique_senders: number;
+  private_active_conversations: number;
+  avg_private_message_length: number | null;
+  hidden_private_messages: number;
+  blocks: number;
+}
+
+export interface ChatDashboardData {
+  range: { start: string; end: string; timezone: string };
+  kpis: ChatDashboardKpis;
+  rates: {
+    returning_visitor_rate: number;
+    reactions_per_100_messages: number;
+    messages_per_sender: number;
+    private_accept_rate: number;
+    private_response_rate: number;
+    private_conversation_activation_rate: number;
+    private_messages_per_active_conversation: number;
+    guest_reward_claim_rate: number;
+    chat_signup_completion_rate: number;
+    chat_signup_to_first_scan_rate: number;
+  };
+  daily: Array<{
+    day: string;
+    views: number;
+    unique_visitors: number;
+    global_messages: number;
+    private_messages: number;
+    reactions: number;
+    signup_completions: number;
+    first_scans: number;
+    private_requests: number;
+  }>;
+  hourly: Array<{ hour: number; views: number; global_messages: number; private_messages: number }>;
+  top_global_users: Array<{ username: string; messages: number; hidden_messages: number }>;
+  emojis: Array<{ emoji: string; count: number }>;
+  signup_prompt_reasons: Array<{ reason: string; count: number }>;
+}
+
+export async function getAdminDashboard(start: Date, end: Date): Promise<AdminDashboardData> {
   if (!supabase) throw new Error('Supabase no está configurado');
 
   const { data, error } = await supabase.rpc('get_admin_dashboard', {
@@ -113,6 +185,18 @@ export async function getAdminDashboard(
 
   if (error) throw error;
   if (!data) throw new Error('No se recibieron estadísticas');
-
   return data as AdminDashboardData;
+}
+
+export async function getAdminChatDashboard(start: Date, end: Date): Promise<ChatDashboardData> {
+  if (!supabase) throw new Error('Supabase no está configurado');
+
+  const { data, error } = await supabase.rpc('get_admin_chat_dashboard', {
+    p_start: start.toISOString(),
+    p_end: end.toISOString(),
+  });
+
+  if (error) throw error;
+  if (!data) throw new Error('No se recibieron estadísticas del chat');
+  return data as ChatDashboardData;
 }
