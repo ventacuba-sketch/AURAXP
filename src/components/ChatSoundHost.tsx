@@ -1,12 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
-import { Platform, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { supabase } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
 
 const SOUND_PREF_KEY = 'aura_chat_sound_enabled_v1';
 const SOUND_PREF_EVENT = 'aura-chat-sound-preference';
+const CHAT_SOUND_EVENT = 'aura-chat-sound';
 const GLOBAL_SOUND_TOPIC = 'aura-chat-global-sound';
 
 type ToneStep = {
@@ -60,7 +61,7 @@ function playPattern(steps: ToneStep[]): void {
   if (!ctx || ctx.state !== 'running') return;
 
   const master = ctx.createGain();
-  master.gain.setValueAtTime(0.92, ctx.currentTime);
+  master.gain.setValueAtTime(0.95, ctx.currentTime);
   master.connect(ctx.destination);
 
   for (const step of steps) {
@@ -83,22 +84,20 @@ function playPattern(steps: ToneStep[]): void {
 
 function playRoomSound(): void {
   playPattern([
-    { frequency: 880, at: 0, duration: 0.105, gain: 0.18, type: 'sine' },
-    { frequency: 1174.66, at: 0.06, duration: 0.14, gain: 0.15, type: 'triangle' },
+    { frequency: 880, at: 0, duration: 0.105, gain: 0.2, type: 'sine' },
+    { frequency: 1174.66, at: 0.06, duration: 0.14, gain: 0.17, type: 'triangle' },
   ]);
 }
 
-/**
- * Global chat sound host.
- *
- * Important: the visible chat already has its own Postgres Changes channel.
- * Opening a second Postgres Changes listener only for audio proved fragile on
- * mobile Safari. Global message sounds now arrive through a tiny database
- * Broadcast emitted by the chat_messages INSERT trigger. It is independent of
- * the message-render subscription and includes no message body/private text.
- */
+function playPrivateSound(): void {
+  playPattern([
+    { frequency: 659.25, at: 0, duration: 0.09, gain: 0.22, type: 'triangle' },
+    { frequency: 987.77, at: 0.075, duration: 0.11, gain: 0.2, type: 'sine' },
+    { frequency: 1318.51, at: 0.155, duration: 0.18, gain: 0.17, type: 'triangle' },
+  ]);
+}
+
 export function ChatSoundHost({ currentRouteName }: Props) {
-  const { width } = useWindowDimensions();
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [preferenceLoaded, setPreferenceLoaded] = useState(false);
   const soundEnabledRef = useRef(true);
@@ -106,7 +105,7 @@ export function ChatSoundHost({ currentRouteName }: Props) {
   const audioPrimedRef = useRef(false);
 
   const isChatRoute = currentRouteName === 'Chat' || currentRouteName === 'ChatPrivateInbox' || currentRouteName === 'ChatPrivateConversation';
-  const showControl = currentRouteName === 'Chat' && width < 800;
+  const showControl = isChatRoute;
 
   useEffect(() => {
     let active = true;
@@ -164,11 +163,30 @@ export function ChatSoundHost({ currentRouteName }: Props) {
     };
   }, [isChatRoute]);
 
+  // Direct UI signal used by private chat and any local send path. This uses
+  // the same already-unlocked AudioContext as the test button, so Safari does
+  // not need a second audio mechanism.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !isChatRoute) return;
+    const scope = globalThis as any;
+    const onChatSound = (event: any) => {
+      if (!preferenceLoadedRef.current || !soundEnabledRef.current) return;
+      if (audioContext?.state !== 'running') return;
+      if (event?.detail?.kind === 'private') playPrivateSound();
+      else playRoomSound();
+    };
+    scope.addEventListener?.(CHAT_SOUND_EVENT, onChatSound);
+    return () => scope.removeEventListener?.(CHAT_SOUND_EVENT, onChatSound);
+  }, [isChatRoute]);
+
+  // Sala Global: database Broadcast is intentionally public because guests
+  // can use the room. Explicit `private:false` is important: database and
+  // client channel privacy must match or Realtime drops the event silently.
   useEffect(() => {
     if (!supabase || currentRouteName !== 'Chat') return;
 
     const channel = supabase
-      .channel(GLOBAL_SOUND_TOPIC)
+      .channel(GLOBAL_SOUND_TOPIC, { config: { private: false } })
       .on('broadcast', { event: 'message_created' }, () => {
         if (!preferenceLoadedRef.current || !soundEnabledRef.current) return;
         if (audioContext?.state !== 'running') return;
@@ -222,7 +240,7 @@ export function ChatSoundHost({ currentRouteName }: Props) {
 const styles = StyleSheet.create({
   overlay: {
     position: 'absolute',
-    top: 8,
+    top: 58,
     right: spacing.sm,
     zIndex: 1000,
   },
