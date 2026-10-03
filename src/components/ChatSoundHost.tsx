@@ -15,7 +15,7 @@ type ToneStep = {
   at: number;
   duration: number;
   gain: number;
-  type: 'sine' | 'triangle';
+  type: 'sine' | 'triangle' | 'square';
 };
 
 type Props = {
@@ -89,12 +89,26 @@ function playRoomSound(): void {
   ]);
 }
 
+// Private messages deliberately use a low double buzz plus a final ping so
+// they cannot be confused with the short/high Sala Global chime.
 function playPrivateSound(): void {
   playPattern([
-    { frequency: 659.25, at: 0, duration: 0.09, gain: 0.22, type: 'triangle' },
-    { frequency: 987.77, at: 0.075, duration: 0.11, gain: 0.2, type: 'sine' },
-    { frequency: 1318.51, at: 0.155, duration: 0.18, gain: 0.17, type: 'triangle' },
+    { frequency: 164.81, at: 0, duration: 0.14, gain: 0.24, type: 'square' },
+    { frequency: 196, at: 0.19, duration: 0.16, gain: 0.22, type: 'square' },
+    { frequency: 783.99, at: 0.39, duration: 0.18, gain: 0.17, type: 'triangle' },
   ]);
+}
+
+function vibratePrivate(): void {
+  if (Platform.OS !== 'web') return;
+  const scope = globalThis as any;
+  try {
+    // Best effort. Android/compatible browsers can provide real haptics;
+    // unsupported browsers (notably some iOS/Safari versions) simply ignore it.
+    scope.navigator?.vibrate?.([120, 70, 180]);
+  } catch {
+    // Haptics are optional and must never block the audible alert.
+  }
 }
 
 export function ChatSoundHost({ currentRouteName, userId }: Props) {
@@ -108,12 +122,18 @@ export function ChatSoundHost({ currentRouteName, userId }: Props) {
   const isChatRoute = currentRouteName === 'Chat' || currentRouteName === 'ChatPrivateInbox' || currentRouteName === 'ChatPrivateConversation';
   const showControl = isChatRoute;
 
-  function playPrivateOnce() {
+  async function playPrivateOnce() {
     if (!preferenceLoadedRef.current || !soundEnabledRef.current) return;
-    if (audioContext?.state !== 'running') return;
     const now = Date.now();
     if (now - lastPrivateSoundAtRef.current < 700) return;
     lastPrivateSoundAtRef.current = now;
+
+    // iOS Safari can move an already-unlocked AudioContext to `interrupted`
+    // after backgrounding/locking. Resume it before giving up on the sound.
+    const ready = await unlockAudio();
+    vibratePrivate();
+    if (!ready) return;
+    audioPrimedRef.current = true;
     playPrivateSound();
   }
 
@@ -159,19 +179,27 @@ export function ChatSoundHost({ currentRouteName, userId }: Props) {
     };
 
     const recoverWhenVisible = () => {
-      if (documentRef?.visibilityState !== 'visible') return;
-      if (audioContext?.state !== 'running') audioPrimedRef.current = false;
+      if (documentRef?.visibilityState !== 'visible' || !soundEnabledRef.current) return;
+      // Once the user has already unlocked audio, iOS may allow resume from
+      // its `interrupted` state when the PWA/tab becomes visible again.
+      void unlockAudio().then((ready) => {
+        audioPrimedRef.current = ready;
+      });
     };
 
     documentRef?.addEventListener?.('pointerdown', arm, true);
     documentRef?.addEventListener?.('click', arm, true);
     documentRef?.addEventListener?.('touchend', arm, true);
     documentRef?.addEventListener?.('visibilitychange', recoverWhenVisible);
+    scope.addEventListener?.('pageshow', recoverWhenVisible);
+    scope.addEventListener?.('focus', recoverWhenVisible);
     return () => {
       documentRef?.removeEventListener?.('pointerdown', arm, true);
       documentRef?.removeEventListener?.('click', arm, true);
       documentRef?.removeEventListener?.('touchend', arm, true);
       documentRef?.removeEventListener?.('visibilitychange', recoverWhenVisible);
+      scope.removeEventListener?.('pageshow', recoverWhenVisible);
+      scope.removeEventListener?.('focus', recoverWhenVisible);
     };
   }, [isChatRoute]);
 
@@ -182,11 +210,14 @@ export function ChatSoundHost({ currentRouteName, userId }: Props) {
     if (Platform.OS !== 'web' || !isChatRoute) return;
     const scope = globalThis as any;
     const onChatSound = (event: any) => {
-      if (event?.detail?.kind === 'private') playPrivateOnce();
+      if (event?.detail?.kind === 'private') void playPrivateOnce();
       else {
         if (!preferenceLoadedRef.current || !soundEnabledRef.current) return;
-        if (audioContext?.state !== 'running') return;
-        playRoomSound();
+        void unlockAudio().then((ready) => {
+          if (!ready) return;
+          audioPrimedRef.current = true;
+          playRoomSound();
+        });
       }
     };
     scope.addEventListener?.(CHAT_SOUND_EVENT, onChatSound);
@@ -203,8 +234,11 @@ export function ChatSoundHost({ currentRouteName, userId }: Props) {
       .channel(GLOBAL_SOUND_TOPIC, { config: { private: false } })
       .on('broadcast', { event: 'message_created' }, () => {
         if (!preferenceLoadedRef.current || !soundEnabledRef.current) return;
-        if (audioContext?.state !== 'running') return;
-        playRoomSound();
+        void unlockAudio().then((ready) => {
+          if (!ready) return;
+          audioPrimedRef.current = true;
+          playRoomSound();
+        });
       })
       .subscribe();
 
@@ -216,7 +250,7 @@ export function ChatSoundHost({ currentRouteName, userId }: Props) {
   // Privados: listen at the app shell, not only inside the conversation
   // screen. RLS means this authenticated client only receives private rows it
   // is allowed to read. We ignore our own sends and play the distinct private
-  // tone for messages sent by the other participant. This also keeps working
+  // alert for messages sent by the other participant. This also keeps working
   // while the user is in the global room or private inbox.
   useEffect(() => {
     if (!supabase || !userId) return;
@@ -229,7 +263,7 @@ export function ChatSoundHost({ currentRouteName, userId }: Props) {
         (payload) => {
           const row = payload.new as { sender_id?: string | null };
           if (!row?.sender_id || row.sender_id === userId) return;
-          playPrivateOnce();
+          void playPrivateOnce();
         },
       )
       .subscribe();
