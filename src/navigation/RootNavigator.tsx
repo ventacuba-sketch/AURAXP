@@ -11,6 +11,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 
 import { MainTabNavigator } from './MainTabNavigator';
 import { BottomNavBar } from '../components/BottomNavBar';
+import { ChatSoundHost } from '../components/ChatSoundHost';
 import { InstallInviteHost } from '../components/InstallInviteHost';
 import { NotificationInviteHost } from '../components/NotificationInviteHost';
 import { useAuth } from '../hooks/useAuth';
@@ -190,6 +191,7 @@ export function RootNavigator() {
           </Stack.Navigator>
         </View>
         <BottomNavBar authed={authed} navigationRef={navigationRef} />
+        <ChatSoundHost currentRouteName={currentRouteName} userId={session?.user.id ?? null} />
         {authed && currentRouteName !== 'AdminDashboard' && <InstallInviteHost navigationRef={navigationRef} />}
         {authed && currentRouteName !== 'AdminDashboard' && <NotificationInviteHost navigationRef={navigationRef} />}
       </View>
