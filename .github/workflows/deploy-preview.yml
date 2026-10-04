@@ -42,12 +42,9 @@ jobs:
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
           EXPO_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.EXPO_PUBLIC_VAPID_PUBLIC_KEY }}
-          # AURA LIVE -- si estos secrets todavía no existen en el repo,
-          # ambos quedan vacíos y EXPO_PUBLIC_AURA_LIVE_ENABLED nunca es
-          # exactamente 'true' -- la UI de AURA LIVE se queda oculta
-          # (ver docs/aura-live.md), nunca rota a medio configurar.
-          EXPO_PUBLIC_LIVEKIT_URL: ${{ secrets.EXPO_PUBLIC_LIVEKIT_URL }}
-          EXPO_PUBLIC_AURA_LIVE_ENABLED: ${{ secrets.EXPO_PUBLIC_AURA_LIVE_ENABLED }}
+          # Public client configuration only. No LiveKit API secret is exposed here.
+          EXPO_PUBLIC_LIVEKIT_URL: wss://p_2ny0kz35k7q.livekit.run
+          EXPO_PUBLIC_AURA_LIVE_ENABLED: 'true'
         run: npx expo export --platform web
       - name: Add SPA fallback + caching rules (.htaccess)
         run: cp web/.htaccess dist/.htaccess
@@ -71,11 +68,6 @@ jobs:
       - name: Verify preview routes
         run: |
           set -e
-          # /live/:slug -- sección 23 del pedido: solo verifica que la
-          # ruta cargue el shell de la SPA (200 + el div "root"), nunca
-          # depende de que exista un LIVE real -- un slug inexistente cae
-          # en el estado honesto "No encontramos este LIVE." (mismo
-          # criterio que /admin y /chat, que tampoco requieren datos reales).
           for path in / /admin /chat /live/preview-smoke-test-nonexistent; do
             code=$(curl -L -sS -o /tmp/aura-preview.html -w "%{http_code}" "https://preview.auravs.app$path")
             test "$code" = "200"
