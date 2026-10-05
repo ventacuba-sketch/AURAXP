@@ -38,6 +38,7 @@ const HIDDEN_ROUTES = new Set([
   'ResetPassword',
   'Auth',
   'AdminDashboard',
+  'AdminUserRecovery',
   'Chat',
   // Chat V2 "Sala Social" -- conversación privada 1:1 ocupa toda la
   // pantalla (punto 10 del pedido: mobile-first, inmersiva), igual

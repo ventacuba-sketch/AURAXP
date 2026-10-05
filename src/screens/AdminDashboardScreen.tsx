@@ -191,15 +191,23 @@ export default function AdminDashboardScreen() {
             <Text style={styles.title}>Analytics Dashboard</Text>
             <Text style={styles.muted}>{rangeLabel}</Text>
           </View>
-          <Pressable
-            style={styles.refreshButton}
-            onPress={() => {
-              setRefreshing(true);
-              void load();
-            }}
-          >
-            <Text style={styles.refreshText}>{refreshing ? '…' : '↻ Actualizar'}</Text>
-          </Pressable>
+          <View style={styles.headerActions}>
+            <Pressable
+              style={styles.refreshButton}
+              onPress={() => navigation.navigate('AdminUserRecovery')}
+            >
+              <Text style={styles.refreshText}>Recuperación de usuarios →</Text>
+            </Pressable>
+            <Pressable
+              style={styles.refreshButton}
+              onPress={() => {
+                setRefreshing(true);
+                void load();
+              }}
+            >
+              <Text style={styles.refreshText}>{refreshing ? '…' : '↻ Actualizar'}</Text>
+            </Pressable>
+          </View>
         </View>
 
         <View style={styles.filterRow}>
@@ -529,6 +537,12 @@ const styles = StyleSheet.create({
     color: colors.danger,
     marginTop: -8,
     marginBottom: 12,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    alignItems: 'flex-start',
   },
   refreshButton: {
     borderWidth: 1,

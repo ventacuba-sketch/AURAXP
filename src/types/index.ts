@@ -33,6 +33,12 @@ export type RootStackParamList = {
    * PublicResult/PublicBattle -- la propia pantalla valida el acceso real
    * contra la RPC, no un gate de navegación. */
   AdminDashboard: undefined;
+  /** Módulo "Recuperación de usuarios" -- mismo criterio de acceso que
+   * AdminDashboard (ruta pública propia, la pantalla valida contra las
+   * RPCs admin_user_recovery_* reales, SECURITY DEFINER sobre
+   * profiles.is_admin). Ver AdminUserRecoveryScreen y
+   * supabase/migrations/20261006000000_admin_user_recovery.sql. */
+  AdminUserRecovery: undefined;
   /** Chat V1 global; también accesible sin sesión desde Landing. */
   Chat: undefined;
   /** Chat V2 "Sala Social" -- bandeja de mensajes privados (solo
