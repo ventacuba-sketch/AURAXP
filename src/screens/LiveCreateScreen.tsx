@@ -1,185 +1,45 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { useSmartBack } from '../hooks/useSmartBack';
 import { logEvent } from '../services/analyticsService';
+import { configureSocialDestination, listSocialDestinations, LiveSocialPlatform, startExternalStreams } from '../services/liveEgressService';
 import { canCurrentUserHostLive, createLiveRoom, startLiveRoom } from '../services/liveService';
 import { colors, radius, spacing, typography } from '../theme/colors';
-
-const AURA_LIVE_ENABLED = process.env.EXPO_PUBLIC_AURA_LIVE_ENABLED === 'true';
-
-type CameraFacing = 'environment' | 'user';
-
-export default function LiveCreateScreen() {
-  const navigation = useRootNavigation();
-  const goBack = useSmartBack();
-  const videoContainerRef = useRef<View>(null);
-  const previewStreamRef = useRef<MediaStream | null>(null);
-
-  const [checkingAuthorization, setCheckingAuthorization] = useState(true);
-  const [authorized, setAuthorized] = useState(false);
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [previewError, setPreviewError] = useState<string | null>(null);
-  const [previewActive, setPreviewActive] = useState(false);
-  const [micEnabled, setMicEnabled] = useState(true);
-  const [cameraFacing, setCameraFacing] = useState<CameraFacing>('environment');
-  const [starting, setStarting] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-
-  useFocusEffect(useCallback(() => { logEvent('live_create_viewed'); }, []));
-
-  useEffect(() => {
-    canCurrentUserHostLive().then((ok) => {
-      setAuthorized(ok);
-      setCheckingAuthorization(false);
-    });
-  }, []);
-
-  function clearPreviewElement() {
-    const container = videoContainerRef.current as unknown as HTMLElement | null;
-    if (container) container.innerHTML = '';
-  }
-
-  function stopPreview() {
-    previewStreamRef.current?.getTracks().forEach((t) => t.stop());
-    previewStreamRef.current = null;
-    clearPreviewElement();
-    setPreviewActive(false);
-  }
-
-  useEffect(() => stopPreview, []);
-
-  async function startPreview(facing: CameraFacing) {
-    if (Platform.OS !== 'web' || typeof navigator === 'undefined' || !navigator.mediaDevices) {
-      setPreviewError('La cámara en vivo solo está disponible en el navegador por ahora.');
-      return;
-    }
-    setPreviewError(null);
-    previewStreamRef.current?.getTracks().forEach((t) => t.stop());
-    try {
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { exact: facing } },
-          audio: true,
-        });
-      } catch {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: facing } },
-          audio: true,
-        });
-      }
-      previewStreamRef.current = stream;
-      stream.getAudioTracks().forEach((t) => (t.enabled = micEnabled));
-      const container = videoContainerRef.current as unknown as HTMLElement | null;
-      if (container) {
-        const el = document.createElement('video');
-        el.autoplay = true;
-        el.playsInline = true;
-        el.muted = true;
-        el.style.width = '100%';
-        el.style.height = '100%';
-        el.style.objectFit = 'cover';
-        el.srcObject = stream;
-        container.innerHTML = '';
-        container.appendChild(el);
-        void el.play().catch(() => undefined);
-      }
-      setCameraFacing(facing);
-      setPreviewActive(true);
-    } catch (e) {
-      setPreviewActive(false);
-      setPreviewError(
-        e instanceof Error && e.name === 'NotAllowedError'
-          ? 'No pudimos acceder a tu cámara -- revisa los permisos del navegador.'
-          : 'No pudimos acceder a tu cámara o micrófono.',
-      );
-    }
-  }
-
-  async function handleEnablePreview() {
-    await startPreview('environment');
-  }
-
-  async function switchPreviewCamera() {
-    await startPreview(cameraFacing === 'environment' ? 'user' : 'environment');
-  }
-
-  function toggleMic() {
-    const next = !micEnabled;
-    setMicEnabled(next);
-    previewStreamRef.current?.getAudioTracks().forEach((t) => (t.enabled = next));
-  }
-
-  async function handleConfirmStart() {
-    const trimmedTitle = title.trim();
-    if (!trimmedTitle || starting) return;
-    setStarting(true);
-    logEvent('live_start_attempted');
-    const createResult = await createLiveRoom(trimmedTitle, description.trim() || undefined);
-    if (!createResult.ok || !createResult.roomId || !createResult.slug) {
-      setStarting(false); setConfirming(false);
-      logEvent('live_start_failed', { reason: createResult.errorCode ?? 'create_failed' });
-      setPreviewError('No pudimos crear el LIVE. Intenta de nuevo.');
-      return;
-    }
-    const startResult = await startLiveRoom(createResult.roomId);
-    if (!startResult.ok) {
-      setStarting(false); setConfirming(false);
-      logEvent('live_start_failed', { reason: startResult.errorCode ?? 'start_failed' });
-      setPreviewError('No pudimos iniciar el LIVE. Intenta de nuevo.');
-      return;
-    }
-    stopPreview();
-    navigation.reset({ index: 0, routes: [{ name: 'LiveRoom', params: { slug: createResult.slug } }] });
-  }
-
-  if (checkingAuthorization) return <ScreenContainer onBack={goBack}><Text style={styles.muted}>Verificando permisos...</Text></ScreenContainer>;
-  if (!AURA_LIVE_ENABLED) return <ScreenContainer onBack={goBack}><Text style={styles.title}>AURA LIVE</Text><Text style={styles.muted}>AURA LIVE todavía no está disponible.</Text></ScreenContainer>;
-  if (!authorized) return <ScreenContainer onBack={goBack}><Text style={styles.title}>AURA LIVE</Text><Text style={styles.muted}>Transmitir en vivo todavía está limitado a cuentas autorizadas mientras probamos AURA LIVE.</Text></ScreenContainer>;
-
-  return (
-    <ScreenContainer onBack={goBack} style={styles.screen}>
-      <Text style={styles.title}>Crear LIVE</Text>
-      <TextInput value={title} onChangeText={setTitle} placeholder="Nombre de la batalla (obligatorio)" placeholderTextColor={colors.textMuted} style={styles.input} maxLength={120} />
-      <TextInput value={description} onChangeText={setDescription} placeholder="Descripción (opcional)" placeholderTextColor={colors.textMuted} style={[styles.input, styles.inputMultiline]} maxLength={500} multiline />
-
-      <View style={styles.previewBox}>
-        <View ref={videoContainerRef} style={styles.previewVideo} />
-        {!previewActive && <View style={styles.previewOverlay}><Text style={styles.previewOverlayText}>La transmisión usa la cámara posterior por defecto</Text><PrimaryButton label="ACTIVAR CÁMARA" onPress={handleEnablePreview} /></View>}
-      </View>
-
-      {previewError && <Text style={styles.error}>{previewError}</Text>}
-      {previewActive && <View style={styles.controlsRow}>
-        <Pressable style={styles.controlChip} onPress={switchPreviewCamera}><Text style={styles.controlChipText}>🔄 Cambiar cámara</Text></Pressable>
-        <Pressable style={styles.controlChip} onPress={toggleMic}><Text style={styles.controlChipText}>{micEnabled ? '🎙️ Mic ON' : '🔇 Mic OFF'}</Text></Pressable>
-      </View>}
-
-      {previewActive && !confirming && <PrimaryButton label="INICIAR LIVE" disabled={!title.trim()} onPress={() => setConfirming(true)} />}
-      {confirming && <View style={styles.confirmBox}><Text style={styles.confirmText}>Estás a punto de transmitir en vivo. Todos en AURA VS podrán verte.</Text><PrimaryButton label={starting ? '...' : 'SÍ, TRANSMITIR'} disabled={starting} onPress={handleConfirmStart} /><PrimaryButton label="Ahora no" variant="text" onPress={() => setConfirming(false)} /></View>}
-    </ScreenContainer>
-  );
+const AURA_LIVE_ENABLED=process.env.EXPO_PUBLIC_AURA_LIVE_ENABLED==='true';
+type CameraFacing='environment'|'user';
+const NETWORKS:[LiveSocialPlatform,string][]=[['tiktok','TikTok'],['instagram','Instagram'],['facebook','Facebook']];
+export default function LiveCreateScreen(){
+ const navigation=useRootNavigation(),goBack=useSmartBack(),videoContainerRef=useRef<View>(null),previewStreamRef=useRef<MediaStream|null>(null);
+ const [checkingAuthorization,setCheckingAuthorization]=useState(true),[authorized,setAuthorized]=useState(false),[title,setTitle]=useState(''),[description,setDescription]=useState(''),[previewError,setPreviewError]=useState<string|null>(null),[previewActive,setPreviewActive]=useState(false),[micEnabled,setMicEnabled]=useState(true),[cameraFacing,setCameraFacing]=useState<CameraFacing>('environment'),[starting,setStarting]=useState(false),[confirming,setConfirming]=useState(false);
+ const [configured,setConfigured]=useState<LiveSocialPlatform[]>([]),[selected,setSelected]=useState<LiveSocialPlatform[]>([]),[editing,setEditing]=useState<LiveSocialPlatform|null>(null),[rtmpUrl,setRtmpUrl]=useState(''),[streamKey,setStreamKey]=useState(''),[savingNetwork,setSavingNetwork]=useState(false),[networkMessage,setNetworkMessage]=useState<string|null>(null);
+ useFocusEffect(useCallback(()=>{logEvent('live_create_viewed')},[]));
+ useEffect(()=>{canCurrentUserHostLive().then(ok=>{setAuthorized(ok);setCheckingAuthorization(false)});listSocialDestinations().then(rows=>setConfigured(rows.filter(r=>r.enabled).map(r=>r.platform)))},[]);
+ function clearPreviewElement(){const c=videoContainerRef.current as unknown as HTMLElement|null;if(c)c.innerHTML=''}
+ function stopPreview(){previewStreamRef.current?.getTracks().forEach(t=>t.stop());previewStreamRef.current=null;clearPreviewElement();setPreviewActive(false)}
+ useEffect(()=>stopPreview,[]);
+ async function startPreview(facing:CameraFacing){if(Platform.OS!=='web'||typeof navigator==='undefined'||!navigator.mediaDevices){setPreviewError('La cámara en vivo solo está disponible en el navegador por ahora.');return}setPreviewError(null);previewStreamRef.current?.getTracks().forEach(t=>t.stop());try{let stream:MediaStream;try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{exact:facing}},audio:true})}catch{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:facing}},audio:true})}previewStreamRef.current=stream;stream.getAudioTracks().forEach(t=>t.enabled=micEnabled);const c=videoContainerRef.current as unknown as HTMLElement|null;if(c){const el=document.createElement('video');el.autoplay=true;el.playsInline=true;el.muted=true;el.style.width='100%';el.style.height='100%';el.style.objectFit='cover';el.srcObject=stream;c.innerHTML='';c.appendChild(el);void el.play().catch(()=>undefined)}setCameraFacing(facing);setPreviewActive(true)}catch(e){setPreviewActive(false);setPreviewError(e instanceof Error&&e.name==='NotAllowedError'?'No pudimos acceder a tu cámara -- revisa los permisos del navegador.':'No pudimos acceder a tu cámara o micrófono.')}}
+ function togglePlatform(p:LiveSocialPlatform){if(!configured.includes(p)){setEditing(p);setNetworkMessage(`Conecta ${NETWORKS.find(n=>n[0]===p)?.[1]} una sola vez.`);return}setSelected(s=>s.includes(p)?s.filter(x=>x!==p):[...s,p])}
+ async function saveNetwork(){if(!editing||!rtmpUrl.trim()||!streamKey.trim()||savingNetwork)return;setSavingNetwork(true);setNetworkMessage(null);const r=await configureSocialDestination(editing,rtmpUrl,streamKey);setSavingNetwork(false);if(!r.ok){setNetworkMessage('No pudimos guardar esta conexión. Revisa la URL RTMP y la clave.');return}setConfigured(c=>c.includes(editing)?c:[...c,editing]);setSelected(s=>s.includes(editing)?s:[...s,editing]);setNetworkMessage(`${NETWORKS.find(n=>n[0]===editing)?.[1]} conectado. No tendrás que ingresar la clave en cada LIVE.`);setEditing(null);setRtmpUrl('');setStreamKey('')}
+ function toggleMic(){const next=!micEnabled;setMicEnabled(next);previewStreamRef.current?.getAudioTracks().forEach(t=>t.enabled=next)}
+ async function handleConfirmStart(){const t=title.trim();if(!t||starting)return;setStarting(true);logEvent('live_start_attempted');const cr=await createLiveRoom(t,description.trim()||undefined);if(!cr.ok||!cr.roomId||!cr.slug){setStarting(false);setConfirming(false);setPreviewError('No pudimos crear el LIVE. Intenta de nuevo.');return}const sr=await startLiveRoom(cr.roomId);if(!sr.ok){setStarting(false);setConfirming(false);setPreviewError('No pudimos iniciar el LIVE. Intenta de nuevo.');return}if(selected.length){const mr=await startExternalStreams(cr.roomId,selected);if(!mr.ok)setNetworkMessage('El LIVE inició en AURA VS, pero una red externa no pudo conectarse. Puedes transmitir igualmente.')}stopPreview();navigation.reset({index:0,routes:[{name:'LiveRoom',params:{slug:cr.slug}}]})}
+ if(checkingAuthorization)return <ScreenContainer onBack={goBack}><Text style={styles.muted}>Verificando permisos...</Text></ScreenContainer>;
+ if(!AURA_LIVE_ENABLED)return <ScreenContainer onBack={goBack}><Text style={styles.title}>AURA LIVE</Text><Text style={styles.muted}>AURA LIVE todavía no está disponible.</Text></ScreenContainer>;
+ if(!authorized)return <ScreenContainer onBack={goBack}><Text style={styles.title}>AURA LIVE</Text><Text style={styles.muted}>Transmitir en vivo todavía está limitado a cuentas autorizadas mientras probamos AURA LIVE.</Text></ScreenContainer>;
+ return <ScreenContainer onBack={goBack} style={styles.screen}>
+  <Text style={styles.title}>Crear LIVE</Text>
+  <TextInput value={title} onChangeText={setTitle} placeholder="Nombre de la batalla (obligatorio)" placeholderTextColor={colors.textMuted} style={styles.input} maxLength={120}/>
+  <TextInput value={description} onChangeText={setDescription} placeholder="Descripción (opcional)" placeholderTextColor={colors.textMuted} style={[styles.input,styles.inputMultiline]} maxLength={500} multiline/>
+  <View style={styles.socialBox}><Text style={styles.socialTitle}>Transmitir también en</Text><View style={styles.controlsRow}>{NETWORKS.map(([p,label])=><Pressable key={p} style={[styles.controlChip,selected.includes(p)&&styles.controlChipOn]} onPress={()=>togglePlatform(p)}><Text style={styles.controlChipText}>{selected.includes(p)?'✓ ':''}{label}{configured.includes(p)?'':' · Conectar'}</Text></Pressable>)}</View><Text style={styles.socialHint}>Conecta cada red una sola vez. Después solo eliges dónde transmitir.</Text></View>
+  {editing&&<View style={styles.confirmBox}><Text style={styles.confirmText}>Conectar {NETWORKS.find(n=>n[0]===editing)?.[1]}</Text><TextInput value={rtmpUrl} onChangeText={setRtmpUrl} autoCapitalize="none" placeholder="URL RTMP/RTMPS" placeholderTextColor={colors.textMuted} style={styles.input}/><TextInput value={streamKey} onChangeText={setStreamKey} autoCapitalize="none" secureTextEntry placeholder="Clave de transmisión" placeholderTextColor={colors.textMuted} style={styles.input}/><PrimaryButton label={savingNetwork?'GUARDANDO...':'GUARDAR CONEXIÓN'} disabled={savingNetwork||!rtmpUrl.trim()||!streamKey.trim()} onPress={saveNetwork}/><PrimaryButton label="Cancelar" variant="text" onPress={()=>setEditing(null)}/></View>}
+  {networkMessage&&<Text style={styles.muted}>{networkMessage}</Text>}
+  <View style={styles.previewBox}><View ref={videoContainerRef} style={styles.previewVideo}/>{!previewActive&&<View style={styles.previewOverlay}><Text style={styles.previewOverlayText}>La transmisión usa la cámara posterior por defecto</Text><PrimaryButton label="ACTIVAR CÁMARA" onPress={()=>startPreview('environment')}/></View>}</View>
+  {previewError&&<Text style={styles.error}>{previewError}</Text>}
+  {previewActive&&<View style={styles.controlsRow}><Pressable style={styles.controlChip} onPress={()=>startPreview(cameraFacing==='environment'?'user':'environment')}><Text style={styles.controlChipText}>🔄 Cambiar cámara</Text></Pressable><Pressable style={styles.controlChip} onPress={toggleMic}><Text style={styles.controlChipText}>{micEnabled?'🎙️ Mic ON':'🔇 Mic OFF'}</Text></Pressable></View>}
+  {previewActive&&!confirming&&<PrimaryButton label="INICIAR LIVE" disabled={!title.trim()} onPress={()=>setConfirming(true)}/>} {confirming&&<View style={styles.confirmBox}><Text style={styles.confirmText}>Estás a punto de transmitir en vivo{selected.length?' también en las redes seleccionadas':''}.</Text><PrimaryButton label={starting?'...':'SÍ, TRANSMITIR'} disabled={starting} onPress={handleConfirmStart}/><PrimaryButton label="Ahora no" variant="text" onPress={()=>setConfirming(false)}/></View>}
+ </ScreenContainer>
 }
-
-const styles = StyleSheet.create({
-  screen: { gap: spacing.sm },
-  title: { ...typography.title, color: colors.textPrimary },
-  muted: { ...typography.body, color: colors.textSecondary },
-  input: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, backgroundColor: colors.surface, color: colors.textPrimary, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, ...typography.body },
-  inputMultiline: { minHeight: 58, maxHeight: 80, textAlignVertical: 'top' },
-  previewBox: { width: '100%', aspectRatio: 4 / 3, maxHeight: 300, borderRadius: radius.lg, backgroundColor: colors.surfaceAlt, overflow: 'hidden' },
-  previewVideo: { flex: 1 },
-  previewOverlay: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', gap: spacing.sm, padding: spacing.md },
-  previewOverlayText: { ...typography.body, color: colors.textSecondary, textAlign: 'center' },
-  error: { ...typography.caption, color: colors.danger },
-  controlsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  controlChip: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.pill, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, backgroundColor: colors.surface },
-  controlChipText: { ...typography.caption, color: colors.textPrimary, fontWeight: '700' },
-  confirmBox: { gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },
-  confirmText: { ...typography.body, color: colors.textPrimary },
-});
+const styles=StyleSheet.create({screen:{gap:spacing.sm},title:{...typography.title,color:colors.textPrimary},muted:{...typography.body,color:colors.textSecondary},input:{borderWidth:1,borderColor:colors.border,borderRadius:radius.md,backgroundColor:colors.surface,color:colors.textPrimary,paddingHorizontal:spacing.md,paddingVertical:spacing.sm,...typography.body},inputMultiline:{minHeight:58,maxHeight:80,textAlignVertical:'top'},previewBox:{width:'100%',aspectRatio:4/3,maxHeight:300,borderRadius:radius.lg,backgroundColor:colors.surfaceAlt,overflow:'hidden'},previewVideo:{flex:1},previewOverlay:{...StyleSheet.absoluteFill,alignItems:'center',justifyContent:'center',gap:spacing.sm,padding:spacing.md},previewOverlayText:{...typography.body,color:colors.textSecondary,textAlign:'center'},error:{...typography.caption,color:colors.danger},controlsRow:{flexDirection:'row',flexWrap:'wrap',gap:spacing.sm},controlChip:{borderWidth:1,borderColor:colors.border,borderRadius:radius.pill,paddingHorizontal:spacing.md,paddingVertical:spacing.sm,backgroundColor:colors.surface},controlChipOn:{borderColor:colors.primary,backgroundColor:colors.surfaceAlt},controlChipText:{...typography.caption,color:colors.textPrimary,fontWeight:'700'},confirmBox:{gap:spacing.sm,padding:spacing.md,borderRadius:radius.md,backgroundColor:colors.surfaceAlt,borderWidth:1,borderColor:colors.border},confirmText:{...typography.body,color:colors.textPrimary},socialBox:{gap:spacing.xs,padding:spacing.sm,borderRadius:radius.md,borderWidth:1,borderColor:colors.border,backgroundColor:colors.surface},socialTitle:{...typography.body,color:colors.textPrimary,fontWeight:'700'},socialHint:{...typography.caption,color:colors.textSecondary}});
