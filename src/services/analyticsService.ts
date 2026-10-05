@@ -26,13 +26,16 @@ export type AnalyticsEventName =
   | 'live_follow_clicked' | 'live_share_clicked' | 'live_signup_prompted' | 'live_guest_converted' | 'live_aura_check_started'
   | 'live_aura_check_completed' | 'live_aura_check_failed' | 'live_poll_started' | 'live_vote_cast' | 'live_ended';
 
-function trackMetaEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>): void {
+type Fbq = (command: string, eventName: string, params?: Record<string, unknown>, options?: Record<string, unknown>) => void;
+function trackMetaEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>, userId?: string | null): void {
   if (typeof window === 'undefined') return;
-  const fbq = (window as typeof window & { fbq?: (command: string, eventName: string, params?: Record<string, unknown>) => void }).fbq;
+  const fbq = (window as typeof window & { fbq?: Fbq }).fbq;
   if (typeof fbq !== 'function') return;
   try {
-    if (eventName === 'signup_completed') fbq('track', 'CompleteRegistration', metadata);
-    else if (eventName === 'first_scan_completed') fbq('trackCustom', 'ScanCompleted', metadata);
+    if (eventName === 'signup_completed') {
+      const eventID = userId ? `reg_${userId}` : undefined;
+      fbq('track', 'CompleteRegistration', metadata, eventID ? { eventID } : undefined);
+    } else if (eventName === 'first_scan_completed') fbq('trackCustom', 'ScanCompleted', metadata);
   } catch { /* telemetry never blocks product */ }
 }
 
@@ -40,12 +43,13 @@ export async function logEvent(eventName: AnalyticsEventName, metadata?: Record<
   if (!supabase) return;
   try {
     const session = await getSession();
+    const userId = userIdOverride ?? session?.user.id ?? null;
     const utm = await getStoredUtmParams();
     const visitorId = await getCampaignVisitorId();
     const enrichedMetadata = { ...(utm ?? {}), ...(visitorId ? { visitor_id: visitorId } : {}), ...(metadata ?? {}) };
-    await supabase.from('analytics_events').insert({ event_name: eventName, user_id: userIdOverride ?? session?.user.id ?? null, metadata: Object.keys(enrichedMetadata).length ? enrichedMetadata : null });
-    trackMetaEvent(eventName, enrichedMetadata);
-  } catch { trackMetaEvent(eventName, metadata); }
+    await supabase.from('analytics_events').insert({ event_name: eventName, user_id: userId, metadata: Object.keys(enrichedMetadata).length ? enrichedMetadata : null });
+    trackMetaEvent(eventName, enrichedMetadata, userId);
+  } catch { trackMetaEvent(eventName, metadata, userIdOverride); }
 }
 
 let appOpenLogged = false;
