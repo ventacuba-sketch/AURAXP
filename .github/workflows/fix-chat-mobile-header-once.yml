@@ -1,0 +1,45 @@
+name: Fix Chat mobile header once
+
+on:
+  push:
+    branches:
+      - feature/aura-live-mvp-v2
+    paths:
+      - .github/workflows/fix-chat-mobile-header-once.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/aura-live-mvp-v2
+      - name: Patch Chat mobile header
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('src/screens/ChatScreen.tsx')
+          s = p.read_text()
+          old = """  header: {\n    flexDirection: 'row',\n    alignItems: 'flex-start',\n    justifyContent: 'space-between',\n    paddingHorizontal: spacing.lg,\n    paddingTop: spacing.sm,\n    paddingBottom: spacing.sm,\n    gap: spacing.sm,\n  },\n  headerIdentity: {\n    flexShrink: 1,\n  },"""
+          new = """  header: {\n    flexDirection: 'row',\n    flexWrap: 'wrap',\n    alignItems: 'flex-start',\n    justifyContent: 'space-between',\n    paddingHorizontal: spacing.lg,\n    paddingTop: spacing.sm,\n    paddingBottom: spacing.sm,\n    gap: spacing.sm,\n  },\n  headerIdentity: {\n    width: '100%',\n    flexShrink: 0,\n  },"""
+          if old not in s:
+              raise SystemExit('Expected header block not found; refusing unsafe patch')
+          s = s.replace(old, new, 1)
+          old2 = """  headerActions: {\n    flexDirection: 'row',\n    alignItems: 'center',\n    gap: spacing.md,\n    flexWrap: 'wrap',\n    justifyContent: 'flex-end',\n  },"""
+          new2 = """  headerActions: {\n    width: '100%',\n    flexDirection: 'row',\n    alignItems: 'center',\n    gap: spacing.md,\n    flexWrap: 'wrap',\n    justifyContent: 'flex-start',\n  },"""
+          if old2 not in s:
+              raise SystemExit('Expected headerActions block not found; refusing unsafe patch')
+          s = s.replace(old2, new2, 1)
+          p.write_text(s)
+          PY
+      - name: Remove one-shot workflow and commit fix
+        run: |
+          rm .github/workflows/fix-chat-mobile-header-once.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/screens/ChatScreen.tsx .github/workflows/fix-chat-mobile-header-once.yml
+          git commit -m "fix(chat): prevent mobile header title collapse"
+          git push origin HEAD:feature/aura-live-mvp-v2
