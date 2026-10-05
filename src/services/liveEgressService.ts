@@ -1,50 +1,32 @@
-/**
- * AURA LIVE -- abstracción FUTURA de multistream/RTMP (secciones 21/49
- * del pedido), deliberadamente NO funcional todavía.
- *
- * LiveKit Egress permite reenviar una sala como salida RTMP (TikTok
- * LIVE, Instagram LIVE, YouTube, etc.) o grabarla. Esto es real y
- * técnicamente viable más adelante, pero NO para este MVP -- activar
- * Egress implica transcodificación server-side con costo real por
- * minuto, y este archivo existe solo para que un futuro PR tenga dónde
- * enchufar esa lógica sin tener que rediseñar nada de AURA LIVE V1.
- *
- * Por diseño, HOY:
- * - `AURA_LIVE_EGRESS_ENABLED` es `false` y no hay forma de cambiarlo
- *   desde la UI (ningún botón llama a estas funciones).
- * - No existe Edge Function de Egress, no hay credenciales de
- *   TikTok/Instagram/YouTube en ningún lado, no hay RTMP secrets en la
- *   base de datos.
- * - Ninguna de las dos funciones de abajo hace una llamada de red real
- *   -- ambas devuelven `not_implemented` inmediatamente. Que algún día
- *   lo hagan requiere: (1) una Edge Function `livekit-egress` que llame
- *   a la Egress API de LiveKit con las credenciales RTMP del destino
- *   (nunca en el cliente), (2) subir `AURA_LIVE_EGRESS_ENABLED` junto
- *   con un flag explícito por sala (no un switch global), y (3)
- *   aprobación explícita de costos -- ver docs/aura-live.md.
- */
+import { supabase } from './supabaseClient';
 
-export const AURA_LIVE_EGRESS_ENABLED = false;
+export type LiveSocialPlatform = 'tiktok' | 'instagram' | 'facebook';
+export interface DestinationStatus { platform: LiveSocialPlatform; enabled: boolean; updated_at?: string }
 
-export interface ExternalStreamDestination {
-  platform: 'tiktok' | 'instagram' | 'youtube' | 'rtmp_custom';
-  /** URL RTMP completa -- en una implementación real, esto NUNCA se
-   * acepta tal cual del cliente: se resuelve server-side a partir de
-   * credenciales guardadas, nunca pegado a mano en la UI. */
-  rtmpUrl?: string;
+async function invoke(body: Record<string, unknown>) {
+  if (!supabase) return { ok: false, error: 'backend_not_configured' } as any;
+  const { data, error } = await supabase.functions.invoke('livekit-multistream', { body });
+  if (error) return { ok: false, error: error.message } as any;
+  return data as any;
 }
 
-export interface StartExternalStreamResult {
-  ok: boolean;
-  errorCode: 'not_implemented';
+export async function listSocialDestinations(): Promise<DestinationStatus[]> {
+  const result = await invoke({ action: 'list' });
+  return result?.ok && Array.isArray(result.destinations) ? result.destinations : [];
 }
 
-/** Placeholder -- ver el comentario del archivo. Nunca llama a LiveKit
- * Egress, nunca factura nada, nunca requiere credenciales reales hoy. */
-export async function startExternalStream(_roomId: string, _destination: ExternalStreamDestination): Promise<StartExternalStreamResult> {
-  return { ok: false, errorCode: 'not_implemented' };
+export async function configureSocialDestination(platform: LiveSocialPlatform, rtmpUrl: string, streamKey: string): Promise<{ ok: boolean; error?: string }> {
+  const result = await invoke({ action: 'configure', platform, rtmpUrl, streamKey });
+  return result?.ok ? { ok: true } : { ok: false, error: result?.error ?? 'configure_failed' };
 }
 
-export async function stopExternalStream(_roomId: string): Promise<{ ok: boolean }> {
-  return { ok: false };
+export async function startExternalStreams(roomId: string, platforms: LiveSocialPlatform[]): Promise<{ ok: boolean; error?: string }> {
+  if (!platforms.length) return { ok: true };
+  const result = await invoke({ action: 'start', roomId, platforms });
+  return result?.ok ? { ok: true } : { ok: false, error: result?.error ?? 'start_failed' };
+}
+
+export async function stopExternalStreams(roomId: string): Promise<{ ok: boolean }> {
+  const result = await invoke({ action: 'stop', roomId });
+  return { ok: Boolean(result?.ok) };
 }
