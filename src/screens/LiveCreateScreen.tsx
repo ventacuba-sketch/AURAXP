@@ -146,7 +146,7 @@ export default function LiveCreateScreen() {
   return (
     <ScreenContainer onBack={goBack} style={styles.screen}>
       <Text style={styles.title}>Crear LIVE</Text>
-      <TextInput value={title} onChangeText={setTitle} placeholder="Batalla de Aura -- Pichidegua" placeholderTextColor={colors.textMuted} style={styles.input} maxLength={120} />
+      <TextInput value={title} onChangeText={setTitle} placeholder="Nombre de la batalla (obligatorio)" placeholderTextColor={colors.textMuted} style={styles.input} maxLength={120} />
       <TextInput value={description} onChangeText={setDescription} placeholder="Descripción (opcional)" placeholderTextColor={colors.textMuted} style={[styles.input, styles.inputMultiline]} maxLength={500} multiline />
 
       <View style={styles.previewBox}>
