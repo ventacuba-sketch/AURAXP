@@ -44,6 +44,10 @@ const HIDDEN_ROUTES = new Set([
   // criterio que Chat. ChatPrivateInbox SÍ muestra la barra (es una
   // lista, mismo criterio que Notifications/MyChallenges).
   'ChatPrivateConversation',
+  // AURA LIVE -- cámara/video en vivo a pantalla completa, mismo
+  // criterio que Record (captura con cámara en vivo).
+  'LiveCreate',
+  'LiveRoom',
 ]);
 
 interface Props {

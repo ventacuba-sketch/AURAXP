@@ -46,6 +46,17 @@ export type RootStackParamList = {
    * nunca se usan para autorizar nada (eso lo hace RLS/RPC server-side
    * contra conversationId, siempre con auth.uid()). */
   ChatPrivateConversation: { conversationId: string; peerId: string; peerUsername: string; peerAvatarEmoji: string };
+  /** AURA LIVE -- crear/transmitir (solo autenticado + can_host_live real,
+   * ver RootNavigator/liveService.canCurrentUserHostLive -- la
+   * autorización de verdad vuelve a verificarse server-side en
+   * create_live_room, esto es solo la mitad de UI). */
+  LiveCreate: undefined;
+  /** AURA LIVE -- sala pública `/live/:slug` (ver RootNavigator linking),
+   * accesible con o sin sesión (sección 9: un invitado puede ver un LIVE
+   * sin registrarse). La propia pantalla resuelve rol host/viewer/guest
+   * contra `live_rooms` y `useAuth().session` -- nunca un gate de
+   * navegación. */
+  LiveRoom: { slug: string };
   /** `{ screen: 'Profile' }` etc. salta directo a un tab puntual (p. ej.
    * desde el link "Ver perfil" del XP en ScanResult) -- `undefined` cae
    * en el tab por default (Home). */

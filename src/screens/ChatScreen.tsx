@@ -15,6 +15,7 @@ import {
 import { useIsFocused } from '@react-navigation/native';
 
 import { ChatMembersPanel } from '../components/ChatMembersPanel';
+import { LiveLobbyCard } from '../components/LiveLobbyCard';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
@@ -555,6 +556,12 @@ export default function ChatScreen() {
         </View>
       )}
 
+      {/* AURA LIVE -- "EN VIVO AHORA" (sección 15 del pedido): el Chat es
+          el lobby, LIVE es el espectáculo. Componente propio, puramente
+          aditivo -- ver LiveLobbyCard.tsx, nunca datos falsos si no hay
+          ningún LIVE activo. */}
+      <LiveLobbyCard />
+
       {!viewer?.authed && (
         <View style={styles.guestBanner}>
           <Text style={styles.guestBannerText}>
@@ -720,6 +727,7 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
@@ -728,7 +736,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   headerIdentity: {
-    flexShrink: 1,
+    width: '100%',
+    flexShrink: 0,
   },
   logo: {
     ...typography.title,
@@ -741,11 +750,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   headerActions: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
     flexWrap: 'wrap',
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-start',
   },
   headerActionText: {
     ...typography.caption,

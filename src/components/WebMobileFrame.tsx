@@ -1,28 +1,27 @@
 import React, { PropsWithChildren } from 'react';
-import { Platform, StyleSheet, View } from 'react-native';
+import { Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 
 import { colors, radius } from '../theme/colors';
 
-const MAX_WIDTH = 430; // mobile viewport target (~390-430px)
-const MAX_HEIGHT = 932; // resembles a modern phone's logical viewport height
+const MAX_WIDTH = 430;
+const MAX_HEIGHT = 932;
+const DESKTOP_BREAKPOINT = 800;
 
 /**
- * Web-only: centers the consumer app inside a mobile-sized container.
- * Desktop-first surfaces such as Admin and Chat V2 use the full browser
- * viewport so their responsive layouts can actually reach desktop widths.
- * Native iOS/Android render children directly with no wrapper.
+ * Web shell: consumer routes remain phone-sized on mobile. Admin and Chat
+ * only expand to the full viewport on real tablet/desktop widths; this avoids
+ * the Chat desktop header squeezing its identity into a vertical column on
+ * iPhone Safari.
  */
 export function WebMobileFrame({ children }: PropsWithChildren) {
-  if (Platform.OS !== 'web') {
-    return <>{children}</>;
-  }
+  const { width } = useWindowDimensions();
+  if (Platform.OS !== 'web') return <>{children}</>;
 
   const pathname = typeof window !== 'undefined' ? window.location.pathname : '';
-  const usesDesktopViewport = pathname.startsWith('/admin') || pathname.startsWith('/chat');
+  const desktopRoute = pathname.startsWith('/admin') || pathname.startsWith('/chat');
+  const usesDesktopViewport = desktopRoute && width >= DESKTOP_BREAKPOINT;
 
-  if (usesDesktopViewport) {
-    return <View style={styles.desktopOuter}>{children}</View>;
-  }
+  if (usesDesktopViewport) return <View style={styles.desktopOuter}>{children}</View>;
 
   return (
     <View style={styles.outer}>

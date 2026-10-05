@@ -2,7 +2,7 @@ name: Deploy preview web
 
 on:
   push:
-    branches: [feature/admin-analytics-dashboard, integration/chat-v1-main, feature/chat-v2-social-room]
+    branches: [feature/admin-analytics-dashboard, integration/chat-v1-main, feature/chat-v2-social-room, feature/aura-live-mvp, feature/aura-live-mvp-v2]
   workflow_dispatch:
 
 jobs:
@@ -42,6 +42,9 @@ jobs:
           EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
           EXPO_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.EXPO_PUBLIC_VAPID_PUBLIC_KEY }}
+          # Public client configuration only. No LiveKit API secret is exposed here.
+          EXPO_PUBLIC_LIVEKIT_URL: wss://aura-vs-0evnj9z7.livekit.cloud
+          EXPO_PUBLIC_AURA_LIVE_ENABLED: 'true'
         run: npx expo export --platform web
       - name: Add SPA fallback + caching rules (.htaccess)
         run: cp web/.htaccess dist/.htaccess
@@ -65,7 +68,7 @@ jobs:
       - name: Verify preview routes
         run: |
           set -e
-          for path in / /admin /chat; do
+          for path in / /admin /chat /live/preview-smoke-test-nonexistent; do
             code=$(curl -L -sS -o /tmp/aura-preview.html -w "%{http_code}" "https://preview.auravs.app$path")
             test "$code" = "200"
             grep -qi "root" /tmp/aura-preview.html
