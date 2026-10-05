@@ -6,7 +6,7 @@ import { HeroVisual } from "./HeroVisual";
 import { revealDelay } from "@/lib/reveal";
 
 const indicators: Array<{ icon: IconName; label: [string, string] }> = [
-  { icon: "shieldCheck", label: ["Licensed", "sourcing model"] },
+  { icon: "shieldCheck", label: ["Rights-cleared", "sourcing model"] },
   { icon: "lock", label: ["Anonymized", "and structured"] },
   { icon: "checkCircle", label: ["Expert-verified", "and reproducible"] },
 ];
