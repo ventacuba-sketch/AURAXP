@@ -4,7 +4,7 @@ import { getCampaignVisitorId, getStoredUtmParams } from './campaignService';
 
 export type AnalyticsEventName =
   | 'app_open' | 'web_visit' | 'page_viewed'
-  | 'signup_viewed' | 'signup_started' | 'signup_completed' | 'login'
+  | 'signup_viewed' | 'signup_started' | 'signup_completed' | 'signup_email_confirmed' | 'login'
   | 'first_scan_completed' | 'scan_completed'
   | 'scan_upload_viewed' | 'scan_record_clicked' | 'scan_library_clicked'
   | 'scan_video_selected' | 'scan_started' | 'scan_submitted' | 'scan_submit_failed'
