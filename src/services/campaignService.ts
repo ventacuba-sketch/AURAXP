@@ -53,9 +53,11 @@ export async function captureWebVisit(): Promise<VisitContext|null> {
     const fbclid=q.get('fbclid')??undefined;
     const existingRaw=await AsyncStorage.getItem(META_CONTEXT_KEY); const existing=existingRaw?JSON.parse(existingRaw):{};
     const landingTs=existing.landing_ts??new Date().toISOString();
-    const fbc=fbclid?`fb.1.${Date.now()}.${fbclid}`:existing.fbc;
+    // First-touch fbc: prefer what we already captured, then Meta's _fbc cookie,
+    // and only synthesize from fbclid when neither exists. Never regenerate it.
+    const fbc=existing.fbc??readCookie('_fbc')??(fbclid?`fb.1.${Date.now()}.${fbclid}`:undefined);
     const fbp=readCookie('_fbp')??existing.fbp;
-    const meta={...existing,...mergedUtm,...(fbclid?{fbclid}:{}),...(fbc?{fbc}:{}),...(fbp?{fbp}:{}),landing_ts:landingTs,user_agent:navigator.userAgent};
+    const meta={...existing,...mergedUtm,...(fbclid&&!existing.fbclid?{fbclid}:{}),...(fbc?{fbc}:{}),...(fbp?{fbp}:{}),landing_ts:landingTs,user_agent:navigator.userAgent};
     await AsyncStorage.setItem(META_CONTEXT_KEY,JSON.stringify(meta));
     const context:VisitContext={...mergedUtm,visitor_id:id,referrer_host:referrerHost(),device_type:detectDevice(),browser:detectBrowser(),os_name:detectOs(),path:window.location.pathname};
     if(supabase) await supabase.rpc('capture_campaign_attribution',{p_visitor_id:id,p_source:mergedUtm.utm_source??null,p_medium:mergedUtm.utm_medium??null,p_campaign:mergedUtm.utm_campaign??null,p_content:mergedUtm.utm_content??null,p_term:mergedUtm.utm_term??null,p_path:window.location.pathname,p_referrer_host:context.referrer_host??null,p_device_type:context.device_type??null,p_browser:context.browser??null,p_os_name:context.os_name??null});
