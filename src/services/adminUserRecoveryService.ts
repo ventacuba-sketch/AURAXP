@@ -138,12 +138,24 @@ export async function getUserRecoveryDetail(userId: string): Promise<RecoveryUse
   return data as RecoveryUserDetail;
 }
 
+// 'recovered': se confirmó el email (si hacía falta) Y salió el correo de
+// reset de contraseña -- el resultado completo que pide la acción.
+// 'partial_success': el email quedó confirmado (o ya lo estaba), pero el
+// correo de reset NO salió -- la cuenta quedó desbloqueada pero el dueño
+// real todavía no puede recuperarla por su cuenta. NUNCA tratar esto como
+// "correo enviado".
+// 'error': no se logró nada útil.
+// `passwordResetSent` siempre viene presente (nunca undefined) para poder
+// decidir el mensaje sin inferir nada de `ok`/`status`.
+export type RecoverAccessStatus = 'recovered' | 'partial_success' | 'error';
+
 export interface RecoverAccessResult {
   ok: boolean;
+  status: RecoverAccessStatus;
+  passwordResetSent: boolean;
   email?: string;
   emailConfirmed?: boolean;
   alreadyConfirmed?: boolean;
-  passwordResetSent?: boolean;
   error?: string;
 }
 
@@ -158,9 +170,14 @@ export async function recoverUserAccess(userId: string): Promise<RecoverAccessRe
     headers: { Authorization: `Bearer ${token}` },
   });
   if (error) {
-    const context = (error as { context?: { json?: () => Promise<RecoverAccessResult> } }).context;
+    const context = (error as { context?: { json?: () => Promise<Partial<RecoverAccessResult>> } }).context;
     const parsed = context?.json ? await context.json().catch(() => null) : null;
-    return { ok: false, error: parsed?.error ?? error.message };
+    return {
+      ok: false,
+      status: 'error',
+      passwordResetSent: false,
+      error: parsed?.error ?? error.message,
+    };
   }
   return data as RecoverAccessResult;
 }

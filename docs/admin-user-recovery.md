@@ -10,6 +10,38 @@ de 39 migraciones + esta nueva), `tsc`, `regression-gate` y `expo export`,
 nunca contra el proyecto Supabase real (ver sección 6, limitación de
 credenciales).
 
+## 0. Revisión post-PR — 2 correcciones antes de mergear
+
+Una revisión del PR #31 encontró 2 problemas reales, corregidos en la misma
+rama antes de este merge:
+
+1. **`admin-recover-user-access` podía afirmar "correo enviado" sin
+   haberlo enviado.** `updateUserById(email_confirm: true)` puede tener
+   éxito mientras `resetPasswordForEmail()` falla después -- la función
+   devolvía `ok: true` en ambos casos, sin forma de distinguirlos. Ahora la
+   lógica de la respuesta vive en `outcome.ts` (sin I/O, testeada en
+   `scripts/test-admin-recover-user-access.mjs`) y separa 3 resultados
+   explícitos: `'recovered'` (confirmó si hacía falta + reset salió),
+   `'partial_success'` (email confirmado pero el reset **no** salió --
+   `ok: false` a propósito) y `'error'` (no se logró nada útil).
+   `passwordResetSent` viaja siempre explícito (nunca `undefined`) y es la
+   única fuente de verdad que la UI usa para decidir si puede decir "correo
+   enviado" -- nunca infiere eso de `ok`. La pantalla ahora muestra un
+   mensaje distinto y en otro color para el caso parcial.
+2. **`recovery_rate_pct` podía superar 100% o caer a 0% de golpe.** La
+   fórmula original dividía "recuperados históricos" (`admin_recovery_actions`)
+   sobre "no confirmados ACTUALMENTE" -- apenas se recupera a alguien, sale
+   del denominador pero sigue en el numerador. Reproducido con datos
+   reales de prueba: recuperar a un usuario que nunca había estado
+   no-confirmado (ej. reenviarle el reset por otro motivo) hacía que la
+   tasa diera **200%** con solo 1 no-confirmado restante. Corregido
+   definiendo la población elegible como la UNIÓN estable de "sigue sin
+   confirmar hoy" y "tiene alguna acción de recuperación registrada" --
+   un usuario recuperado nunca sale de esa unión, así que el numerador
+   (recuperados) queda siempre contenido en el denominador (elegibles) y
+   la tasa queda matemáticamente acotada a `[0, 100]`. Verificado con el
+   mismo escenario reproducido (ver sección 5).
+
 ## 1. Auditoría — qué encontramos antes de escribir código
 
 ### 1.1 Historia real de confirmación/OTP (orden cronológico por migraciones/PRs)
@@ -202,6 +234,21 @@ ni `select * from auth.users` directo (grants/RLS lo bloquean con
 3. **Seguridad**: anon y authenticated-no-admin rechazados en las 3 RPCs;
    acceso directo a `admin_recovery_actions` y a `auth.users` denegado para
    el rol `authenticated`.
+4. **Tests específicos de la revisión post-PR (sección 0)**:
+   - `node --experimental-strip-types scripts/test-admin-recover-user-access.mjs`
+     -- 5 casos sobre la lógica pura de `outcome.ts`: recuperación completa,
+     el bug reportado exacto (confirmó pero el reset falló -- `status`
+     queda en `'partial_success'`, `ok: false`, `passwordResetSent: false`),
+     cuenta ya confirmada con reset ok/con reset fallido, y error total
+     con y sin un reset que ya había salido antes del fallo. Los 5 pasan.
+   - Reproducción exacta del bug de `recovery_rate_pct` contra Postgres
+     real: 2 no-confirmados, se recupera uno + un usuario que NUNCA había
+     estado no-confirmado (reenvío de reset por otro motivo) -- con la
+     fórmula vieja esto daba **200%**; con la corregida da **66.7%**
+     (acotado, `assert v_rate <= 100` pasa). Luego se recupera también al
+     último no-confirmado: `unconfirmed_legacy` llega a 0 y la tasa da
+     **100%** (no 0%, como daba la fórmula vieja al dividir por un
+     denominador que se vació).
 4. **`npx tsc --noEmit`**: limpio.
 5. **`node scripts/regression-gate.mjs`**: OK, 26 archivos (sin contratos
    nuevos para este módulo — mismo criterio que el Admin Dashboard

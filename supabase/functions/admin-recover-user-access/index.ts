@@ -1,5 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { buildErrorResponse, buildRecoveryResponse, type RecoveryResponseBody } from './outcome.ts';
 
 // "Recuperar acceso": la única acción administrativa de este módulo que
 // modifica un usuario real. Diseño deliberado (ver
@@ -20,17 +21,25 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 //   public.admin_recovery_actions, con RLS habilitada y cero policies --
 //   nadie lee/escribe esa tabla directo, solo esta función (service_role)
 //   y las RPCs SECURITY DEFINER del dashboard.
-const json = (body: unknown, status = 200) =>
+// Toda respuesta -- éxito o error -- trae siempre `status` y
+// `passwordResetSent` (nunca `undefined`): el frontend puede afirmar "se
+// envió el correo" únicamente leyendo `passwordResetSent === true`, sin
+// depender de `ok` ni de la ausencia del campo. La forma exacta del body
+// vive en outcome.ts (testeado con Node plano, ver
+// scripts/test-admin-recover-user-access.mjs) -- acá solo se serializa.
+const json = (body: RecoveryResponseBody, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+const errorJson = (error: string, status: number, passwordResetSent = false) =>
+  json(buildErrorResponse(error, passwordResetSent), status);
 
 const RESEND_REDIRECT_TO = 'https://auravs.app/reset-password';
 const COOLDOWN_MINUTES = 5;
 
 Deno.serve(async (req) => {
-  if (req.method !== 'POST') return json({ ok: false, error: 'method_not_allowed' }, 405);
+  if (req.method !== 'POST') return errorJson('method_not_allowed', 405);
 
   const authHeader = req.headers.get('authorization');
-  if (!authHeader) return json({ ok: false, error: 'unauthorized' }, 401);
+  if (!authHeader) return errorJson('unauthorized', 401);
 
   const url = Deno.env.get('SUPABASE_URL')!;
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
@@ -38,7 +47,7 @@ Deno.serve(async (req) => {
 
   const callerClient = createClient(url, anonKey, { global: { headers: { Authorization: authHeader } } });
   const { data: { user: caller }, error: callerError } = await callerClient.auth.getUser();
-  if (callerError || !caller) return json({ ok: false, error: 'unauthorized' }, 401);
+  if (callerError || !caller) return errorJson('unauthorized', 401);
 
   const admin = createClient(url, serviceKey);
   const { data: callerProfile, error: profileError } = await admin
@@ -46,18 +55,18 @@ Deno.serve(async (req) => {
     .select('is_admin')
     .eq('id', caller.id)
     .maybeSingle();
-  if (profileError) return json({ ok: false, error: 'profile_lookup_failed' }, 500);
-  if (!callerProfile?.is_admin) return json({ ok: false, error: 'not_authorized' }, 403);
+  if (profileError) return errorJson('profile_lookup_failed', 500);
+  if (!callerProfile?.is_admin) return errorJson('not_authorized', 403);
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>));
   const targetUserId = typeof body.userId === 'string' ? body.userId : null;
   const confirmed = body.confirm === true;
-  if (!targetUserId) return json({ ok: false, error: 'missing_user_id' }, 400);
-  if (!confirmed) return json({ ok: false, error: 'confirmation_required' }, 400);
+  if (!targetUserId) return errorJson('missing_user_id', 400);
+  if (!confirmed) return errorJson('confirmation_required', 400);
 
   const { data: targetLookup, error: targetError } = await admin.auth.admin.getUserById(targetUserId);
   const target = targetLookup?.user;
-  if (targetError || !target?.email) return json({ ok: false, error: 'user_not_found' }, 404);
+  if (targetError || !target?.email) return errorJson('user_not_found', 404);
 
   const since = new Date(Date.now() - COOLDOWN_MINUTES * 60 * 1000).toISOString();
   const { count: recentActions, error: cooldownError } = await admin
@@ -65,13 +74,16 @@ Deno.serve(async (req) => {
     .select('id', { count: 'exact', head: true })
     .eq('target_user_id', targetUserId)
     .gte('created_at', since);
-  if (cooldownError) return json({ ok: false, error: 'cooldown_check_failed' }, 500);
-  if ((recentActions ?? 0) > 0) return json({ ok: false, error: 'recovery_cooldown' }, 429);
+  if (cooldownError) return errorJson('cooldown_check_failed', 500);
+  if ((recentActions ?? 0) > 0) return errorJson('recovery_cooldown', 429);
 
   const wasUnconfirmed = !target.email_confirmed_at;
   if (wasUnconfirmed) {
     const { error: confirmError } = await admin.auth.admin.updateUserById(targetUserId, { email_confirm: true });
-    if (confirmError) return json({ ok: false, error: 'confirm_failed' }, 500);
+    // Nada se auditó ni se envió todavía -- la confirmación es la base de
+    // toda la operación. Si falla, es un error total: no queda ninguna
+    // ambigüedad posible con un reset parcialmente enviado.
+    if (confirmError) return errorJson('confirm_failed', 500);
   }
 
   // Cliente anon nuevo, sin el token del admin en el header -- el reset
@@ -90,13 +102,10 @@ Deno.serve(async (req) => {
     password_reset_sent: passwordResetSent,
     notes: resetError ? `reset_email_failed: ${resetError.message}` : null,
   });
-  if (auditError) return json({ ok: false, error: 'audit_write_failed' }, 500);
+  if (auditError) return errorJson('audit_write_failed', 500, passwordResetSent);
 
-  return json({
-    ok: true,
-    email: target.email,
-    emailConfirmed: wasUnconfirmed,
-    alreadyConfirmed: !wasUnconfirmed,
-    passwordResetSent,
-  });
+  // 'recovered' vs 'partial_success' vs 'error' -- nunca colapsados en un
+  // solo `ok: true` -- ver outcome.ts (testeado en
+  // scripts/test-admin-recover-user-access.mjs).
+  return json(buildRecoveryResponse({ email: target.email, wasUnconfirmed, passwordResetSent }));
 });

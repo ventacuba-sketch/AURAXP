@@ -103,6 +103,7 @@ export default function AdminUserRecoveryScreen() {
   const [confirmingRecover, setConfirmingRecover] = useState(false);
   const [recovering, setRecovering] = useState(false);
   const [recoverResult, setRecoverResult] = useState<string | null>(null);
+  const [recoverResultKind, setRecoverResultKind] = useState<'ok' | 'warning' | 'error'>('ok');
 
   const filters = useMemo<RecoveryFilters>(() => {
     const [start, end] = rangeForPreset(preset);
@@ -180,7 +181,11 @@ export default function AdminUserRecoveryScreen() {
     setRecoverResult(null);
     try {
       const result = await recoverUserAccess(userId);
-      if (result.ok) {
+      // `passwordResetSent` es la única fuente de verdad sobre si el correo
+      // salió -- nunca se infiere de `ok` ni de `status` por separado, para
+      // que sea imposible afirmar "correo enviado" cuando no lo fue.
+      if (result.status === 'recovered' && result.passwordResetSent) {
+        setRecoverResultKind('ok');
         setRecoverResult(
           result.alreadyConfirmed
             ? 'El email ya estaba confirmado. Se reenvió el correo de restablecimiento de contraseña.'
@@ -188,12 +193,25 @@ export default function AdminUserRecoveryScreen() {
         );
         void load();
         void openDetail(userId);
+      } else if (result.status === 'partial_success') {
+        setRecoverResultKind('warning');
+        setRecoverResult(
+          (result.alreadyConfirmed
+            ? 'El email ya estaba confirmado, pero '
+            : 'El email quedó confirmado, pero ') +
+            'NO se pudo enviar el correo de restablecimiento de contraseña. El usuario todavía no puede entrar por su cuenta: vuelve a intentar la recuperación en unos minutos o contáctalo por otro medio.',
+        );
+        void load();
+        void openDetail(userId);
       } else if (result.error === 'recovery_cooldown') {
+        setRecoverResultKind('warning');
         setRecoverResult('Ya se intentó recuperar esta cuenta hace poco. Espera unos minutos antes de reintentar.');
       } else {
+        setRecoverResultKind('error');
         setRecoverResult(`No se pudo recuperar el acceso (${result.error ?? 'error desconocido'}).`);
       }
     } catch (e) {
+      setRecoverResultKind('error');
       setRecoverResult(e instanceof Error ? e.message : 'Error al recuperar el acceso.');
     } finally {
       setRecovering(false);
@@ -449,7 +467,17 @@ export default function AdminUserRecoveryScreen() {
                   </Text>
                 ))}
 
-                {recoverResult && <Text style={styles.recoverResult}>{recoverResult}</Text>}
+                {recoverResult && (
+                  <Text
+                    style={[
+                      styles.recoverResult,
+                      recoverResultKind === 'warning' && styles.recoverResultWarning,
+                      recoverResultKind === 'error' && styles.recoverResultError,
+                    ]}
+                  >
+                    {recoverResult}
+                  </Text>
+                )}
 
                 <Pressable
                   style={[styles.primaryButton, confirmingRecover && styles.primaryButtonConfirm]}
@@ -637,6 +665,8 @@ const styles = StyleSheet.create({
   cardTitle: { ...typography.subtitle, color: colors.textPrimary, marginTop: 16, marginBottom: 6 },
   listLine: { ...typography.caption, color: colors.textSecondary, marginBottom: 3 },
   recoverResult: { ...typography.body, color: colors.accent, marginTop: 16, marginBottom: 4 },
+  recoverResultWarning: { color: colors.secondary },
+  recoverResultError: { color: colors.danger },
   primaryButton: {
     marginTop: 18,
     borderRadius: radius.pill,

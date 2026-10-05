@@ -148,7 +148,8 @@ begin
       ua.fbc,
       exists(select 1 from public.scans s where s.user_id = au.id and s.status = 'done') as has_first_scan,
       exists(select 1 from public.analytics_events ae where ae.user_id = au.id and ae.event_name = 'scan_upload_viewed') as reached_upload,
-      exists(select 1 from public.analytics_events ae where ae.user_id = au.id and ae.event_name = 'scan_submit_failed') as had_submit_failure
+      exists(select 1 from public.analytics_events ae where ae.user_id = au.id and ae.event_name = 'scan_submit_failed') as had_submit_failure,
+      exists(select 1 from public.admin_recovery_actions ara where ara.target_user_id = au.id) as recovered
     from auth.users au
     left join public.user_attributions ua on ua.user_id = au.id
     left join public.campaign_attributions ca on ca.user_id = au.id
@@ -178,10 +179,18 @@ begin
       and (p_campaign is null or c.utm_campaign = p_campaign)
       and (p_creative is null or c.utm_content = p_creative)
   ),
-  recovered as (
-    select count(distinct ara.target_user_id) as recovered_count
-    from public.admin_recovery_actions ara
-    join filtered f on f.user_id = ara.target_user_id
+  -- `recovery_rate_pct` tiene que dividirse sobre una población ESTABLE,
+  -- no sobre "los que siguen sin confirmar ahora mismo": apenas se
+  -- recupera un usuario, `confirmed` pasa a true y desaparecería del
+  -- denominador de golpe mientras sigue sumando en el numerador --
+  -- distorsiona la tasa y puede superar 100%. La población elegible es la
+  -- UNIÓN de "sigue sin confirmar hoy" y "tiene alguna acción de
+  -- recuperación registrada" (`recovered`): un usuario recuperado nunca
+  -- sale de esa unión, así que es estable en el tiempo y el numerador
+  -- (recuperados) queda SIEMPRE contenido en el denominador (elegibles) --
+  -- la tasa queda matemáticamente acotada a [0, 100].
+  eligible as (
+    select * from filtered where not confirmed or recovered
   )
   select jsonb_build_object(
     'range', jsonb_build_object('start', p_start, 'end', p_end),
@@ -190,15 +199,14 @@ begin
     'no_first_scan', (select count(*) from filtered where not has_first_scan),
     'reached_upload_abandoned', (select count(*) from filtered where reached_upload and not has_first_scan),
     'attempted_scan_failed', (select count(*) from filtered where had_submit_failure and not has_first_scan),
-    'recovered', r.recovered_count,
+    'recovered', (select count(*) from filtered where recovered),
     'recovery_rate_pct', case
-      when (select count(*) from filtered where not confirmed) > 0
-      then round(r.recovered_count::numeric / (select count(*) from filtered where not confirmed) * 100, 1)
+      when (select count(*) from eligible) > 0
+      then round((select count(*) from eligible where recovered)::numeric / (select count(*) from eligible) * 100, 1)
       else 0
     end
   )
-  into v_result
-  from recovered r;
+  into v_result;
 
   return v_result;
 end;
