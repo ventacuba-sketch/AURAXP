@@ -35,6 +35,13 @@ function mapConnectionState(state: ConnectionState): LiveConnectionState {
   }
 }
 
+function isBenignMediaAbort(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === 'AbortError') return true;
+  if (error instanceof Error && error.name === 'AbortError') return true;
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /operation was aborted|play\(\) request was interrupted/i.test(message);
+}
+
 function attachPublicationVideo(pub: LocalTrackPublication | { track?: Track | null }, container: HTMLElement): HTMLVideoElement | null {
   const track = pub.track;
   if (!track || track.kind !== Track.Kind.Video) return null;
@@ -84,6 +91,11 @@ export async function connectToLiveRoom(opts: ConnectLiveMediaOptions): Promise<
   function tryPlay(el: HTMLMediaElement) {
     const result = el.play();
     if (result && typeof result.then === 'function') result.catch((e) => {
+      // Safari/iOS can reject an obsolete play() promise with AbortError when
+      // LiveKit replaces/detaches a media source during normal track setup.
+      // The replacement track keeps playing, so this is lifecycle noise, not
+      // a user-facing LIVE failure.
+      if (isBenignMediaAbort(e)) return;
       opts.onAudioBlocked?.();
       if (!(e instanceof DOMException) || e.name !== 'NotAllowedError') opts.onError?.(e instanceof Error ? e.message : String(e));
     });
@@ -116,10 +128,6 @@ export async function connectToLiveRoom(opts: ConnectLiveMediaOptions): Promise<
   }
 
   try {
-    // LiveKit Cloud can route a client to the nearest healthy regional edge.
-    // Pre-warming with the token is especially important on Safari/iOS: it
-    // resolves the regional endpoint before opening the signaling WebSocket,
-    // instead of relying on the project front door after a failed first try.
     await room.prepareConnection(opts.livekitUrl, opts.token);
     await room.connect(opts.livekitUrl, opts.token, { websocketTimeout: 20000 });
   } catch (e) {
@@ -134,7 +142,7 @@ export async function connectToLiveRoom(opts: ConnectLiveMediaOptions): Promise<
       const videoPub = [...room.localParticipant.videoTrackPublications.values()][0];
       if (videoPub) attachPublicationVideo(videoPub, opts.videoContainer);
     } catch (e) {
-      opts.onError?.(e instanceof Error ? e.message : String(e));
+      if (!isBenignMediaAbort(e)) opts.onError?.(e instanceof Error ? e.message : String(e));
     }
   }
 
@@ -152,7 +160,14 @@ export async function connectToLiveRoom(opts: ConnectLiveMediaOptions): Promise<
     disconnect,
     resumeAudio: async () => {
       let allOk = true;
-      for (const el of remoteMediaElements) try { await el.play(); } catch (e) { allOk = false; opts.onError?.(e instanceof Error ? e.message : String(e)); }
+      for (const el of remoteMediaElements) {
+        try { await el.play(); }
+        catch (e) {
+          if (isBenignMediaAbort(e)) continue;
+          allOk = false;
+          opts.onError?.(e instanceof Error ? e.message : String(e));
+        }
+      }
       return allOk;
     },
     setMicEnabled: async (enabled) => { await room.localParticipant.setMicrophoneEnabled(enabled); },
@@ -164,7 +179,7 @@ export async function connectToLiveRoom(opts: ConnectLiveMediaOptions): Promise<
         const current = [...room.localParticipant.videoTrackPublications.values()][0]?.track?.mediaStreamTrack?.getSettings().deviceId;
         const next = devices.find((d) => d.deviceId !== current) ?? devices[0];
         await room.switchActiveDevice('videoinput', next.deviceId);
-      } catch (e) { opts.onError?.(e instanceof Error ? e.message : String(e)); }
+      } catch (e) { if (!isBenignMediaAbort(e)) opts.onError?.(e instanceof Error ? e.message : String(e)); }
     },
     getConnectionState: () => currentState,
     getLocalVideoTrack: () => [...room.localParticipant.videoTrackPublications.values()][0]?.track?.mediaStreamTrack ?? null,
