@@ -4,7 +4,7 @@ import { getCampaignVisitorId, getStoredUtmParams } from './campaignService';
 
 export type AnalyticsEventName =
   | 'app_open' | 'web_visit' | 'page_viewed'
-  | 'signup_viewed' | 'signup_started' | 'signup_completed' | 'login'
+  | 'signup_viewed' | 'signup_started' | 'signup_completed' | 'signup_email_confirmed' | 'login'
   | 'first_scan_completed' | 'scan_completed'
   | 'scan_upload_viewed' | 'scan_record_clicked' | 'scan_library_clicked'
   | 'scan_video_selected' | 'scan_started' | 'scan_submitted' | 'scan_submit_failed'
@@ -50,34 +50,7 @@ export async function logEvent(eventName: AnalyticsEventName, metadata?: Record<
 
 let appOpenLogged = false;
 export function logAppOpenOnce(): void { if (!appOpenLogged) { appOpenLogged = true; void logEvent('app_open'); } }
-
-export function logWebVisitOnce(): void {
-  if (typeof window === 'undefined') return;
-  const key = '__auravs_web_visit_logged__';
-  if ((window as typeof window & Record<string, unknown>)[key]) return;
-  (window as typeof window & Record<string, unknown>)[key] = true;
-  void logEvent('web_visit', { path: window.location.pathname, referrer: document.referrer || null });
-}
-
-export function logPageView(routeName: string): void { void logEvent('page_viewed', { route: routeName }); }
-
-export async function logScanMilestone(): Promise<void> {
-  if (!supabase) return;
-  try {
-    const session = await getSession();
-    if (!session) return;
-    const { count } = await supabase.from('scans').select('id', { count: 'exact', head: true }).eq('user_id', session.user.id).eq('status', 'done');
-    if (count === 1) await logEvent('first_scan_completed');
-    await logEvent('scan_completed', { totalDoneScans: count ?? null });
-  } catch { /* best effort */ }
-}
-
-export async function hasSharedToday(): Promise<boolean> {
-  if (!supabase) return false;
-  const session = await getSession();
-  if (!session) return false;
-  const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0);
-  const { count, error } = await supabase.from('analytics_events').select('id', { count: 'exact', head: true }).eq('user_id', session.user.id).eq('event_name', 'share').gte('created_at', todayStart.toISOString());
-  if (error) return false;
-  return (count ?? 0) > 0;
-}
+export function logWebVisitOnce(): void { if (typeof window === 'undefined') return; const key='__auravs_web_visit_logged__'; if ((window as typeof window & Record<string, unknown>)[key]) return; (window as typeof window & Record<string, unknown>)[key]=true; void logEvent('web_visit',{path:window.location.pathname,referrer:document.referrer||null}); }
+export function logPageView(routeName:string):void{void logEvent('page_viewed',{route:routeName});}
+export async function logScanMilestone():Promise<void>{if(!supabase)return;try{const session=await getSession();if(!session)return;const{count}=await supabase.from('scans').select('id',{count:'exact',head:true}).eq('user_id',session.user.id).eq('status','done');if(count===1)await logEvent('first_scan_completed');await logEvent('scan_completed',{totalDoneScans:count??null});}catch{/* best effort */}}
+export async function hasSharedToday():Promise<boolean>{if(!supabase)return false;const session=await getSession();if(!session)return false;const todayStart=new Date();todayStart.setUTCHours(0,0,0,0);const{count,error}=await supabase.from('analytics_events').select('id',{count:'exact',head:true}).eq('user_id',session.user.id).eq('event_name','share').gte('created_at',todayStart.toISOString());if(error)return false;return(count??0)>0;}
