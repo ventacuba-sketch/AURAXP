@@ -10,19 +10,10 @@ import { getStoredUtmParams } from '../services/campaignService';
 import { colors, spacing, typography } from '../theme/colors';
 
 /**
- * Landing pública de adquisición -- pensada para tráfico de TikTok/Reels/
- * Shorts (ver `linking` en RootNavigator.tsx para la ruta exacta). Vende
- * la EXPERIENCIA antes que la cuenta: "¿cuánta Aura tienes?", no "crea tu
- * cuenta" -- el registro llega recién al tocar el CTA, y ahí mismo se
- * presenta como el paso para medir el Aura (ver AuthScreen, `context:
- * 'measure_aura'`), nunca como el producto en sí.
- *
- * Solo registrada cuando NO hay sesión (ver RootNavigator) -- alguien ya
- * logueado que toque el link de la campaña nunca ve esto, entra
- * directo a la app. Reutiliza ScreenContainer/Card/PrimaryButton/theme
- * tal cual el resto de AURA VS -- cero componentes ni estilos nuevos por
- * fuera del sistema ya existente, y cero animaciones (rendimiento en
- * móvil sobre TikTok es la prioridad explícita del pedido).
+ * Landing pública de adquisición. El objetivo primario es una sola acción:
+ * llevar al visitante de campaña a medir su Aura. Las funciones sociales
+ * quedan como prueba de producto después del primer CTA, no como caminos
+ * alternativos que compitan con la conversión.
  */
 export default function LandingScreen() {
   const navigation = useRootNavigation();
@@ -34,100 +25,74 @@ export default function LandingScreen() {
   async function handleCta(position: 'hero' | 'example') {
     const utm = await getStoredUtmParams();
     logEvent('landing_cta_clicked', { position, ...utm });
-    // Auth sigue siendo el único camino real a Upload/Scan sin sesión (esa
-    // pantalla ni existe en el stack no-autenticado, ver RootNavigator) --
-    // `context: 'measure_aura'` es solo copy distinto en Auth, ninguna
-    // lógica de autenticación cambia.
     navigation.navigate('Auth', { initialMode: 'signUp', context: 'measure_aura' });
   }
 
   return (
     <ScreenContainer scroll style={styles.screen}>
-      {/* ── Hero: debe entenderse sin scroll ────────────────────────── */}
       <View style={styles.hero}>
         <Text style={styles.wordmark}>AURA VS</Text>
         <Text style={styles.headline}>
-          ¿CUÁNTA <Text style={styles.headlineAccent}>AURA</Text> TIENES? 👀
-        </Text>
-        <Text style={styles.subheadline}>
-          Mide tu Aura <Text style={styles.free}>GRATIS</Text> con IA.
+          ¿CUÁNTA <Text style={styles.headlineAccent}>AURA</Text> TIENES?
         </Text>
         <Text style={styles.pitch}>
-          Graba 8 segundos. La IA mide tu Aura. Compite contra otros y demuestra quién tiene más.
+          Sube un video de hasta 8 segundos. La IA mide tu Aura y te da tu puntuación.
         </Text>
 
         <View style={styles.heroCta}>
-          <PrimaryButton label="⚡ MEDIR MI AURA GRATIS" onPress={() => handleCta('hero')} />
-          <Text style={styles.trustRow}>✓ Gratis · ✓ Con IA · ✓ Solo 8 segundos</Text>
+          <PrimaryButton label="⚡ MIDE TU AURA GRATIS" onPress={() => handleCta('hero')} />
+          <Text style={styles.trustRow}>Gratis · Con IA · Sin descargar ninguna app</Text>
         </View>
+
+        <Card style={styles.resultPreview}>
+          <Text style={styles.exampleTag}>TU RESULTADO SE VERÁ ASÍ</Text>
+          <Text style={styles.exampleScore}>8.742 AURA 🔥</Text>
+          <Text style={styles.exampleCaption}>¿Cuánto marcará el tuyo?</Text>
+        </Card>
       </View>
 
-      {/* ── Qué puedes hacer -- los 4 mensajes principales, en cuadrícula
-          2x2 compacta (ajuste de conversión mobile, ver commit): ocupaban
-          demasiado espacio vertical como filas horizontales. */}
+      <View style={styles.proofBlock}>
+        <Text style={styles.proofTitle}>MIDE. COMPARTE. COMPITE.</Text>
+        <Text style={styles.proofBody}>
+          Después de descubrir tu Aura puedes desafiar a otros, subir en el ranking y ganar Coins.
+        </Text>
+      </View>
+
+      <PrimaryButton label="⚡ QUIERO SABER MI AURA" onPress={() => handleCta('example')} />
+
       <View style={styles.features}>
-        <FeatureCard emoji="🤖" title="AURA SCAN IA" body="La IA mide tu presencia." />
+        <FeatureCard emoji="🤖" title="AURA SCAN IA" body="Obtén tu puntuación." />
         <FeatureCard emoji="⚔️" title="CHALLENGES" body="Compite contra otros." />
-        <FeatureCard emoji="🌎" title="COMUNIDAD" body="Sigue y comparte." />
-        <FeatureCard emoji="🏆" title="RANKING" body="Sube y gana Coins." />
+        <FeatureCard emoji="🏆" title="RANKING" body="Sube de nivel." />
       </View>
 
-      {/* ── Cómo funciona -- una sola línea, sin explicaciones largas ─── */}
-      <Text style={styles.flowLine}>GRABA 8s → IA ANALIZA → DESCUBRE TU AURA → DESAFÍA → SUBE EN EL RANKING</Text>
-
-      {/* ── Ejemplo real de resultado (misma estética que ScanResult:
-          typography.display en accent, ver theme/colors.ts) -- etiquetado
-          como EJEMPLO a propósito, nunca se presenta como un dato real de
-          quien está mirando. */}
-      <Card style={styles.exampleCard}>
-        <Text style={styles.exampleTag}>EJEMPLO</Text>
-        <Text style={styles.exampleScore}>917 AURA 🔥</Text>
-        <Text style={styles.exampleCaption}>¿Puedes superarlo?</Text>
-      </Card>
-
-      <PrimaryButton label="⚡ MEDIR MI AURA GRATIS" onPress={() => handleCta('example')} />
-
-      {/* ── Funciones secundarias -- una sola línea compacta, sin competir
-          visualmente con los 4 mensajes principales de arriba (ajuste de
-          conversión mobile: antes eran 8 chips grandes). */}
-      <View style={styles.secondary}>
-        <Text style={styles.secondaryTitle}>Y TAMBIÉN</Text>
-        <Text style={styles.secondaryLine}>{SECONDARY_FEATURES_LINE}</Text>
-      </View>
-
-      <PrimaryButton label="💬 Entrar al Chat" variant="ghost" onPress={() => navigation.navigate('Chat')} />
-
-      <Text style={styles.footnote}>Solo pedimos una cuenta gratis para guardar tu resultado y competir.</Text>
+      <Text style={styles.footnote}>Solo necesitas una cuenta gratis para guardar tu resultado.</Text>
     </ScreenContainer>
   );
 }
-
-const SECONDARY_FEATURES_LINE = 'XP · Coins · Misiones · Rachas · Regalos · Tienda + más';
 
 function FeatureCard({ emoji, title, body }: { emoji: string; title: string; body: string }) {
   return (
     <Card style={styles.featureCard}>
       <Text style={styles.featureEmoji}>{emoji}</Text>
-      <View style={styles.featureText}>
-        <Text style={styles.featureTitle}>{title}</Text>
-        <Text style={styles.featureBody}>{body}</Text>
-      </View>
+      <Text style={styles.featureTitle}>{title}</Text>
+      <Text style={styles.featureBody}>{body}</Text>
     </Card>
   );
 }
 
 const styles = StyleSheet.create({
   screen: {
-    paddingTop: spacing.lg,
+    paddingTop: spacing.md,
   },
   hero: {
     alignItems: 'center',
-    marginBottom: spacing.xl,
+    marginBottom: spacing.lg,
   },
   wordmark: {
     ...typography.eyebrow,
     color: colors.secondary,
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   headline: {
     ...typography.hero,
@@ -138,27 +103,17 @@ const styles = StyleSheet.create({
   headlineAccent: {
     color: colors.accent,
   },
-  subheadline: {
-    ...typography.title,
-    color: colors.textPrimary,
-    textAlign: 'center',
-    marginTop: spacing.sm,
-  },
-  free: {
-    color: colors.accent,
-    fontWeight: '800',
-  },
   pitch: {
     ...typography.body,
     color: colors.textSecondary,
     textAlign: 'center',
     marginTop: spacing.sm,
-    maxWidth: 320,
+    maxWidth: 330,
   },
   heroCta: {
     width: '100%',
-    marginTop: spacing.lg,
-    gap: spacing.sm,
+    marginTop: spacing.md,
+    gap: spacing.xs,
     alignItems: 'center',
   },
   trustRow: {
@@ -166,49 +121,12 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
   },
-  features: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: spacing.sm,
-    marginBottom: spacing.sm,
-  },
-  featureCard: {
-    width: '48%',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.xs,
-  },
-  featureEmoji: {
-    fontSize: 22,
-    marginBottom: 2,
-  },
-  featureText: {
-    alignItems: 'center',
-  },
-  featureTitle: {
-    ...typography.caption,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    textAlign: 'center',
-  },
-  featureBody: {
-    ...typography.caption,
-    fontSize: 11,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginTop: 2,
-  },
-  flowLine: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    fontWeight: '700',
-    marginBottom: spacing.sm,
-  },
-  exampleCard: {
+  resultPreview: {
+    width: '100%',
     alignItems: 'center',
     borderColor: colors.accent,
-    marginBottom: spacing.md,
+    marginTop: spacing.lg,
+    marginBottom: 0,
   },
   exampleTag: {
     ...typography.eyebrow,
@@ -224,20 +142,50 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: spacing.xs,
   },
-  secondary: {
-    marginTop: spacing.xxl,
+  proofBlock: {
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  proofTitle: {
+    ...typography.title,
+    color: colors.textPrimary,
+    textAlign: 'center',
+  },
+  proofBody: {
+    ...typography.body,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: spacing.xs,
+    maxWidth: 340,
+  },
+  features: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.xl,
     marginBottom: spacing.lg,
   },
-  secondaryTitle: {
-    ...typography.eyebrow,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginBottom: spacing.sm,
+  featureCard: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
   },
-  secondaryLine: {
+  featureEmoji: {
+    fontSize: 22,
+    marginBottom: 2,
+  },
+  featureTitle: {
     ...typography.caption,
-    color: colors.textMuted,
+    fontWeight: '800',
+    color: colors.textPrimary,
     textAlign: 'center',
+  },
+  featureBody: {
+    ...typography.caption,
+    fontSize: 11,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 2,
   },
   footnote: {
     ...typography.caption,
