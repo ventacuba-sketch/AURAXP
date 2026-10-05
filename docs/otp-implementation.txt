@@ -1,0 +1,1 @@
+Email signup confirmation uses a 6-digit Supabase OTP and keeps users in the acquisition flow.
