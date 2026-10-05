@@ -1,0 +1,129 @@
+@import "tailwindcss";
+
+@theme {
+  --color-copper: #f2994a;
+  --color-copper-light: #f6b57a;
+  --color-copper-dark: #d9782c;
+  --color-ink: #070e15;
+  --color-graphite: #0b1620;
+  --color-graphite-light: #1e2a36;
+  --color-panel: #0e1b26;
+  --color-ivory: #f8f5ee;
+  --color-mist: #94a3b8;
+  --color-verify: #3ddbb0;
+  --color-line: rgb(148 163 184 / 0.14);
+  --color-line-strong: rgb(148 163 184 / 0.26);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --shadow-card: 0 1px 0 0 rgb(255 255 255 / 0.03) inset, 0 20px 40px -24px rgb(0 0 0 / 0.6);
+  --shadow-copper: 0 10px 30px -12px rgb(242 153 74 / 0.55);
+}
+
+@utility container-gt {
+  width: 100%;
+  max-width: 76rem;
+  margin-inline: auto;
+  padding-inline: 1rem;
+
+  @media (min-width: 40rem) {
+    padding-inline: 1.5rem;
+  }
+  @media (min-width: 64rem) {
+    padding-inline: 2rem;
+  }
+}
+
+@utility eyebrow {
+  font-size: 0.75rem;
+  line-height: 1rem;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-mist);
+}
+
+@utility card {
+  border: 1px solid var(--color-line);
+  border-radius: 0.75rem;
+  background: linear-gradient(180deg, rgb(30 42 54 / 0.55), rgb(14 27 38 / 0.55));
+  box-shadow: var(--shadow-card);
+}
+
+@utility focus-ring {
+  outline: none;
+  &:focus-visible {
+    outline: 2px solid var(--color-copper);
+    outline-offset: 3px;
+  }
+}
+
+@layer base {
+  html {
+    background-color: var(--color-ink);
+    color: var(--color-ivory);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
+  }
+
+  body {
+    background-color: var(--color-ink);
+    color: var(--color-ivory);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  section[id] {
+    scroll-margin-top: 4.5rem;
+  }
+
+  ::selection {
+    background: rgb(242 153 74 / 0.35);
+    color: var(--color-ivory);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-copper);
+    outline-offset: 3px;
+  }
+}
+
+/* Subtle reveal-on-scroll. Only active once JS has marked <html class="js">,
+   so content stays visible without JavaScript. */
+html.js [data-reveal] {
+  opacity: 0;
+  transform: translateY(14px);
+  transition:
+    opacity 0.7s cubic-bezier(0.2, 0.7, 0.2, 1),
+    transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+html.js [data-reveal].is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.js [data-reveal] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* Faint technical grid used behind the hero visual. */
+.tech-grid {
+  background-image:
+    linear-gradient(to right, rgb(242 153 74 / 0.09) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(242 153 74 / 0.09) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse at 55% 50%, #000 15%, transparent 70%);
+}
