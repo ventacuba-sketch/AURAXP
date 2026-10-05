@@ -727,6 +727,7 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'flex-start',
     justifyContent: 'space-between',
     paddingHorizontal: spacing.lg,
@@ -735,7 +736,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   headerIdentity: {
-    flexShrink: 1,
+    width: '100%',
+    flexShrink: 0,
   },
   logo: {
     ...typography.title,
@@ -748,11 +750,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   headerActions: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
     flexWrap: 'wrap',
-    justifyContent: 'flex-end',
+    justifyContent: 'flex-start',
   },
   headerActionText: {
     ...typography.caption,
