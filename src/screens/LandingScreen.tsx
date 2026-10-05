@@ -7,14 +7,10 @@ import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { logEvent } from '../services/analyticsService';
 import { getStoredUtmParams } from '../services/campaignService';
+import { setPendingFirstScan } from '../services/pendingAcquisition';
 import { colors, spacing, typography } from '../theme/colors';
 
-/**
- * Landing pública de adquisición. El objetivo primario es una sola acción:
- * llevar al visitante de campaña a medir su Aura. Las funciones sociales
- * quedan como prueba de producto después del primer CTA, no como caminos
- * alternativos que compitan con la conversión.
- */
+/** Landing pública de adquisición: una sola promesa, medir el Aura. */
 export default function LandingScreen() {
   const navigation = useRootNavigation();
 
@@ -24,7 +20,8 @@ export default function LandingScreen() {
 
   async function handleCta(position: 'hero' | 'example') {
     const utm = await getStoredUtmParams();
-    logEvent('landing_cta_clicked', { position, ...utm });
+    await setPendingFirstScan();
+    void logEvent('landing_cta_clicked', { position, ...utm });
     navigation.navigate('Auth', { initialMode: 'signUp', context: 'measure_aura' });
   }
 
@@ -82,115 +79,25 @@ function FeatureCard({ emoji, title, body }: { emoji: string; title: string; bod
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    paddingTop: spacing.md,
-  },
-  hero: {
-    alignItems: 'center',
-    marginBottom: spacing.lg,
-  },
-  wordmark: {
-    ...typography.eyebrow,
-    color: colors.secondary,
-    marginBottom: spacing.sm,
-  },
-  headline: {
-    ...typography.hero,
-    fontSize: 34,
-    color: colors.textPrimary,
-    textAlign: 'center',
-  },
-  headlineAccent: {
-    color: colors.accent,
-  },
-  pitch: {
-    ...typography.body,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginTop: spacing.sm,
-    maxWidth: 330,
-  },
-  heroCta: {
-    width: '100%',
-    marginTop: spacing.md,
-    gap: spacing.xs,
-    alignItems: 'center',
-  },
-  trustRow: {
-    ...typography.caption,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  resultPreview: {
-    width: '100%',
-    alignItems: 'center',
-    borderColor: colors.accent,
-    marginTop: spacing.lg,
-    marginBottom: 0,
-  },
-  exampleTag: {
-    ...typography.eyebrow,
-    color: colors.textMuted,
-    marginBottom: spacing.xs,
-  },
-  exampleScore: {
-    ...typography.display,
-    color: colors.accent,
-  },
-  exampleCaption: {
-    ...typography.body,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  proofBlock: {
-    alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  proofTitle: {
-    ...typography.title,
-    color: colors.textPrimary,
-    textAlign: 'center',
-  },
-  proofBody: {
-    ...typography.body,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginTop: spacing.xs,
-    maxWidth: 340,
-  },
-  features: {
-    flexDirection: 'row',
-    gap: spacing.sm,
-    marginTop: spacing.xl,
-    marginBottom: spacing.lg,
-  },
-  featureCard: {
-    flex: 1,
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-    paddingHorizontal: spacing.xs,
-  },
-  featureEmoji: {
-    fontSize: 22,
-    marginBottom: 2,
-  },
-  featureTitle: {
-    ...typography.caption,
-    fontWeight: '800',
-    color: colors.textPrimary,
-    textAlign: 'center',
-  },
-  featureBody: {
-    ...typography.caption,
-    fontSize: 11,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    marginTop: 2,
-  },
-  footnote: {
-    ...typography.caption,
-    color: colors.textMuted,
-    textAlign: 'center',
-    marginBottom: spacing.xl,
-  },
+  screen: { paddingTop: spacing.md },
+  hero: { alignItems: 'center', marginBottom: spacing.lg },
+  wordmark: { ...typography.eyebrow, color: colors.secondary, marginBottom: spacing.sm },
+  headline: { ...typography.hero, fontSize: 34, color: colors.textPrimary, textAlign: 'center' },
+  headlineAccent: { color: colors.accent },
+  pitch: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.sm, maxWidth: 330 },
+  heroCta: { width: '100%', marginTop: spacing.md, gap: spacing.xs, alignItems: 'center' },
+  trustRow: { ...typography.caption, color: colors.textSecondary, textAlign: 'center' },
+  resultPreview: { width: '100%', alignItems: 'center', borderColor: colors.accent, marginTop: spacing.lg, marginBottom: 0 },
+  exampleTag: { ...typography.eyebrow, color: colors.textMuted, marginBottom: spacing.xs },
+  exampleScore: { ...typography.display, color: colors.accent },
+  exampleCaption: { ...typography.body, color: colors.textSecondary, marginTop: spacing.xs },
+  proofBlock: { alignItems: 'center', marginBottom: spacing.md },
+  proofTitle: { ...typography.title, color: colors.textPrimary, textAlign: 'center' },
+  proofBody: { ...typography.body, color: colors.textSecondary, textAlign: 'center', marginTop: spacing.xs, maxWidth: 340 },
+  features: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xl, marginBottom: spacing.lg },
+  featureCard: { flex: 1, alignItems: 'center', paddingVertical: spacing.sm, paddingHorizontal: spacing.xs },
+  featureEmoji: { fontSize: 22, marginBottom: 2 },
+  featureTitle: { ...typography.caption, fontWeight: '800', color: colors.textPrimary, textAlign: 'center' },
+  featureBody: { ...typography.caption, fontSize: 11, color: colors.textSecondary, textAlign: 'center', marginTop: 2 },
+  footnote: { ...typography.caption, color: colors.textMuted, textAlign: 'center', marginBottom: spacing.xl },
 });
