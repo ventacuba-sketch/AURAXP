@@ -116,7 +116,12 @@ export async function connectToLiveRoom(opts: ConnectLiveMediaOptions): Promise<
   }
 
   try {
-    await room.connect(opts.livekitUrl, opts.token);
+    // LiveKit Cloud can route a client to the nearest healthy regional edge.
+    // Pre-warming with the token is especially important on Safari/iOS: it
+    // resolves the regional endpoint before opening the signaling WebSocket,
+    // instead of relying on the project front door after a failed first try.
+    await room.prepareConnection(opts.livekitUrl, opts.token);
+    await room.connect(opts.livekitUrl, opts.token, { websocketTimeout: 20000 });
   } catch (e) {
     setState('failed'); opts.onError?.(e instanceof Error ? e.message : String(e)); throw e;
   }
