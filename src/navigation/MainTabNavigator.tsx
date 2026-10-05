@@ -1,12 +1,14 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import ChatScreen from '../screens/ChatScreen';
 import HomeScreen from '../screens/HomeScreen';
 import ProfileScreen from '../screens/ProfileScreen';
 import ScanScreen from '../screens/ScanScreen';
+import { consumePendingFirstScan } from '../services/pendingAcquisition';
 import { colors, radius } from '../theme/colors';
 import { MainTabParamList, RootStackParamList } from '../types';
 
@@ -19,8 +21,6 @@ const tabIcons: Record<keyof MainTabParamList, string> = {
   Profile: '🦋',
 };
 
-// "Scan" stays in English (part of the app's kept gaming vocabulary);
-// Home/Profile get their tab bar label localized like the rest of the UI.
 const tabLabels: Record<keyof MainTabParamList, string> = {
   Home: 'Inicio',
   Scan: 'Scan',
@@ -30,6 +30,21 @@ const tabLabels: Record<keyof MainTabParamList, string> = {
 
 /** The always-visible bottom navigation: Home, Scan (primary action), Profile. */
 export function MainTabNavigator() {
+  const rootNavigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  // Paid acquisition promise: if the visitor tapped "Mide tu Aura" before
+  // Auth, completing/signing into the account must continue that exact task
+  // instead of dropping them on Home and asking them to find Scan again.
+  useEffect(() => {
+    let active = true;
+    consumePendingFirstScan().then((pending) => {
+      if (active && pending) rootNavigation.navigate('Upload');
+    });
+    return () => {
+      active = false;
+    };
+  }, [rootNavigation]);
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -56,9 +71,6 @@ export function MainTabNavigator() {
         name="Scan"
         component={ScanScreen}
         listeners={({ navigation }) => ({
-          // "Scan" is an entry point into the capture flow, not a tab you
-          // land on — swallow the normal tab-switch and immediately push
-          // Upload/Capture onto the root stack instead.
           tabPress: (e) => {
             e.preventDefault();
             navigation.getParent<NativeStackNavigationProp<RootStackParamList>>()?.navigate('Upload');
@@ -78,7 +90,6 @@ const styles = StyleSheet.create({
   scanIcon: {
     fontSize: 18,
   },
-  // Central "Scan" tab gets a filled accent badge to read as the primary action.
   scanBadge: {
     width: 40,
     height: 40,
