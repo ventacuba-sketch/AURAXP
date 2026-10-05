@@ -1,0 +1,1 @@
+Signup -> email OTP -> verifyOtp(type=signup) -> authenticated acquisition continuation.
