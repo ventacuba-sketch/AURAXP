@@ -87,14 +87,7 @@ export const RESPONSE_SCHEMA = {
         hesitationDetected: { type: 'BOOLEAN' },
         faceVisible: { type: 'BOOLEAN' },
       },
-      required: [
-        'hasClearAction',
-        'actionType',
-        'personCount',
-        'brokeImmersion',
-        'hesitationDetected',
-        'faceVisible',
-      ],
+      required: ['hasClearAction', 'actionType', 'personCount', 'brokeImmersion', 'hesitationDetected', 'faceVisible'],
     },
     scores: {
       type: 'OBJECT',
@@ -119,17 +112,10 @@ export const RESPONSE_SCHEMA = {
         required: ['timestampSec', 'polarity', 'label', 'intensity'],
       },
     },
-    verdict: {
-      type: 'OBJECT',
-      properties: { headline: { type: 'STRING' } },
-      required: ['headline'],
-    },
+    verdict: { type: 'OBJECT', properties: { headline: { type: 'STRING' } }, required: ['headline'] },
     moderation: {
       type: 'OBJECT',
-      properties: {
-        flagged: { type: 'BOOLEAN' },
-        reason: { type: 'STRING', nullable: true },
-      },
+      properties: { flagged: { type: 'BOOLEAN' }, reason: { type: 'STRING', nullable: true } },
       required: ['flagged', 'reason'],
     },
     modelConfidence: { type: 'NUMBER' },
@@ -143,52 +129,21 @@ interface AnalyzeVideoParams {
   fileUri: string;
   mimeType: string;
   scanId: string;
-  /**
-   * Referencia mutable donde analyzeVideo() deja el `usageMetadata` crudo
-   * de la respuesta de Gemini del intento que finalmente tuvo éxito --
-   * para medir costo real (promptTokenCount/candidatesTokenCount/
-   * totalTokenCount, y el desglose de tokens de video si Gemini lo manda)
-   * sin cambiar el tipo de retorno de esta función (GeminiResult, usado
-   * tal cual en varios lugares de process-scan) ni el de computeAuraScore.
-   * Opcional: si no se pasa, analyzeVideo() simplemente no persiste nada
-   * acá, solo lo loguea (ver logAttempt('usage', ...) abajo).
-   */
   usageHolder?: { value?: unknown };
-  /**
-   * Override opcional de `generationConfig.mediaResolution` -- NUNCA lo
-   * pasa process-scan (queda `undefined`, el comportamiento de producción
-   * no cambia en absoluto). Existe únicamente para que
-   * compare-gemini-resolution pueda pedirle a Gemini el mismo video con
-   * 'MEDIA_RESOLUTION_LOW' y comparar costo/calidad contra la config
-   * actual sin tocar este pipeline -- ver auditoría de optimización.
-   */
   mediaResolution?: string;
 }
 
-/**
- * Producción confirmó (vía Supabase, directo en la fila del scan)
- * `Gemini API error 503: This model is currently experiencing high
- * demand...` -- un pico transitorio de carga del lado de Google, no un
- * problema con el request. Distinguible de cualquier otro error HTTP por
- * status === 503; analyzeVideo() es el único lugar que decide reintentar
- * en base a esto.
- */
 class GeminiHttpError extends Error {
   status: number;
-  constructor(status: number, body: string) {
+  retryAfterMs: number | null;
+  constructor(status: number, body: string, retryAfterMs: number | null = null) {
     super(`Gemini API error ${status}: ${body}`);
     this.name = 'GeminiHttpError';
     this.status = status;
+    this.retryAfterMs = retryAfterMs;
   }
 }
 
-/**
- * Lanzado únicamente cuando los 503 persisten tras agotar los reintentos
- * -- process-scan lo distingue de cualquier otra falla de análisis para
- * guardar un error_message corto y legible en vez del texto crudo de
- * Gemini, y AnalyzingScreen lo usa para mostrar un mensaje específico en
- * vez del genérico "el análisis falló".
- */
 export class GeminiUnavailableError extends Error {
   constructor(message: string) {
     super(message);
@@ -196,14 +151,32 @@ export class GeminiUnavailableError extends Error {
   }
 }
 
-// 1 intento inicial + 3 reintentos = 4 intentos totales, con backoff
-// exponencial entre cada uno. Nunca reintenta nada que no sea un 503 --
-// un 400 mal formado o un 401 de API key no se arregla insistiendo.
-const MAX_ATTEMPTS = 4;
-const RETRY_DELAYS_MS = [1000, 2000, 4000];
+// Google recomienda reintentar errores transitorios (408, 429 y 5xx) con
+// exponential backoff + jitter. Cinco intentos mantienen la espera acotada
+// pero dan una oportunidad adicional durante picos cortos de capacidad.
+const MAX_ATTEMPTS = 5;
+const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const BASE_RETRY_DELAY_MS = 1000;
+const MAX_RETRY_DELAY_MS = 10000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseRetryAfterMs(value: string | null): number | null {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000);
+  const dateMs = Date.parse(value);
+  if (Number.isFinite(dateMs)) return Math.max(0, dateMs - Date.now());
+  return null;
+}
+
+function retryDelayMs(attempt: number, retryAfterMs: number | null): number {
+  if (retryAfterMs !== null) return Math.min(MAX_RETRY_DELAY_MS, Math.max(250, retryAfterMs));
+  const cap = Math.min(MAX_RETRY_DELAY_MS, BASE_RETRY_DELAY_MS * 2 ** (attempt - 1));
+  // Full jitter: distribuye reintentos concurrentes dentro de la ventana.
+  return Math.max(250, Math.round(Math.random() * cap));
 }
 
 async function callGeminiOnce({ apiKey, fileUri, mimeType, scanId, usageHolder, mediaResolution }: AnalyzeVideoParams): Promise<GeminiResult> {
@@ -211,22 +184,11 @@ async function callGeminiOnce({ apiKey, fileUri, mimeType, scanId, usageHolder, 
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: SYSTEM_PROMPT },
-            { fileData: { fileUri, mimeType } },
-          ],
-        },
-      ],
+      contents: [{ role: 'user', parts: [{ text: SYSTEM_PROMPT }, { fileData: { fileUri, mimeType } }] }],
       generationConfig: {
         temperature: 0.2,
         responseMimeType: 'application/json',
         responseSchema: RESPONSE_SCHEMA,
-        // Solo presente cuando el caller lo pide explícitamente (ver
-        // AnalyzeVideoParams.mediaResolution) -- omitido, Gemini usa su
-        // resolución default, exactamente el comportamiento de hoy.
         ...(mediaResolution ? { mediaResolution } : {}),
       },
     }),
@@ -234,18 +196,13 @@ async function callGeminiOnce({ apiKey, fileUri, mimeType, scanId, usageHolder, 
 
   if (!response.ok) {
     const errText = await response.text();
-    throw new GeminiHttpError(response.status, errText);
+    throw new GeminiHttpError(response.status, errText, parseRetryAfterMs(response.headers.get('retry-after')));
   }
 
   const data = await response.json();
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Gemini no devolvió contenido');
 
-  // Costo real por Scan -- ver auditoría de escala. `usageMetadata` viene
-  // en la misma respuesta que el análisis, sin costo ni request extra.
-  // Se loguea siempre (grepeable en los logs de la función) y, si el
-  // caller pasó dónde guardarlo, también queda ahí para poder agregarlo
-  // por SQL más adelante (ver scans.gemini_usage_metadata).
   if (data?.usageMetadata) {
     logAttempt('usage', { scanId, usage: data.usageMetadata });
     if (usageHolder) usageHolder.value = data.usageMetadata;
@@ -256,102 +213,59 @@ async function callGeminiOnce({ apiKey, fileUri, mimeType, scanId, usageHolder, 
   return parsed;
 }
 
-/**
- * Log estructurado por intento -- JSON de una sola línea para poder
- * grep/filtrar en `supabase functions logs process-scan` por
- * "src":"analyzeVideo" o por scanId. Es la forma directa de confirmar,
- * desde logs reales, que esta versión del retry está corriendo (en vez
- * de inferirlo indirectamente por cómo terminó un scan).
- */
 function logAttempt(event: string, data: Record<string, unknown>): void {
   console.log(JSON.stringify({ src: 'analyzeVideo', event, ...data }));
 }
 
-/**
- * Llama a Gemini referenciando un video ya subido a la Files API (por URI,
- * `fileData`) y fuerza el JSON del contrato.
- *
- * Antes esto recibía el video entero en base64 y lo embebía inline
- * (`inlineData`) en este mismo request — la causa real del "Memory limit
- * exceeded" en producción: entre el string base64 y el JSON.stringify que
- * lo envuelve, un video de apenas 25-35MB podía superar el límite de
- * memoria de la Edge Function (150MB en el plan Free) mucho antes de que
- * el video en sí fuera "grande". Referenciar por URI evita construir esos
- * strings gigantes por completo, sin importar el tamaño del archivo — ver
- * uploadVideoToGeminiFiles/prepareGeminiVideoFile más abajo.
- *
- * Reintenta con backoff exponencial (1s, 2s, 4s) SOLO ante un 503 --
- * cualquier otro error (400/401/404/parseo/schema inválido) se propaga de
- * inmediato en el primer intento, sin retraso, porque insistir no lo
- * arregla. Si los 4 intentos agotan en 503, lanza GeminiUnavailableError
- * en vez de seguir propagando el error crudo de Gemini.
- */
-export async function analyzeVideo({ apiKey, fileUri, mimeType, scanId, usageHolder, mediaResolution }: AnalyzeVideoParams): Promise<GeminiResult> {
+export async function analyzeVideo(params: AnalyzeVideoParams): Promise<GeminiResult> {
+  const { scanId } = params;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     logAttempt('attempt_start', { scanId, attempt, maxAttempts: MAX_ATTEMPTS });
     try {
-      const result = await callGeminiOnce({ apiKey, fileUri, mimeType, scanId, usageHolder, mediaResolution });
+      const result = await callGeminiOnce(params);
       if (attempt > 1) logAttempt('attempt_succeeded_after_retry', { scanId, attempt });
       return result;
     } catch (e) {
-      // Guard clause (not a derived boolean) so TS narrows `e` to
-      // GeminiHttpError below -- `e` is `unknown` in a catch clause, and
-      // narrowing only applies to the checked variable itself, not to a
-      // separately-assigned boolean.
-      if (!(e instanceof GeminiHttpError) || e.status !== 503) {
+      const status = e instanceof GeminiHttpError ? e.status : null;
+      const retryable = e instanceof GeminiHttpError && RETRYABLE_STATUSES.has(e.status);
+      if (!retryable) {
         logAttempt('non_retryable_error', {
           scanId,
           attempt,
-          status: e instanceof GeminiHttpError ? e.status : null,
+          status,
           message: e instanceof Error ? e.message : String(e),
         });
         throw e;
       }
 
       if (attempt === MAX_ATTEMPTS) {
-        logAttempt('final_failure', { scanId, attempt, status: 503 });
+        logAttempt('final_failure', { scanId, attempt, status });
         throw new GeminiUnavailableError(
-          `Gemini siguió respondiendo 503 tras ${MAX_ATTEMPTS} intentos (scan ${scanId}): ${e.message}`,
+          `Gemini siguió respondiendo con error transitorio ${status} tras ${MAX_ATTEMPTS} intentos (scan ${scanId}): ${e.message}`,
         );
       }
 
-      const delayMs = RETRY_DELAYS_MS[attempt - 1];
-      logAttempt('retrying', { scanId, attempt, status: 503, delayMs });
+      const delayMs = retryDelayMs(attempt, e.retryAfterMs);
+      logAttempt('retrying', { scanId, attempt, status, delayMs, retryAfterMs: e.retryAfterMs });
       await sleep(delayMs);
     }
   }
-  // Inalcanzable -- el loop siempre retorna o lanza dentro de sus MAX_ATTEMPTS iteraciones.
   throw new Error('analyzeVideo: estado inesperado');
 }
 
 interface UploadedGeminiFile {
   uri: string;
   mimeType: string;
-  /** Resource name (p. ej. "files/abc123") — hace falta para el polling de estado y para borrarlo después. */
   name: string;
 }
 
-/**
- * Sube el video a la Files API de Gemini vía su protocolo de upload
- * resumible, en vez de embeberlo como base64 inline. `body` puede ser un
- * ReadableStream o un Blob — ambos son BodyInit válidos para fetch() y
- * ninguno de los dos pasa por un string base64 intermedio.
- */
-async function uploadVideoToGeminiFiles({
-  apiKey,
-  body,
-  sizeBytes,
-  mimeType,
-  scanId,
-}: {
+async function uploadVideoToGeminiFiles({ apiKey, body, sizeBytes, mimeType, scanId }: {
   apiKey: string;
   body: BodyInit;
   sizeBytes: number;
   mimeType: string;
   scanId: string;
 }): Promise<UploadedGeminiFile> {
-  // Paso 1: iniciar la sesión de upload resumible — Gemini responde con la
-  // URL real de subida en el header X-Goog-Upload-URL.
   const startResponse = await fetch(`${GEMINI_FILES_UPLOAD_URL}?key=${apiKey}`, {
     method: 'POST',
     headers: {
@@ -372,16 +286,10 @@ async function uploadVideoToGeminiFiles({
   const uploadUrl = startResponse.headers.get('x-goog-upload-url');
   if (!uploadUrl) throw new Error('Gemini Files API no devolvió upload URL');
 
-  // Paso 2: subir los bytes — stream directo desde Supabase Storage hasta
-  // Gemini, sin materializar el video completo en memoria en ningún punto.
   const uploadResponse = await fetch(uploadUrl, {
     method: 'POST',
-    headers: {
-      'X-Goog-Upload-Offset': '0',
-      'X-Goog-Upload-Command': 'upload, finalize',
-    },
+    headers: { 'X-Goog-Upload-Offset': '0', 'X-Goog-Upload-Command': 'upload, finalize' },
     body,
-    // Requerido por la spec de fetch cuando el body es un ReadableStream.
     duplex: 'half',
   } as RequestInit);
 
@@ -391,25 +299,13 @@ async function uploadVideoToGeminiFiles({
   }
 
   const uploadData = await uploadResponse.json();
-  // La mayoría de las respuestas de Google envuelven el recurso subido
-  // bajo "file"; por las dudas, si algún día viniera sin envolver, lo
-  // tomamos igual.
   const file = uploadData?.file ?? (uploadData?.name ? uploadData : null);
-
   if (!file?.uri || !file?.name) {
     throw new Error(`Gemini Files API no devolvió el archivo subido: ${JSON.stringify(uploadData)}`);
   }
-
   return { uri: file.uri, mimeType: file.mimeType || mimeType, name: file.name };
 }
 
-/**
- * Los videos suben en estado PROCESSING y hay que esperar a ACTIVE antes
- * de poder referenciarlos en generateContent. Para un clip de máximo 8s
- * esto es cuestión de segundos — acotamos el polling para no dejar la
- * Edge Function esperando indefinidamente si algo sale mal del lado de
- * Gemini.
- */
 async function waitForGeminiFileActive(apiKey: string, name: string, scanId: string): Promise<void> {
   const maxAttempts = 20;
   const delayMs = 1000;
@@ -423,17 +319,13 @@ async function waitForGeminiFileActive(apiKey: string, name: string, scanId: str
 
     const data = await response.json();
     if (data.state === 'ACTIVE') return;
-    if (data.state === 'FAILED') {
-      throw new Error(`Gemini no pudo procesar el video: ${JSON.stringify(data.error ?? {})}`);
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, delayMs));
+    if (data.state === 'FAILED') throw new Error(`Gemini no pudo procesar el video: ${JSON.stringify(data.error ?? {})}`);
+    await sleep(delayMs);
   }
 
   throw new Error('Timeout esperando a que Gemini termine de procesar el video');
 }
 
-/** Sube el video y espera a que quede listo para usarse en analyzeVideo(). */
 export async function prepareGeminiVideoFile(params: {
   apiKey: string;
   body: BodyInit;
@@ -446,40 +338,22 @@ export async function prepareGeminiVideoFile(params: {
   return file;
 }
 
-/**
- * Borra el archivo subido a Gemini Files. Best-effort: Gemini los expira
- * solo a las 48h de todos modos, así que un fallo acá nunca debe romper
- * ni demorar el flujo del scan — el caller solo debe loguearlo.
- */
 export async function deleteGeminiFile(apiKey: string, name: string, scanId: string): Promise<void> {
   const response = await fetch(`${GEMINI_API_BASE}/${name}?key=${apiKey}`, { method: 'DELETE' });
-  if (!response.ok) {
-    throw new Error(`Gemini Files API (delete) error ${response.status}: ${await response.text()}`);
-  }
+  if (!response.ok) throw new Error(`Gemini Files API (delete) error ${response.status}: ${await response.text()}`);
 }
 
-/** Validación defensiva — nunca confiar ciegamente en la salida de un LLM. */
 function validateGeminiResult(result: GeminiResult): void {
   const clampField = (v: number) => Math.min(100, Math.max(0, Math.round(v)));
-
-  if (!result.scores || !result.signals || !result.moderation) {
-    throw new Error('Respuesta de Gemini con forma inválida');
-  }
+  if (!result.scores || !result.signals || !result.moderation) throw new Error('Respuesta de Gemini con forma inválida');
 
   result.scores.confidence = clampField(result.scores.confidence);
   result.scores.style = clampField(result.scores.style);
   result.scores.timing = clampField(result.scores.timing);
   result.scores.cringeRisk = clampField(result.scores.cringeRisk);
-
   result.moments = (result.moments ?? []).slice(0, 6).filter(
-    (m) =>
-      (m.polarity === 'positive' || m.polarity === 'negative') &&
-      [1, 2, 3].includes(m.intensity),
+    (m) => (m.polarity === 'positive' || m.polarity === 'negative') && [1, 2, 3].includes(m.intensity),
   );
-
-  // Defensivo (F): un valor no-numérico o negativo se trata como "no
-  // reportado" (0) en vez de romper el scan -- process-scan solo actúa
-  // sobre este campo cuando es > 0, así que 0 equivale a "sin chequeo".
   result.observedDurationSec =
     typeof result.observedDurationSec === 'number' && Number.isFinite(result.observedDurationSec) && result.observedDurationSec > 0
       ? result.observedDurationSec
