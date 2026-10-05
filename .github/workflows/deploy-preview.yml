@@ -43,7 +43,7 @@ jobs:
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
           EXPO_PUBLIC_VAPID_PUBLIC_KEY: ${{ secrets.EXPO_PUBLIC_VAPID_PUBLIC_KEY }}
           # Public client configuration only. No LiveKit API secret is exposed here.
-          EXPO_PUBLIC_LIVEKIT_URL: wss://p_2ny0kz35k7q.livekit.run
+          EXPO_PUBLIC_LIVEKIT_URL: wss://aura-vs-0evnj9z7.livekit.cloud
           EXPO_PUBLIC_AURA_LIVE_ENABLED: 'true'
         run: npx expo export --platform web
       - name: Add SPA fallback + caching rules (.htaccess)
