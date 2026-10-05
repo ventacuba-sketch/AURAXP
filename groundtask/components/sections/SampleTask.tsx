@@ -13,18 +13,18 @@ function StepHeader({ n, title, subtitle }: { n: number; title: string; subtitle
         <span className="mr-2 text-copper">{n}.</span>
         {title}
       </h3>
-      <p className="mt-1 text-sm leading-snug text-ivory/75">{subtitle}</p>
+      <p className="mt-1 text-sm leading-snug text-ivory/80">{subtitle}</p>
     </header>
   );
 }
 
 function Step({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`card flex flex-col p-4 sm:p-5 ${className}`}>{children}</div>;
+  return <div className={`card flex flex-col p-3.5 sm:p-5 ${className}`}>{children}</div>;
 }
 
 function FlowArrow() {
   return (
-    <div aria-hidden="true" className="flex items-center justify-center text-copper md:hidden lg:flex">
+    <div aria-hidden="true" className="-my-1.5 flex items-center justify-center text-copper md:hidden lg:my-0 lg:flex">
       <Icon name="arrowDown" className="size-5 lg:hidden" />
       <Icon name="arrowRight" className="hidden size-6 lg:block" />
     </div>
@@ -59,7 +59,7 @@ export function SampleTask() {
 
   return (
     <section id="sample-task" aria-labelledby="sample-title" className="border-t border-line bg-ink">
-      <div className="container-gt py-16 sm:py-20">
+      <div className="container-gt py-12 sm:py-20">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between" data-reveal>
           <SectionHeading id="sample-title" eyebrow="Example task" title="From real documents to a verifiable AI task." />
           <div
@@ -100,7 +100,7 @@ export function SampleTask() {
           id={`${baseId}-panel`}
           role="tabpanel"
           aria-labelledby={`${baseId}-tab-${task.id}`}
-          className="mt-8"
+          className="mt-6 sm:mt-8"
           data-reveal
         >
           <p className="mb-4 text-xs text-mist">Illustrative example · fictional, anonymized data</p>
@@ -108,16 +108,16 @@ export function SampleTask() {
             {/* 1. Input */}
             <Step>
               <StepHeader n={1} title="Input" subtitle="Real business documents (anonymized)" />
-              <ul className="mt-4 space-y-2.5">
+              <ul className="mt-3.5 grid grid-cols-2 gap-x-3 gap-y-3 md:mt-4 md:grid-cols-1 md:gap-y-2.5">
                 {task.inputs.map((doc) => (
-                  <li key={doc.name} className="flex items-center gap-3">
-                    <FileGlyph format={doc.format} />
-                    <div className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md border border-line bg-graphite-light/45 px-3 py-2">
+                  <li key={doc.name} className="flex min-w-0 items-center gap-2.5 md:gap-3">
+                    <FileGlyph format={doc.format} className="max-md:h-10 max-md:w-8" />
+                    <div className="flex min-w-0 flex-1 items-center justify-between gap-2 md:rounded-md md:border md:border-line md:bg-graphite-light/45 md:px-3 md:py-2">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium text-ivory">{doc.name}</p>
                         <p className="text-[0.8125rem] text-mist">{doc.meta}</p>
                       </div>
-                      <Icon name="chevronRight" className="size-4 shrink-0 text-mist" />
+                      <Icon name="chevronRight" className="hidden size-4 shrink-0 text-mist md:block" />
                     </div>
                   </li>
                 ))}
@@ -129,7 +129,7 @@ export function SampleTask() {
             {/* 2. Task */}
             <Step>
               <StepHeader n={2} title="Task" subtitle={task.task} />
-              <div className="mt-4 rounded-lg border border-line bg-ink/40 p-4">
+              <div className="mt-3.5 rounded-lg border border-line bg-ink/40 p-3.5 md:mt-4 md:p-4">
                 <p className="text-sm font-medium text-ivory/90">Task details</p>
                 <ul className="mt-2.5 space-y-1.5 text-sm text-ivory/75">
                   {task.details.map((d) => (
@@ -140,11 +140,11 @@ export function SampleTask() {
                   ))}
                 </ul>
               </div>
-              <ul className="mt-4 flex flex-wrap gap-2" aria-label="Task properties">
+              <ul className="mt-3.5 flex flex-wrap gap-1.5 md:mt-4 md:gap-2" aria-label="Task properties">
                 {task.tags.map((tag) => (
                   <li
                     key={tag}
-                    className="rounded-full border border-line-strong bg-graphite-light/50 px-3 py-1 text-[0.8125rem] text-ivory/85"
+                    className="rounded-full border border-line-strong bg-graphite-light/50 px-2.5 py-0.5 text-[0.8125rem] text-ivory/85 md:px-3 md:py-1"
                   >
                     {tag}
                   </li>
@@ -157,12 +157,12 @@ export function SampleTask() {
             {/* 3. Ground truth */}
             <Step>
               <StepHeader n={3} title="Ground truth" subtitle="Expert-verified answer" />
-              <dl className="mt-4 flex-1 rounded-lg border border-line bg-ink/40 p-4 lg:p-3.5 xl:p-4">
+              <dl className="mt-3.5 flex-1 rounded-lg border border-line bg-ink/40 p-3.5 md:mt-4 md:p-4 lg:p-3.5 xl:p-4">
                 <dt className="text-sm text-ivory/80">{task.groundTruth.primary.label}</dt>
                 <dd className="mt-1 text-[1.625rem] leading-tight font-semibold tracking-tight whitespace-nowrap text-verify tabular-nums lg:text-[1.25rem] xl:text-[1.4375rem]">
                   {task.groundTruth.primary.value}
                 </dd>
-                <dt className="mt-5 text-sm text-ivory/80">{task.groundTruth.secondary.label}</dt>
+                <dt className="mt-3 text-sm text-ivory/80 md:mt-5">{task.groundTruth.secondary.label}</dt>
                 <dd className="mt-1 text-[1.625rem] leading-tight font-semibold text-verify tabular-nums">
                   {task.groundTruth.secondary.value}
                 </dd>
@@ -172,7 +172,7 @@ export function SampleTask() {
                 aria-expanded={showTruth}
                 aria-controls={truthId}
                 onClick={() => setShowTruth((v) => !v)}
-                className="focus-ring mt-4 flex h-11 items-center justify-center gap-2 rounded-md border border-line-strong text-sm text-ivory transition-colors hover:border-ivory/60 hover:bg-ivory/5"
+                className="focus-ring mt-3 flex h-11 items-center md:mt-4 justify-center gap-2 rounded-md border border-line-strong text-sm text-ivory transition-colors hover:border-ivory/60 hover:bg-ivory/5"
               >
                 {showTruth ? "Hide full ground truth" : "View full ground truth"}
                 <Icon
@@ -187,11 +187,11 @@ export function SampleTask() {
             {/* 4. Verifier */}
             <Step>
               <StepHeader n={4} title="Verifier" subtitle="Deterministic evaluation" />
-              <ul className="mt-4 space-y-2">
+              <ul className="mt-3.5 grid grid-cols-2 gap-2 md:mt-4 md:grid-cols-1">
                 {task.checks.map((c) => (
                   <li
                     key={c}
-                    className="flex items-center justify-between gap-3 rounded-md border border-line bg-graphite-light/45 px-3 py-2.5 text-sm text-ivory/90"
+                    className="flex items-center justify-between gap-2 rounded-md border border-line bg-graphite-light/45 px-3 py-2 text-sm leading-snug text-ivory/90 md:gap-3 md:py-2.5"
                   >
                     {c}
                     <Icon name="check" className="size-5 shrink-0 text-verify" strokeWidth={2.5} />
@@ -199,7 +199,7 @@ export function SampleTask() {
                   </li>
                 ))}
               </ul>
-              <p className="mt-3 flex h-12 items-center gap-3 rounded-md bg-verify px-4 text-base font-semibold tracking-wide text-graphite">
+              <p className="mt-2.5 flex h-11 items-center gap-3 rounded-md bg-verify md:mt-3 md:h-12 px-4 text-base font-semibold tracking-wide text-graphite">
                 <Icon name="checkCircle" className="size-6" strokeWidth={2} />
                 PASS
               </p>

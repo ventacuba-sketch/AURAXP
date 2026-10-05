@@ -6,28 +6,28 @@ import { SectionHeading } from "../ui/SectionHeading";
 const pillars: Array<{ icon: IconName; title: string; description: string }> = [
   {
     icon: "checkCircle",
-    title: "Licensed sourcing",
-    description: "Agreements with data owners and clear terms of use.",
+    title: "Rights-cleared sourcing model",
+    description: "Sourcing designed around agreements with data owners and clear terms of use.",
   },
   {
     icon: "scale",
     title: "Rights documentation",
-    description: "Traceable provenance for every dataset and workflow.",
+    description: "Provenance documentation designed for every dataset and workflow.",
   },
   {
     icon: "eyeOff",
     title: "Anonymization",
-    description: "Removal of personal and sensitive information before structuring.",
+    description: "Personal and sensitive information is removed before any structuring.",
   },
   {
     icon: "clipboardList",
     title: "Quality control & QA reporting",
-    description: "Expert review with explicit rejection criteria and a QA report with each delivery.",
+    description: "Expert review with explicit rejection criteria. QA reporting designed for each delivery.",
   },
   {
     icon: "lock",
-    title: "Secure handling",
-    description: "Encrypted storage and controlled, least-privilege access to source material.",
+    title: "Secure data handling by design",
+    description: "Processes designed for encrypted storage and least-privilege access to source material.",
   },
   {
     icon: "landmark",
@@ -41,21 +41,21 @@ export function Trust() {
   return (
     <section id="trust" aria-labelledby="trust-title" className="relative isolate overflow-hidden border-t border-line bg-graphite">
       <Mountains id="mt-trust" className="absolute top-0 right-0 -z-10 hidden h-64 w-1/2 opacity-40 lg:block [mask-image:linear-gradient(to_bottom,#000_55%,transparent)] lg:w-[50%]" />
-      <div className="container-gt py-16 sm:py-20">
+      <div className="container-gt py-12 sm:py-20">
         <SectionHeading id="trust-title" eyebrow="Trust & provenance" title="Provenance you can audit." size="md" />
-        <p className="mt-4 max-w-3xl text-[0.9375rem] leading-relaxed text-ivory/75">
-          Our sourcing model is built on working with companies and organizations in Chile/LatAm under clear legal
-          agreements, with strict anonymization, security and quality processes applied before any asset is delivered.
+        <p className="mt-4 max-w-3xl text-base leading-relaxed text-ivory/80">
+          Our sourcing model is designed around working with companies and organizations in Chile/LatAm under clear
+          legal agreements, with anonymization, security and quality processes applied before any asset is delivered.
         </p>
-        <ul className="mt-10 grid gap-x-8 gap-y-8 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="mt-7 grid gap-x-8 gap-y-5 sm:mt-10 sm:grid-cols-2 sm:gap-y-8 lg:grid-cols-3">
           {pillars.map((p, i) => (
             <li key={p.title} data-reveal style={revealDelay(i * 60)} className="flex gap-4">
-              <span className="flex size-10 shrink-0 items-center justify-center rounded-full border border-copper/50 text-copper">
+              <span className="flex size-9 shrink-0 items-center justify-center rounded-full border border-copper/50 text-copper sm:size-10">
                 <Icon name={p.icon} className="size-5" strokeWidth={1.6} />
               </span>
               <div>
-                <h3 className="text-sm font-semibold text-ivory">{p.title}</h3>
-                <p className="mt-1 max-w-xs text-sm leading-snug text-mist">{p.description}</p>
+                <h3 className="text-[0.9375rem] font-semibold text-ivory">{p.title}</h3>
+                <p className="mt-1 max-w-xs text-sm leading-normal text-mist sm:text-[0.9375rem] sm:leading-relaxed">{p.description}</p>
               </div>
             </li>
           ))}

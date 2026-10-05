@@ -106,7 +106,7 @@ function Panel() {
         <span className="text-ivory/90">Bank reconciliation</span>
       </p>
 
-      <div className="mt-4 grid grid-cols-[minmax(0,0.85fr)_minmax(0,2fr)] gap-4">
+      <div className="mt-4 grid grid-cols-[minmax(0,1fr)_minmax(0,1.9fr)] gap-3.5">
         <div>
           <p className="text-[0.6875rem] text-mist">Input documents</p>
           <ul className="mt-2 space-y-1.5">

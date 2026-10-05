@@ -17,7 +17,7 @@ export function Problem() {
       className="relative isolate overflow-hidden border-t border-line bg-graphite"
     >
       <Mountains id="mt-problem" className="absolute right-0 bottom-0 -z-10 hidden h-full w-1/2 opacity-50 lg:block" />
-      <div className="container-gt grid gap-10 py-16 sm:py-20 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-center lg:gap-14">
+      <div className="container-gt grid gap-8 py-12 sm:py-20 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] lg:items-center lg:gap-14">
         <div data-reveal>
           <SectionHeading
             id="problem-title"
@@ -40,10 +40,10 @@ export function Problem() {
               key={p.title}
               data-reveal
               style={revealDelay(i * 70)}
-              className="card flex min-h-32 flex-col bg-graphite/70 p-4 backdrop-blur-sm sm:min-h-36 sm:p-5"
+              className="card flex items-center gap-3 bg-graphite/70 p-3.5 backdrop-blur-sm sm:min-h-36 sm:flex-col sm:items-start sm:gap-0 sm:p-5"
             >
-              <Icon name={p.icon} className="size-8 text-copper" strokeWidth={1.4} />
-              <h3 className="mt-auto pt-5 text-[0.9375rem] leading-snug font-semibold text-ivory">{p.title}</h3>
+              <Icon name={p.icon} className="size-6 shrink-0 text-copper sm:size-8" strokeWidth={1.4} />
+              <h3 className="text-[0.9375rem] leading-snug font-semibold text-ivory sm:mt-auto sm:pt-5">{p.title}</h3>
             </li>
           ))}
         </ul>

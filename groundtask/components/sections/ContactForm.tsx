@@ -41,23 +41,23 @@ export function ContactForm() {
       method="post"
       encType="text/plain"
       onSubmit={onSubmit}
-      className="rounded-xl border border-line-strong bg-graphite/85 p-5 shadow-card backdrop-blur-md sm:p-6"
+      className="rounded-xl border border-line-strong bg-graphite/85 p-4 shadow-card backdrop-blur-md sm:p-6"
       aria-describedby="contact-note"
     >
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4">
         <label className="block">
           <span className={label}>Name</span>
           <input name="name" required autoComplete="name" className={field} />
         </label>
         <label className="block">
-          <span className={label}>Work email</span>
-          <input name="email" type="email" required autoComplete="email" className={field} />
-        </label>
-        <label className="block">
           <span className={label}>Company</span>
           <input name="company" required autoComplete="organization" className={field} />
         </label>
-        <label className="block">
+        <label className="col-span-2 block sm:col-span-1">
+          <span className={label}>Work email</span>
+          <input name="email" type="email" required autoComplete="email" className={field} />
+        </label>
+        <label className="col-span-2 block sm:col-span-1">
           <span className={label}>Interest</span>
           <select name="interest" defaultValue={interests[0]} className={`${field} appearance-none bg-[length:1rem] bg-[right_0.75rem_center] bg-no-repeat pr-9`} style={{ backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")" }}>
             {interests.map((i) => (
@@ -67,12 +67,12 @@ export function ContactForm() {
             ))}
           </select>
         </label>
-        <label className="block sm:col-span-2">
+        <label className="col-span-2 block">
           <span className={label}>What are you building?</span>
-          <textarea name="message" rows={4} required className={`${field} resize-y`} />
+          <textarea name="message" rows={3} required className={`${field} resize-y`} />
         </label>
       </div>
-      <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="mt-4 flex flex-col gap-3 sm:mt-5 sm:flex-row sm:items-center sm:justify-between">
         <button
           type="submit"
           className="focus-ring inline-flex h-12 shrink-0 items-center whitespace-nowrap justify-center gap-2.5 rounded-md bg-copper px-6 font-medium text-graphite shadow-copper transition-colors hover:bg-copper-light"
