@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSession } from './authService';
 import { supabase } from './supabaseClient';
 import { getCampaignVisitorId, getStoredUtmParams } from './campaignService';
@@ -27,61 +28,41 @@ export type AnalyticsEventName =
   | 'live_aura_check_completed' | 'live_aura_check_failed' | 'live_poll_started' | 'live_vote_cast' | 'live_ended';
 
 type Fbq = (command: string, eventName: string, params?: Record<string, unknown>, options?: Record<string, unknown>) => void;
-function trackMetaEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>, userId?: string | null): void {
+async function trackMetaEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>, userId?: string | null): Promise<void> {
   if (typeof window === 'undefined') return;
   const fbq = (window as typeof window & { fbq?: Fbq }).fbq;
   if (typeof fbq !== 'function') return;
   try {
     if (eventName === 'signup_completed') {
-      const eventID = userId ? `reg_${userId}` : undefined;
-      fbq('track', 'CompleteRegistration', metadata, eventID ? { eventID } : undefined);
-    } else if (eventName === 'first_scan_completed') fbq('trackCustom', 'ScanCompleted', metadata);
+      if (!userId) return;
+      const firedKey = `auravs_reg_fired_${userId}`;
+      if (await AsyncStorage.getItem(firedKey)) return;
+      const eventID = `reg_${userId}`;
+      fbq('track', 'CompleteRegistration', metadata, { eventID });
+      await AsyncStorage.setItem(firedKey, '1');
+    } else if (eventName === 'first_scan_completed') {
+      fbq('trackCustom', 'ScanCompleted', metadata);
+    }
   } catch { /* telemetry never blocks product */ }
 }
 
 export async function logEvent(eventName: AnalyticsEventName, metadata?: Record<string, unknown>, userIdOverride?: string | null): Promise<void> {
   if (!supabase) return;
+  let userId: string | null = userIdOverride ?? null;
   try {
     const session = await getSession();
-    const userId = userIdOverride ?? session?.user.id ?? null;
+    userId = userIdOverride ?? session?.user.id ?? null;
     const utm = await getStoredUtmParams();
     const visitorId = await getCampaignVisitorId();
     const enrichedMetadata = { ...(utm ?? {}), ...(visitorId ? { visitor_id: visitorId } : {}), ...(metadata ?? {}) };
     await supabase.from('analytics_events').insert({ event_name: eventName, user_id: userId, metadata: Object.keys(enrichedMetadata).length ? enrichedMetadata : null });
-    trackMetaEvent(eventName, enrichedMetadata, userId);
-  } catch { trackMetaEvent(eventName, metadata, userIdOverride); }
+    await trackMetaEvent(eventName, enrichedMetadata, userId);
+  } catch { await trackMetaEvent(eventName, metadata, userId); }
 }
 
 let appOpenLogged = false;
 export function logAppOpenOnce(): void { if (!appOpenLogged) { appOpenLogged = true; void logEvent('app_open'); } }
-
-export function logWebVisitOnce(): void {
-  if (typeof window === 'undefined') return;
-  const key = '__auravs_web_visit_logged__';
-  if ((window as typeof window & Record<string, unknown>)[key]) return;
-  (window as typeof window & Record<string, unknown>)[key] = true;
-  void logEvent('web_visit', { path: window.location.pathname, referrer: document.referrer || null });
-}
-
-export function logPageView(routeName: string): void { void logEvent('page_viewed', { route: routeName }); }
-
-export async function logScanMilestone(): Promise<void> {
-  if (!supabase) return;
-  try {
-    const session = await getSession();
-    if (!session) return;
-    const { count } = await supabase.from('scans').select('id', { count: 'exact', head: true }).eq('user_id', session.user.id).eq('status', 'done');
-    if (count === 1) await logEvent('first_scan_completed');
-    await logEvent('scan_completed', { totalDoneScans: count ?? null });
-  } catch { /* best effort */ }
-}
-
-export async function hasSharedToday(): Promise<boolean> {
-  if (!supabase) return false;
-  const session = await getSession();
-  if (!session) return false;
-  const todayStart = new Date(); todayStart.setUTCHours(0, 0, 0, 0);
-  const { count, error } = await supabase.from('analytics_events').select('id', { count: 'exact', head: true }).eq('user_id', session.user.id).eq('event_name', 'share').gte('created_at', todayStart.toISOString());
-  if (error) return false;
-  return (count ?? 0) > 0;
-}
+export function logWebVisitOnce(): void { if (typeof window === 'undefined') return; const key='__auravs_web_visit_logged__'; if((window as typeof window & Record<string,unknown>)[key])return;(window as typeof window & Record<string,unknown>)[key]=true;void logEvent('web_visit',{path:window.location.pathname,referrer:document.referrer||null}); }
+export function logPageView(routeName:string):void{void logEvent('page_viewed',{route:routeName});}
+export async function logScanMilestone():Promise<void>{if(!supabase)return;try{const session=await getSession();if(!session)return;const{count}=await supabase.from('scans').select('id',{count:'exact',head:true}).eq('user_id',session.user.id).eq('status','done');if(count===1)await logEvent('first_scan_completed');await logEvent('scan_completed',{totalDoneScans:count??null});}catch{/* best effort */}}
+export async function hasSharedToday():Promise<boolean>{if(!supabase)return false;const session=await getSession();if(!session)return false;const todayStart=new Date();todayStart.setUTCHours(0,0,0,0);const{count,error}=await supabase.from('analytics_events').select('id',{count:'exact',head:true}).eq('user_id',session.user.id).eq('event_name','share').gte('created_at',todayStart.toISOString());if(error)return false;return(count??0)>0;}
