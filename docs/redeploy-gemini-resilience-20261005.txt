@@ -1,0 +1,1 @@
+Production redeploy requested 2026-10-05 to publish the existing AnalyzingScreen Gemini-unavailable handling and polling safeguards already present on main.
