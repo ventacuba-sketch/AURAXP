@@ -15,10 +15,26 @@ npm run typecheck
 npm run build && npm start
 ```
 
-## Deploy
+## Deploy (Vercel)
 
-Every route is statically prerendered. Recommended: Vercel with **Root Directory = `groundtask`**
-(framework auto-detected). Any Node 20+ host running `npm run build && npm start` also works.
+1. Vercel → **Add New → Project** → import `ventacuba-sketch/auraxp`.
+2. **Root Directory:** `groundtask` (framework is detected as Next.js).
+3. **Environment Variables** (Production and Preview): see `.env.example`.
+4. Deploy. `vercel.json` skips builds for commits that don't touch `groundtask/`.
+5. Settings → Git → **Production Branch**: the branch that holds the approved site.
+6. Settings → Domains: add `groundtask.com` and `www.groundtask.com` (redirect www → apex)
+   and create the DNS records Vercel shows at the domain's DNS provider.
+
+## Contact form (Resend)
+
+`POST /api/contact` validates input, drops honeypot submissions, throttles bursts and sends
+the message through the Resend REST API (no SDK) with `reply_to` set to the visitor.
+
+- Verify `groundtask.com` in Resend (DNS records shown in Resend → Domains) and create an API key.
+- `RESEND_API_KEY`, `CONTACT_FROM_EMAIL`, `CONTACT_TO_EMAIL` as in `.env.example`.
+- Without `RESEND_API_KEY` (or if Resend fails) the form offers a pre-filled email instead;
+  without JavaScript it is a plain `mailto:` form.
+- `CONTACT_TO_EMAIL` must be a mailbox that actually receives mail.
 
 ## Structure
 
@@ -27,11 +43,6 @@ Every route is statically prerendered. Recommended: Vercel with **Root Directory
 - `components/ui/` — primitives (Icon, Logo, Button, SectionHeading, FeatureCard, FileGlyph, Mountains, Globe)
 - `lib/site.ts` — brand constants, navigation, email
 - `lib/sampleTasks.ts` — the fictional sample-task data shown in "Example task"
-
-## Contact
-
-The contact form has no backend: it composes a pre-filled email to `contact@groundtask.com`
-(and degrades to a plain `mailto:` form without JavaScript).
 
 ## Brand assets
 
