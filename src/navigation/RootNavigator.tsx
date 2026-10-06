@@ -21,6 +21,7 @@ import { consumePendingChallengeToken } from '../services/pendingChallenge';
 import { tryAttributePendingReferral } from '../services/referralService';
 import { logPageView } from '../services/analyticsService';
 import AdminDashboardScreen from '../screens/AdminDashboardScreen';
+import AdminUserRecoveryScreen from '../screens/AdminUserRecoveryScreen';
 import AnalyzingScreen from '../screens/AnalyzingScreen';
 import AuthScreen from '../screens/AuthScreen';
 import BugReportScreen from '../screens/BugReportScreen';
@@ -85,6 +86,7 @@ const linking: LinkingOptions<RootStackParamList> = {
   config: {
     screens: {
       AdminDashboard: 'admin',
+      AdminUserRecovery: 'admin/recuperacion',
       ChallengeLanding: 'c/:token',
       Auth: 'auth',
       Landing: 'aura',
@@ -299,6 +301,12 @@ export function RootNavigator() {
                     DEFINER) -- esto es la mitad de UI, no reemplaza esa
                     protección server-side. */}
                 <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
+                {/* Recuperación de usuarios -- mismo criterio exacto que
+                    AdminDashboard arriba: sin sesión nunca llega a montar
+                    la pantalla (cae a Auth), y con sesión no-admin las
+                    RPCs admin_user_recovery_* (SECURITY DEFINER sobre
+                    profiles.is_admin) deniegan el acceso server-side. */}
+                <Stack.Screen name="AdminUserRecovery" component={AdminUserRecoveryScreen} />
               </>
             ) : (
               <>
@@ -333,8 +341,8 @@ export function RootNavigator() {
             (sibling, no dentro de un tab) y no en HomeScreen. Tampoco
             encima del dashboard de admin (currentRouteName), que tiene su
             propio layout de escritorio sin estos overlays. */}
-        {authed && currentRouteName !== 'AdminDashboard' && <InstallInviteHost navigationRef={navigationRef} />}
-        {authed && currentRouteName !== 'AdminDashboard' && <NotificationInviteHost navigationRef={navigationRef} />}
+        {authed && currentRouteName !== 'AdminDashboard' && currentRouteName !== 'AdminUserRecovery' && <InstallInviteHost navigationRef={navigationRef} />}
+        {authed && currentRouteName !== 'AdminDashboard' && currentRouteName !== 'AdminUserRecovery' && <NotificationInviteHost navigationRef={navigationRef} />}
       </View>
     </NavigationContainer>
   );
