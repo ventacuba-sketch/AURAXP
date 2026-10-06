@@ -16,6 +16,7 @@ export interface RecoveryKpis {
   no_first_scan: number;
   reached_upload_abandoned: number;
   attempted_scan_failed: number;
+  recovery_sent: number;
   recovered: number;
   recovery_rate_pct: number;
 }
@@ -138,15 +139,10 @@ export async function getUserRecoveryDetail(userId: string): Promise<RecoveryUse
   return data as RecoveryUserDetail;
 }
 
-// 'recovered': se confirmó el email (si hacía falta) Y salió el correo de
-// reset de contraseña -- el resultado completo que pide la acción.
-// 'partial_success': el email quedó confirmado (o ya lo estaba), pero el
-// correo de reset NO salió -- la cuenta quedó desbloqueada pero el dueño
-// real todavía no puede recuperarla por su cuenta. NUNCA tratar esto como
-// "correo enviado".
-// 'error': no se logró nada útil.
-// `passwordResetSent` siempre viene presente (nunca undefined) para poder
-// decidir el mensaje sin inferir nada de `ok`/`status`.
+// Estado técnico de la acción administrativa. `recovered` aquí significa que
+// la cuenta fue desbloqueada y el correo de recuperación salió correctamente;
+// la métrica del dashboard considera recuperación REAL solo cuando el usuario
+// vuelve a autenticarse después de ese envío.
 export type RecoverAccessStatus = 'recovered' | 'partial_success' | 'error';
 
 export interface RecoverAccessResult {
