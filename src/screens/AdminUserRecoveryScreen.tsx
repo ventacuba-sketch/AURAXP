@@ -78,6 +78,7 @@ export default function AdminUserRecoveryScreen() {
   }
 
   async function recoverOne(userId: string) {
+    if (selected?.user.user_id === userId && selected.recovery_actions.length > 0) return;
     const result = await recoverUserAccess(userId);
     await load();
     if (selected?.user.user_id === userId) await openDetail(userId);
@@ -125,7 +126,6 @@ export default function AdminUserRecoveryScreen() {
         } : item));
       }
 
-      // Ritmo deliberadamente lento para no disparar todos los correos juntos.
       if (i < candidates.length - 1) await sleep(7000);
     }
 
@@ -234,7 +234,13 @@ export default function AdminUserRecoveryScreen() {
             <Text style={styles.muted}>Registrado: {dt(selected.user.registered_at)}</Text>
             <Text style={styles.muted}>Email confirmado: {dt(selected.user.email_confirmed_at)}</Text>
             <Text style={styles.muted}>Scans: {selected.scans.length} · Acciones de recuperación: {selected.recovery_actions.length}</Text>
-            <Pressable style={styles.primary} onPress={() => void recoverOne(selected.user.user_id)}><Text style={styles.primaryText}>RECUPERAR ESTA CUENTA</Text></Pressable>
+            {selected.recovery_actions.length > 0 ? (
+              <Pressable style={[styles.primary, styles.recoveredButton]} disabled accessibilityState={{ disabled: true }}>
+                <Text style={styles.recoveredButtonText}>✓ CUENTA RECUPERADA</Text>
+              </Pressable>
+            ) : (
+              <Pressable style={styles.primary} onPress={() => void recoverOne(selected.user.user_id)}><Text style={styles.primaryText}>RECUPERAR ESTA CUENTA</Text></Pressable>
+            )}
           </View>
         )}
       </ScrollView>
@@ -274,6 +280,8 @@ const styles = StyleSheet.create({
   primary: { marginTop: 16, borderRadius: radius.pill, backgroundColor: colors.accent, paddingHorizontal: 20, paddingVertical: 12, alignItems: 'center' },
   dangerButton: { marginTop: 16, borderRadius: radius.pill, backgroundColor: colors.danger, paddingHorizontal: 20, paddingVertical: 12, alignItems: 'center' },
   primaryText: { ...typography.caption, color: colors.onAccent, fontWeight: '900' },
+  recoveredButton: { backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.success, opacity: 0.9 },
+  recoveredButtonText: { ...typography.caption, color: colors.success, fontWeight: '900' },
   secondary: { borderRadius: radius.md, backgroundColor: colors.surfaceRaised, borderWidth: 1, borderColor: colors.borderStrong, paddingHorizontal: 14, paddingVertical: 9, alignSelf: 'flex-start', marginTop: 10 },
   secondaryText: { ...typography.caption, color: colors.textPrimary, fontWeight: '900' },
   bulkList: { marginTop: 12, gap: 3 },
