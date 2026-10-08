@@ -8,7 +8,7 @@ import { revealDelay } from "@/lib/reveal";
 const indicators: Array<{ icon: IconName; label: [string, string] }> = [
   { icon: "shieldCheck", label: ["Rights-cleared", "sourcing model"] },
   { icon: "lock", label: ["Anonymized", "and structured"] },
-  { icon: "checkCircle", label: ["Expert-verified", "and reproducible"] },
+  { icon: "checkCircle", label: ["Expert QA", "built into the process"] },
 ];
 
 export function Hero() {
