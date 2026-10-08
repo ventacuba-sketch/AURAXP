@@ -3,12 +3,12 @@ import { Icon } from "../ui/Icon";
 import { SectionHeading } from "../ui/SectionHeading";
 
 const steps = [
-  { title: "Source", description: "Obtain real workflows and records." },
+  { title: "Source", description: "Identify candidate business workflows and records." },
   { title: "Rights", description: "Secure the necessary rights for training and evaluation use." },
   { title: "Anonymize", description: "Remove sensitive information and standardize data." },
   { title: "Structure", description: "Convert workflows into tasks, ground truth and verifiers." },
   { title: "Verify", description: "Domain experts validate tasks and solutions." },
-  { title: "Deliver", description: "Training and evaluation assets ready for your AI systems." },
+  { title: "Deliver", description: "Package evaluation and training assets to agreed specifications." },
 ];
 
 export function HowItWorks() {
