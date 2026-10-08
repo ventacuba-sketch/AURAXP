@@ -8,9 +8,10 @@
 
 import type { GeminiResult } from './scoring.ts';
 
-const GEMINI_MODEL = 'gemini-3.6-flash';
+const GEMINI_MODEL = 'gemini-2.5-flash';
+const FALLBACK_MODEL = 'gemini-2.5-flash-lite';
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const GEMINI_API_URL = `${GEMINI_API_BASE}/models/${GEMINI_MODEL}:generateContent`;
+
 const GEMINI_FILES_UPLOAD_URL = 'https://generativelanguage.googleapis.com/upload/v1beta/files';
 
 export const SYSTEM_PROMPT = `Sos el motor de análisis de AURAXP, una app social Gen Z. Tu trabajo es leer
@@ -154,7 +155,7 @@ export class GeminiUnavailableError extends Error {
 // Google recomienda reintentar errores transitorios (408, 429 y 5xx) con
 // exponential backoff + jitter. Cinco intentos mantienen la espera acotada
 // pero dan una oportunidad adicional durante picos cortos de capacidad.
-const MAX_ATTEMPTS = 5;
+const MAX_ATTEMPTS = 2;
 const RETRYABLE_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
 const BASE_RETRY_DELAY_MS = 1000;
 const MAX_RETRY_DELAY_MS = 10000;
@@ -179,8 +180,8 @@ function retryDelayMs(attempt: number, retryAfterMs: number | null): number {
   return Math.max(250, Math.round(Math.random() * cap));
 }
 
-async function callGeminiOnce({ apiKey, fileUri, mimeType, scanId, usageHolder, mediaResolution }: AnalyzeVideoParams): Promise<GeminiResult> {
-  const response = await fetch(`${GEMINI_API_URL}?key=${apiKey}`, {
+async function callGeminiOnce({ apiKey, fileUri, mimeType, scanId, usageHolder, mediaResolution }: AnalyzeVideoParams, model = GEMINI_MODEL): Promise<GeminiResult> {
+  const response = await fetch(`${GEMINI_API_BASE}/models/${model}:generateContent?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -222,7 +223,7 @@ export async function analyzeVideo(params: AnalyzeVideoParams): Promise<GeminiRe
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     logAttempt('attempt_start', { scanId, attempt, maxAttempts: MAX_ATTEMPTS });
     try {
-      const result = await callGeminiOnce(params);
+      const result = await callGeminiOnce(params, GEMINI_MODEL);
       if (attempt > 1) logAttempt('attempt_succeeded_after_retry', { scanId, attempt });
       return result;
     } catch (e) {
@@ -240,9 +241,13 @@ export async function analyzeVideo(params: AnalyzeVideoParams): Promise<GeminiRe
 
       if (attempt === MAX_ATTEMPTS) {
         logAttempt('final_failure', { scanId, attempt, status });
-        throw new GeminiUnavailableError(
-          `Gemini siguió respondiendo con error transitorio ${status} tras ${MAX_ATTEMPTS} intentos (scan ${scanId}): ${e.message}`,
-        );
+        try {
+          logAttempt('fallback_start', { scanId, model: FALLBACK_MODEL });
+          return await callGeminiOnce(params, FALLBACK_MODEL);
+        } catch (fallbackError) {
+          logAttempt('fallback_failed', { scanId, model: FALLBACK_MODEL, message: String(fallbackError).slice(0, 200) });
+          throw new GeminiUnavailableError('Both Gemini models unavailable');
+        }
       }
 
       const delayMs = retryDelayMs(attempt, e.retryAfterMs);
