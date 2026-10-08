@@ -5,11 +5,11 @@ import { SectionHeading } from "../ui/SectionHeading";
 import { DeliverableSchema } from "./DeliverableSchema";
 
 const outputs: Array<{ icon: IconName; title: string; description: string }> = [
-  { icon: "fileText", title: "Real-world workflows", description: "Based on actual business records." },
+  { icon: "fileText", title: "Real-world workflows", description: "Designed to be sourced from licensed business records." },
   { icon: "clipboardCheck", title: "Verifiable tasks", description: "Realistic and challenging." },
   { icon: "database", title: "Ground truth", description: "Deterministic answers based on business rules." },
   { icon: "code", title: "Verifiers and rubrics", description: "Clear evaluation criteria for automated and human grading." },
-  { icon: "userCheck", title: "Expert QA", description: "Domain experts review for accuracy and quality." },
+  { icon: "userCheck", title: "Expert QA", description: "Domain-expert review is part of the proposed QA process." },
 ];
 
 export function Produces() {
