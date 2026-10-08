@@ -15,7 +15,7 @@ export type SampleTask = {
   checks: string[];
 };
 
-const defaultTags = ["Multi-document", "Multi-step", "Realistic", "Deterministic ground truth", "Expert-reviewed"];
+const defaultTags = ["Multi-document", "Multi-step", "Synthetic example", "Illustrative ground truth", "Expert review planned"];
 
 /**
  * Illustrative examples from a Chilean month-end close. All documents, folios
