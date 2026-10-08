@@ -17,7 +17,7 @@ const pillars: Array<{ icon: IconName; title: string; description: string }> = [
   {
     icon: "eyeOff",
     title: "Anonymization",
-    description: "Personal and sensitive information is removed before any structuring.",
+    description: "Our proposed workflow includes minimization and de-identification before structuring, subject to legal review.",
   },
   {
     icon: "clipboardList",
@@ -33,7 +33,7 @@ const pillars: Array<{ icon: IconName; title: string; description: string }> = [
     icon: "landmark",
     title: "Regulatory alignment",
     description:
-      "Processes designed around Chile's Ley 19.628, and preparing for Ley 21.719 (applicable from December 1, 2026) and Brazil's LGPD.",
+      "Compliance requirements will be assessed by jurisdiction and contract, including Chilean data protection law and Brazil's LGPD.",
   },
 ];
 
