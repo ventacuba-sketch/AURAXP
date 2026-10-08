@@ -5,7 +5,7 @@ export const site = {
   email: "contact@groundtask.com",
   tagline: "Real-world workflows. Verifiable AI tasks.",
   description:
-    "GroundTask transforms real business workflows from Chile/LatAm into expert-verified training and evaluation assets for frontier AI systems.",
+    "GroundTask is developing a rights-cleared sourcing model to turn Chilean and Latin American business workflows into verifiable AI training and evaluation tasks.",
 } as const;
 
 export const navItems = [

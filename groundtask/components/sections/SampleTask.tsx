@@ -103,11 +103,11 @@ export function SampleTask() {
           className="mt-6 sm:mt-8"
           data-reveal
         >
-          <p className="mb-4 text-xs text-mist">Illustrative example · fictional, anonymized data</p>
+          <p className="mb-4 text-xs text-mist">Illustrative example · synthetic data · not an executed evaluation</p>
           <div className="grid gap-3 md:grid-cols-2 md:gap-4 lg:grid-cols-[minmax(0,1fr)_1.5rem_minmax(0,1.04fr)_1.5rem_minmax(0,1fr)_1.5rem_minmax(0,0.96fr)] lg:gap-2">
             {/* 1. Input */}
             <Step>
-              <StepHeader n={1} title="Input" subtitle="Real business documents (anonymized)" />
+              <StepHeader n={1} title="Input" subtitle="Synthetic business document examples" />
               <ul className="mt-3.5 grid grid-cols-2 gap-x-3 gap-y-3 md:mt-4 md:grid-cols-1 md:gap-y-2.5">
                 {task.inputs.map((doc) => (
                   <li key={doc.name} className="flex min-w-0 items-center gap-2.5 md:gap-3">
@@ -156,7 +156,7 @@ export function SampleTask() {
 
             {/* 3. Ground truth */}
             <Step>
-              <StepHeader n={3} title="Ground truth" subtitle="Expert-verified answer" />
+              <StepHeader n={3} title="Ground truth" subtitle="Illustrative expected answer" />
               <dl className="mt-3.5 flex-1 rounded-lg border border-line bg-ink/40 p-3.5 md:mt-4 md:p-4 lg:p-3.5 xl:p-4">
                 <dt className="text-sm text-ivory/80">{task.groundTruth.primary.label}</dt>
                 <dd className="mt-1 text-[1.625rem] leading-tight font-semibold tracking-tight whitespace-nowrap text-verify tabular-nums lg:text-[1.25rem] xl:text-[1.4375rem]">
@@ -186,7 +186,7 @@ export function SampleTask() {
 
             {/* 4. Verifier */}
             <Step>
-              <StepHeader n={4} title="Verifier" subtitle="Deterministic evaluation" />
+              <StepHeader n={4} title="Verifier" subtitle="Proposed deterministic checks" />
               <ul className="mt-3.5 grid grid-cols-2 gap-2 md:mt-4 md:grid-cols-1">
                 {task.checks.map((c) => (
                   <li
@@ -195,7 +195,7 @@ export function SampleTask() {
                   >
                     {c}
                     <Icon name="check" className="size-5 shrink-0 text-verify" strokeWidth={2.5} />
-                    <span className="sr-only">passed</span>
+                    <span className="sr-only">illustrative check</span>
                   </li>
                 ))}
               </ul>
