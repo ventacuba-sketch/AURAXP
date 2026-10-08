@@ -17,7 +17,7 @@ npm run build && npm start
 
 ## Deploy
 
-Every route is statically prerendered. Recommended: Vercel with **Root Directory = `groundtask`**
+The landing page is statically rendered; the contact API route runs server-side. Recommended: Vercel with **Root Directory = `groundtask`**
 (framework auto-detected). Any Node 20+ host running `npm run build && npm start` also works.
 
 ## Structure
