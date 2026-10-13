@@ -251,17 +251,17 @@ export default function AdminDashboardScreen() {
           <MetricCard width={cardWidth} label="Visitas web" value={formatNumber(kpis.web_visits)} detail={`${formatNumber(kpis.web_unique_visitors)} únicas`} />
           <MetricCard width={cardWidth} label="Landing" value={formatNumber(kpis.landing_views)} detail={`${formatNumber(kpis.landing_unique_visitors)} visitantes`} />
           <MetricCard width={cardWidth} label="CTR landing → CTA" value={formatPercent(data!.rates.landing_ctr)} detail={`${formatNumber(kpis.landing_cta_clicks)} clics`} />
-          <MetricCard width={cardWidth} label="Registros" value={formatNumber(kpis.signup_completions)} detail={`${formatNumber(kpis.new_users)} usuarios nuevos`} />
-          <MetricCard width={cardWidth} label="Primer Scan" value={formatNumber(kpis.first_scan_users)} detail={`${formatPercent(data!.rates.signup_to_scan_rate)} de registros`} />
+          <MetricCard width={cardWidth} label="Altas reales (Auth)" value={formatNumber(kpis.new_users)} detail={`${formatNumber(kpis.signup_completions)} con evento signup_completed`} />
+          <MetricCard width={cardWidth} label="Primer Scan (evento)" value={formatNumber(kpis.first_scan_users)} detail="Incluye usuarios orgánicos y pruebas; no es tasa de adquisición" />
         </View>
 
-        <SectionTitle title="Embudo principal" />
+        <SectionTitle title="Embudo orientativo (no cohorte atribuida)" />\n        <Text style={styles.muted}>Eventos de navegación y altas reales tienen fuentes distintas. No interpretar los pasos como conversiones de una misma cohorte; las pruebas internas y el tráfico orgánico pueden estar incluidos.</Text>
         <View style={styles.funnel}>
           <FunnelStep label="Visitas web" value={kpis.web_unique_visitors} />
           <FunnelStep label="Landing" value={kpis.landing_unique_visitors} />
-          <FunnelStep label="CTA" value={kpis.landing_cta_clicks} rate={data!.rates.landing_ctr} />
-          <FunnelStep label="Registro" value={kpis.signup_completions} rate={data!.rates.signup_completion_rate} />
-          <FunnelStep label="Primer Scan" value={kpis.first_scan_users} rate={data!.rates.signup_to_scan_rate} />
+          <FunnelStep label="Clics CTA (eventos)" value={kpis.landing_cta_clicks} />
+          <FunnelStep label="Altas reales (Auth)" value={kpis.new_users} />
+          <FunnelStep label="Primer Scan (eventos)" value={kpis.first_scan_users} />
         </View>
 
         <SectionTitle title="Scanner / IA" />
