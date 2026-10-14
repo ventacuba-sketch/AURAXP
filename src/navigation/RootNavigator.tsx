@@ -69,8 +69,8 @@ const navigationTheme: Theme = {
 // Solo ChallengeLanding, Auth y ahora Landing tienen un path real — es lo
 // único que necesita abrirse desde fuera de la app (link compartido /
 // navegador / campaña de adquisición). `/aura` es ruta NUEVA y propia --
-// deliberadamente no se tocó `/` (sigue cayendo en Auth para cualquier
-// visitante sin sesión, exactamente como antes, incluido `?ref=CODE`) ni
+// `/` ahora abre Landing para visitantes sin sesión, incluidos `?ref=CODE`.
+// El enlace `/auth` sigue siendo válido para iniciar sesión; tampoco
 // se reusó ningún nombre ya existente (evita cualquier choque con `Scan`,
 // el tab).
 //
@@ -310,6 +310,10 @@ export function RootNavigator() {
               </>
             ) : (
               <>
+                {/* Landing pública por defecto para visitantes sin sesión.
+                    /auth conserva su deep link para login, recuperación y campañas.
+                    /aura sigue siendo una ruta válida para los anuncios existentes. */}
+                <Stack.Screen name="Landing" component={LandingScreen} />
                 <Stack.Screen name="Auth" component={AuthScreen} />
                 {/* Landing de adquisición (TikTok/Reels/Shorts) -- registrada
                     SOLO acá, igual que Auth: alguien ya logueado que abra
@@ -317,7 +321,6 @@ export function RootNavigator() {
                     screen del stack autenticado, MainTabs, mismo criterio ya
                     probado que usa "/" para caer en Auth cuando no hay
                     sesión). */}
-                <Stack.Screen name="Landing" component={LandingScreen} />
               </>
             )}
             <Stack.Screen name="ChallengeLanding" component={ChallengeLandingScreen} />
