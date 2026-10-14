@@ -18,11 +18,13 @@ export default function LandingScreen() {
     getStoredUtmParams().then((utm) => logEvent('landing_viewed', utm ? { ...utm } : undefined));
   }, []);
 
-  async function handleCta(position: 'hero' | 'example') {
-    const utm = await getStoredUtmParams();
-    await setPendingFirstScan();
-    void logEvent('landing_cta_clicked', { position, ...utm });
+  function handleCta(position: 'hero' | 'example') {
+    // Navigate synchronously: storage/attribution must never delay or block signup.
     navigation.navigate('Auth', { initialMode: 'signUp', context: 'measure_aura' });
+    void setPendingFirstScan();
+    void getStoredUtmParams()
+      .then((utm) => logEvent('landing_cta_clicked', { position, ...(utm ?? {}) }))
+      .catch(() => { void logEvent('landing_cta_clicked', { position }); });
   }
 
   return (
