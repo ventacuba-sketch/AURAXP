@@ -234,6 +234,7 @@ export function RootNavigator() {
       <View style={styles.appShell}>
         <View style={styles.stackArea}>
           <Stack.Navigator
+            initialRouteName={authed ? 'MainTabs' : 'Landing'}
             screenOptions={{
               headerShown: false,
               contentStyle: { backgroundColor: colors.background },
