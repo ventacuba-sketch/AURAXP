@@ -118,7 +118,7 @@ const linking: LinkingOptions<RootStackParamList> = {
  * route — reachable via deep link or web URL regardless of session).
  */
 export function RootNavigator() {
-  const { session, loading, passwordRecovery } = useAuth();
+  const { session, loading, passwordRecovery, recoveryLinkError } = useAuth();
   const authed = !isSupabaseConfigured || Boolean(session);
   const navigationRef = useRef<NavigationContainerRef<RootStackParamList>>(null);
   const resumedRef = useRef(false);
@@ -149,7 +149,7 @@ export function RootNavigator() {
   // vuelve a correr (está en las deps) apenas se limpia -- ahí sí retoma
   // el Challenge normalmente, ya con la contraseña nueva puesta.
   useEffect(() => {
-    if (!authed || passwordRecovery || resumedRef.current) return;
+    if (!authed || passwordRecovery || recoveryLinkError || resumedRef.current) return;
     resumedRef.current = true;
 
     consumePendingChallengeToken().then((token) => {
@@ -166,7 +166,7 @@ export function RootNavigator() {
         }
       });
     });
-  }, [authed, passwordRecovery]);
+  }, [authed, passwordRecovery, recoveryLinkError]);
 
   // Atribución de referido (bloque referidos) -- si esta persona llegó por
   // un link de invitación (ver referralService.captureReferralFromUrl(),
@@ -203,7 +203,7 @@ export function RootNavigator() {
     <NavigationContainer
       ref={navigationRef}
       theme={navigationTheme}
-      linking={linking}
+      linking={passwordRecovery || recoveryLinkError ? undefined : linking}
       // Dashboard de admin (tracking de páginas) -- onReady/onStateChange
       // son los únicos puntos de React Navigation que ven CUALQUIER cambio
       // de ruta sin importar desde qué screen se originó; logPageView()
@@ -234,13 +234,15 @@ export function RootNavigator() {
       <View style={styles.appShell}>
         <View style={styles.stackArea}>
           <Stack.Navigator
-            initialRouteName={authed ? 'MainTabs' : 'Landing'}
+            initialRouteName={recoveryLinkError ? 'Auth' : passwordRecovery && authed ? 'ResetPassword' : authed ? 'MainTabs' : 'Landing'}
             screenOptions={{
               headerShown: false,
               contentStyle: { backgroundColor: colors.background },
             }}
           >
-            {authed && passwordRecovery ? (
+            {recoveryLinkError ? (
+              <Stack.Screen name="Auth" component={AuthScreen} />
+            ) : authed && passwordRecovery ? (
               // Rama propia, deliberadamente sin el resto de la app: mientras
               // se está recuperando la contraseña, la única pantalla que debe
               // existir es esta -- ni un deep link ni una navegación
@@ -338,15 +340,15 @@ export function RootNavigator() {
             <Stack.Screen name="LiveRoom" component={LiveRoomScreen} options={{ gestureEnabled: false }} />
           </Stack.Navigator>
         </View>
-        <BottomNavBar authed={authed} navigationRef={navigationRef} />
+        {!passwordRecovery && !recoveryLinkError && <BottomNavBar authed={authed} navigationRef={navigationRef} />}
         {/* Mismo criterio que BottomNavBar: nunca chrome de la app propia
             para un visitante sin sesión (p. ej. ChallengeLanding no
             autenticado) -- ver installService.ts para por qué vive acá
             (sibling, no dentro de un tab) y no en HomeScreen. Tampoco
             encima del dashboard de admin (currentRouteName), que tiene su
             propio layout de escritorio sin estos overlays. */}
-        {authed && currentRouteName !== 'AdminDashboard' && currentRouteName !== 'AdminUserRecovery' && <InstallInviteHost navigationRef={navigationRef} />}
-        {authed && currentRouteName !== 'AdminDashboard' && currentRouteName !== 'AdminUserRecovery' && <NotificationInviteHost navigationRef={navigationRef} />}
+        {authed && !passwordRecovery && !recoveryLinkError && currentRouteName !== 'AdminDashboard' && currentRouteName !== 'AdminUserRecovery' && <InstallInviteHost navigationRef={navigationRef} />}
+        {authed && !passwordRecovery && !recoveryLinkError && currentRouteName !== 'AdminDashboard' && currentRouteName !== 'AdminUserRecovery' && <NotificationInviteHost navigationRef={navigationRef} />}
       </View>
     </NavigationContainer>
   );

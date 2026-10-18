@@ -4,6 +4,7 @@ import { RouteProp, useRoute } from '@react-navigation/native';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { ScreenContainer } from '../components/ScreenContainer';
 import { useRootNavigation } from '../hooks/useRootNavigation';
+import { useAuth } from '../hooks/useAuth';
 import { logEvent } from '../services/analyticsService';
 import { mapAuthError, requestPasswordReset, signIn, signUp } from '../services/authService';
 import { linkCampaignToCurrentUser } from '../services/campaignService';
@@ -14,12 +15,13 @@ import { RootStackParamList } from '../types';
 type Mode='signIn'|'signUp'|'forgotPassword'; type AuthRouteProp=RouteProp<RootStackParamList,'Auth'>; const RESET_COOLDOWN_MS=30000;
 export default function AuthScreen(){
  const navigation=useRootNavigation(); const{params}=useRoute<AuthRouteProp>(); const canGoBack=navigation.canGoBack(); const isAuraAcquisition=params?.context==='measure_aura';
- const recoveryError = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('error_code') === 'otp_expired';
+ const { recoveryLinkError, clearRecoveryLinkError } = useAuth();
+ const recoveryError = Boolean(recoveryLinkError);
  const[mode,setMode]=useState<Mode>(()=>recoveryError?'forgotPassword':params?.initialMode??(hasReferralCodeInUrl()?'signUp':'signIn')); const[email,setEmail]=useState(''); const[password,setPassword]=useState(''); const[showPassword,setShowPassword]=useState(false); const[loading,setLoading]=useState(false); const[error,setError]=useState<string|null>(null); const[successMessage,setSuccessMessage]=useState<string|null>(null); const[showAlreadyRegistered,setShowAlreadyRegistered]=useState(false); const[showLoginRecoveryHint,setShowLoginRecoveryHint]=useState(false); const[resetCooldownActive,setResetCooldownActive]=useState(false);
- useEffect(()=>{if(recoveryError)setError('El enlace caducó o ya fue utilizado. Solicita uno nuevo.');},[recoveryError]);
+ useEffect(()=>{if(recoveryError)setError(recoveryLinkError==='session_unavailable'?'No pudimos abrir la sesión de recuperación. Solicita otro enlace.':'El enlace caducó o ya fue utilizado. Solicita uno nuevo.');},[recoveryError,recoveryLinkError]);
  useEffect(()=>{if(mode==='signUp')void logEvent('signup_viewed',{context:params?.context??null});},[mode,params?.context]);
  useEffect(()=>{void clearPendingSignupOtp();},[]);
- function resetTransientState(){setError(null);setSuccessMessage(null);setShowAlreadyRegistered(false);setShowLoginRecoveryHint(false);} function switchMode(next:Mode){resetTransientState();setPassword('');setMode(next);}
+ function resetTransientState(){setError(null);setSuccessMessage(null);setShowAlreadyRegistered(false);setShowLoginRecoveryHint(false);} function switchMode(next:Mode){resetTransientState();setPassword('');setMode(next);if(next==='signIn')clearRecoveryLinkError();}
  async function handleSubmit(){resetTransientState();setLoading(true);try{if(mode==='signIn'){await signIn(email.trim(),password);await linkCampaignToCurrentUser();await clearPendingSignupOtp();await logEvent('login',{context:params?.context??null});}else{if(password.length<8){setError('Usa una contraseña de al menos 8 caracteres.');return;}void logEvent('signup_started',{context:params?.context??null});const{status,userId}=await signUp(email.trim(),password);if(status==='alreadyRegistered'){setShowAlreadyRegistered(true);}else if(status==='signedIn'){await linkCampaignToCurrentUser();await clearPendingSignupOtp();await logEvent('signup_completed',{context:params?.context??null},userId);}else if(status==='confirmationRequired'){setSuccessMessage('Tu cuenta fue creada. Revisa tu correo para confirmar el registro y después inicia sesión. Si no recibes el mensaje, revisa Spam.');}else{setError('No pudimos iniciar tu sesión. Intenta de nuevo.');}}}catch(e){const message=mapAuthError(e);setError(message);if(mode==='signIn'&&message==='Correo o contraseña incorrectos.')setShowLoginRecoveryHint(true);}finally{setLoading(false);}}
  async function handleRequestReset(){if(resetCooldownActive)return;resetTransientState();setLoading(true);try{await requestPasswordReset(email.trim());setSuccessMessage('Si el correo existe, te enviamos un enlace para recuperar tu contraseña.');setResetCooldownActive(true);setTimeout(()=>setResetCooldownActive(false),RESET_COOLDOWN_MS);}catch(e){setError(mapAuthError(e));}finally{setLoading(false);}}
  if(showAlreadyRegistered)return <ScreenContainer style={styles.container} onBack={canGoBack?()=>navigation.goBack():undefined}><View style={styles.header}><Text style={styles.wordmark}>AURA VS</Text><Text style={styles.successText}>Esta cuenta ya existe.</Text></View><View style={styles.actions}><PrimaryButton label="INICIAR SESIÓN" onPress={()=>switchMode('signIn')}/><PrimaryButton variant="text" label="RECUPERAR CONTRASEÑA" onPress={()=>switchMode('forgotPassword')}/></View></ScreenContainer>;
