@@ -19,6 +19,8 @@ jobs:
         run: npx tsc --noEmit -p tsconfig.json
       - name: Critical static regression tests
         run: node scripts/regression-gate.mjs
+      - name: Password recovery callback regression
+        run: node scripts/test-recovery-link.mjs
       - name: Production backend smoke tests
         env:
           SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
