@@ -11,7 +11,7 @@ import { logScanMilestone } from '../services/analyticsService';
 import { recordMeaningfulAction } from '../services/installService';
 import { recordMeaningfulAction as recordPushSignal } from '../services/pushService';
 import { createDirectChallenge } from '../services/challengeService';
-import { checkScanStatus, ScanStatusCheck, subscribeToScan } from '../services/scanService';
+import { checkScanStatus, retryScanAnalysis, ScanStatusCheck, subscribeToScan } from '../services/scanService';
 import { isSupabaseConfigured } from '../services/supabaseClient';
 import { colors, radius, spacing, typography } from '../theme/colors';
 import { RootStackParamList } from '../types';
@@ -65,7 +65,10 @@ export default function AnalyzingScreen() {
   const [labelIndex, setLabelIndex] = useState(0);
   const [progress, setProgress] = useState(0);
   const [almostReady, setAlmostReady] = useState(false);
-  const [failure, setFailure] = useState<{ message: string; showProCta: boolean } | null>(null);
+  const [failure, setFailure] = useState<{ message: string; showProCta: boolean; retryable?: boolean } | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const [retrying, setRetrying] = useState(false);
+  const retryLock = useRef(false);
   // Guard contra navegación duplicada: polling y Realtime pueden detectar
   // `done` casi al mismo tiempo -- solo la primera fuente que llega navega.
   const hasNavigatedRef = useRef(false);
@@ -103,7 +106,7 @@ export default function AnalyzingScreen() {
       if (elapsed > ALMOST_READY_THRESHOLD_MS) setAlmostReady(true);
     }, PROGRESS_STEP_MS);
     return () => clearInterval(interval);
-  }, [useRealBackend]);
+  }, [useRealBackend, attempt]);
 
   // Cycle through the label chips while the scan is being processed.
   useEffect(() => {
@@ -234,7 +237,7 @@ export default function AnalyzingScreen() {
         // uso normal ('normal', el default) este código nunca aparece.
         message = 'Los análisis están pausados temporalmente. Intenta de nuevo más tarde.';
       } else if (errorCode === 'gemini_unavailable') {
-        message = 'La IA está temporalmente ocupada. Intenta de nuevo en unos minutos.';
+        message = 'La IA está temporalmente ocupada. Tu video sigue guardado: puedes reintentar el análisis sin grabarlo de nuevo.';
       } else if (errorCode === 'daily_upload_limit') {
         message = 'Alcanzaste tus Scans gratuitos de hoy. Vuelve mañana o pasa a PRO para seguir ahora.';
         showProCta = true;
@@ -252,7 +255,7 @@ export default function AnalyzingScreen() {
       } else {
         message = 'El análisis falló. Intenta de nuevo.';
       }
-      setFailure({ message, showProCta });
+      setFailure({ message, showProCta, retryable: reason === 'failed' && errorCode === 'gemini_unavailable' });
     };
 
     const handleResult = (result: ScanStatusCheck) => {
@@ -274,7 +277,7 @@ export default function AnalyzingScreen() {
           if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
             if (pollTimer) clearInterval(pollTimer);
             unsubscribeRealtime();
-            setFailure({ message: 'No pudimos confirmar el resultado. Revisa tu conexión e intenta de nuevo.', showProCta: false });
+            setFailure({ message: 'No pudimos confirmar el resultado. Revisa tu conexión e intenta de nuevo.', showProCta: false, retryable: true });
           }
           return;
       }
@@ -302,16 +305,44 @@ export default function AnalyzingScreen() {
       if (finishInterval) clearInterval(finishInterval);
       unsubscribeRealtime();
     };
-  }, [useRealBackend, scanId, challengeToken, navigation]);
+  }, [useRealBackend, scanId, challengeToken, navigation, attempt]);
+
+  async function retryAnalysis() {
+    if (!scanId || retryLock.current) return;
+    retryLock.current = true;
+    setRetrying(true);
+    try {
+      const status = await checkScanStatus(scanId);
+      if (status.kind === 'failed' && status.scan.error_message === 'gemini_unavailable') {
+        await retryScanAnalysis(scanId, challengeToken);
+      }
+    } finally {
+      retryLock.current = false;
+      setRetrying(false);
+      hasNavigatedRef.current = false;
+      finishingRef.current = false;
+      progressRef.current = 0;
+      setProgress(0);
+      setAlmostReady(false);
+      setFailure(null);
+      setAttempt((value) => value + 1);
+    }
+  }
 
   if (failure) {
     return (
       <ScreenContainer style={styles.center}>
         <Text style={styles.errorText}>{failure.message}</Text>
+        {failure.retryable && <PrimaryButton
+          label={retrying ? 'REINTENTANDO...' : 'REINTENTAR ANÁLISIS'}
+          disabled={retrying}
+          onPress={() => void retryAnalysis()}
+        />}
         {failure.showProCta && (
           <PrimaryButton label="PASAR A PRO" onPress={() => navigation.navigate('Pro')} />
         )}
         <PrimaryButton
+          disabled={retrying}
           label="VOLVER"
           variant={failure.showProCta ? 'ghost' : 'primary'}
           onPress={() => navigation.navigate('Upload')}

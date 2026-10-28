@@ -195,6 +195,15 @@ export async function uploadAndSubmitScan(
   return scan.id;
 }
 
+/** Retry the existing uploaded scan; never upload or create a second row. */
+export async function retryScanAnalysis(scanId: string, challengeToken?: string): Promise<void> {
+  if (!supabase) throw new Error('Supabase no está configurado');
+  const { error } = await supabase.functions.invoke('process-scan', { body: { scanId, challengeToken } });
+  // A transport error is ambiguous: the server may still have completed.
+  // The caller always resumes status checks against the same scan ID.
+  if (error) console.warn('scan retry response unavailable');
+}
+
 export async function getScan(scanId: string): Promise<ScanRow | null> {
   if (!supabase) return null;
   const { data, error } = await supabase.from('scans').select('*').eq('id', scanId).single();
