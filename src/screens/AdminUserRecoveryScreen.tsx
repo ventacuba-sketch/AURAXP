@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useRootNavigation } from '../hooks/useRootNavigation';
 import { getSession } from '../services/authService';
-import { RecoveryKpis, RecoveryListRow, RecoveryUserDetail, getUserRecoveryDetail, getUserRecoveryKpis, listUserRecovery, recoverUserAccess } from '../services/adminUserRecoveryService';
+import { ReactivationOverview, getReactivationOverview, RecoveryKpis, RecoveryListRow, RecoveryUserDetail, getUserRecoveryDetail, getUserRecoveryKpis, listUserRecovery, recoverUserAccess } from '../services/adminUserRecoveryService';
 import { colors, radius, typography } from '../theme/colors';
 
 type Segment = 'all' | 'unconfirmed' | 'no_first_scan';
@@ -17,6 +17,7 @@ export default function AdminUserRecoveryScreen() {
   const [signedIn, setSignedIn] = useState<boolean | null>(null);
   const [segment, setSegment] = useState<Segment>('all');
   const [kpis, setKpis] = useState<RecoveryKpis | null>(null);
+  const [campaigns, setCampaigns] = useState<ReactivationOverview | null>(null);
   const [rows, setRows] = useState<RecoveryListRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -35,11 +36,12 @@ export default function AdminUserRecoveryScreen() {
       const session = await getSession();
       setSignedIn(Boolean(session));
       if (!session) return;
-      const [nextKpis, nextRows] = await Promise.all([
+      const [nextKpis, nextRows, overview] = await Promise.all([
         getUserRecoveryKpis({ ...range }),
         listUserRecovery({ ...range, segment: segment === 'all' ? null : segment, limit: 200, offset: 0 }),
+        getReactivationOverview(),
       ]);
-      setKpis(nextKpis); setRows(nextRows);
+      setKpis(nextKpis); setRows(nextRows); setCampaigns(overview);
     } catch (e) { setError(e instanceof Error ? e.message : 'No pudimos cargar los datos de recuperación.'); }
     finally { setLoading(false); }
   }, [range, segment]);
@@ -109,11 +111,41 @@ export default function AdminUserRecoveryScreen() {
     {segment === 'unconfirmed' && bulkState === 'idle' && rows.some((r) => !r.confirmed && !r.recovered) && <View style={styles.bulkCard}><Text style={styles.cardTitle}>Recuperación lenta por lote</Text><Text style={styles.muted}>Procesará {rows.filter((r) => !r.confirmed && !r.recovered).length} cuentas, una cada ~7 segundos. Cada cuenta se audita por separado. Los errores no detienen el lote.</Text><Pressable style={styles.primary} onPress={prepareBulk}><Text style={styles.primaryText}>RECUPERAR TODOS LOS NO CONFIRMADOS</Text></Pressable></View>}
     {segment === 'unconfirmed' && bulkState === 'confirm' && <View style={styles.bulkCardDanger}><Text style={styles.cardTitle}>Confirmar recuperación por lote</Text><Text style={styles.muted}>Vas a habilitar {bulkItems.length} cuentas legacy y enviar un correo de recuperación a cada propietario. Solo contarán como recuperadas cuando vuelvan a autenticarse.</Text><View style={styles.actions}><Pressable style={styles.secondary} onPress={() => setBulkState('idle')}><Text style={styles.secondaryText}>CANCELAR</Text></Pressable><Pressable style={styles.dangerButton} onPress={() => void startBulk()}><Text style={styles.primaryText}>SÍ, INICIAR LOTE</Text></Pressable></View></View>}
     {(bulkState === 'running' || bulkState === 'paused' || bulkState === 'done') && <View style={styles.bulkCard}><Text style={styles.cardTitle}>{bulkState === 'done' ? 'Lote terminado' : bulkState === 'paused' ? 'Lote pausado' : 'Enviando recuperaciones…'}</Text><Text style={styles.progress}>{Math.min(bulkIndex, bulkItems.length)} / {bulkItems.length}</Text><Text style={styles.muted}>Enviadas: {bulkOk} · Parciales: {bulkPartial} · Errores: {bulkErrors}</Text>{(bulkState === 'running' || bulkState === 'paused') && <Pressable style={styles.secondary} onPress={togglePause}><Text style={styles.secondaryText}>{bulkState === 'paused' ? 'CONTINUAR' : 'PAUSAR'}</Text></Pressable>}{bulkState === 'done' && <Pressable style={styles.primary} onPress={() => { setBulkState('idle'); setBulkItems([]); }}><Text style={styles.primaryText}>CERRAR RESULTADO</Text></Pressable>}<View style={styles.bulkList}>{bulkItems.map((item, i) => <Text key={item.userId} style={styles.bulkLine}>{i + 1}. {item.email} · {item.status === 'pending' ? 'pendiente' : item.message}</Text>)}</View></View>}
+    {campaigns && <View>
+      <Text style={styles.sectionTitle}>Reactivación por campaña</Text>
+      <Text style={styles.muted}>A: sin Scan completado · B: con Scans previos. Piloto máximo: 5 por campaña. Frecuencia mínima: 7 días. Las campañas en borrador no envían correos.</Text>
+      <View style={styles.metrics}>{campaigns.segments.map((item) => <Metric key={`${item.segment}-${item.eligibility}`} label={`${item.segment} · ${eligibilityLabel(item.eligibility)}`} value={fmt(item.users)} />)}</View>
+      {campaigns.campaigns.map((campaign) => <View key={campaign.id} style={styles.bulkCard}>
+        <Text style={styles.cardTitle}>{campaign.subject}</Text>
+        <Text style={styles.muted}>{campaign.id} · {campaign.status === 'draft' ? 'Borrador: pendiente de validación' : campaign.status}</Text>
+        {campaign.segment !== 'legacy' && <Text style={styles.muted}>{campaign.body}</Text>}
+        <View style={styles.metrics}>
+          <Metric label="Enviados" value={fmt(campaign.sent)} />
+          <Metric label="Entrega confirmada" value={fmt(campaign.delivered)} />
+          <Metric label="Rebotados" value={fmt(campaign.bounced)} />
+          <Metric label="Entrega sin verificar" value={fmt(campaign.unknown)} />
+          <Metric label="Regresaron en 7 días" value={fmt(campaign.returned)} />
+          <Metric label="Usuarios con Scan posterior" value={fmt(campaign.scanned_users)} />
+          <Metric label="Scans posteriores" value={fmt(campaign.completed_scans)} />
+          <Metric label="Regresos con UTM" value={fmt(campaign.attributed_returns)} />
+        </View>
+        <Text style={styles.muted}>Aperturas registradas: {campaign.recorded_opens || 'sin medición disponible'} · Clics registrados: {campaign.recorded_clicks || 'sin medición disponible'}. Un regreso posterior no demuestra que el correo lo causó.</Text>
+      </View>)}
+      <Text style={styles.sectionTitle}>Historial de contactos</Text>
+      {campaigns.contacts.map((contact) => <View key={`${contact.campaign_id}-${contact.user_id}`} style={styles.row}>
+        <View style={styles.emailCol}><Text style={styles.rowMain}>{rows.find((r) => r.user_id === contact.user_id)?.email ?? 'Usuario fuera del filtro'}</Text><Text style={styles.rowSub}>{contact.campaign_id} · {contact.channel} · {dt(contact.sent_at)}</Text></View>
+        <Text style={styles.status}>{contact.status}</Text><Text style={styles.status}>{contact.returned ? 'Regresó' : 'Sin regreso'} · {contact.completed_scans} Scans</Text>
+      </View>)}
+    </View>}
     <Text style={styles.sectionTitle}>Usuarios ({fmt(rows[0]?.total_count ?? rows.length)})</Text>
     <View style={styles.tableCard}>{rows.map((row) => <Pressable key={row.user_id} style={styles.row} onPress={() => void openDetail(row.user_id)}><View style={styles.emailCol}><Text style={styles.rowMain} numberOfLines={1}>{row.email}</Text><Text style={styles.rowSub}>{dt(row.registered_at)}</Text></View><Text style={[styles.status, row.confirmed ? styles.ok : styles.warn]}>{row.confirmed ? 'Confirmado' : 'No confirmado'}</Text><Text style={styles.status}>{row.source_group}</Text><Text style={[styles.status, row.recovered && styles.ok]}>{row.recovered ? 'Enviada' : '—'}</Text><Text style={styles.link}>VER →</Text></Pressable>)}</View>
     {detailLoading && <ActivityIndicator color={colors.accent} style={{ marginTop: 24 }} />}
     {selected && !detailLoading && <View style={styles.detail}><View style={styles.header}><View><Text style={styles.cardTitle}>Detalle</Text><Text style={styles.detailEmail}>{selected.user.email}</Text></View><Pressable onPress={() => setSelected(null)}><Text style={styles.secondaryText}>CERRAR ✕</Text></Pressable></View><Text style={styles.muted}>Registrado: {dt(selected.user.registered_at)}</Text><Text style={styles.muted}>Email habilitado administrativamente: {dt(selected.user.email_confirmed_at)}</Text><Text style={styles.muted}>Scans: {selected.scans.length} · Acciones de recuperación: {selected.recovery_actions.length}</Text>{selected.recovery_actions.length > 0 ? <Pressable style={[styles.primary, styles.recoveredButton]} disabled accessibilityState={{ disabled: true }}><Text style={styles.recoveredButtonText}>✓ RECUPERACIÓN ENVIADA</Text></Pressable> : <Pressable style={styles.primary} onPress={() => void recoverOne(selected.user.user_id)}><Text style={styles.primaryText}>RECUPERAR ESTA CUENTA</Text></Pressable>}</View>}
   </ScrollView></SafeAreaView>;
+}
+
+function eligibilityLabel(value: string): string {
+  return ({ eligible: 'Elegibles', consent_unverified: 'Consentimiento sin verificar', excluded: 'Excluidos', unsubscribed: 'Bajas', internal: 'Cuentas internas', active: 'Activos', account_blocked: 'Acceso pendiente', frequency_limit: 'Contactados recientemente' } as Record<string, string>)[value] ?? value;
 }
 
 function Metric({ label, value, accent }: { label: string; value: string; accent?: boolean }) { return <View style={styles.metric}><Text style={styles.metricLabel}>{label}</Text><Text style={[styles.metricValue, accent && styles.accent]}>{value}</Text></View>; }

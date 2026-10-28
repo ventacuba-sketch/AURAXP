@@ -19,6 +19,8 @@ jobs:
         run: npx tsc --noEmit -p tsconfig.json
       - name: Critical static regression tests
         run: node scripts/regression-gate.mjs
+      - name: Scan retry and concurrency regression
+        run: node scripts/test-scan-retry.mjs
       - name: Password recovery callback regression
         run: node scripts/test-recovery-link.mjs
       - name: Production backend smoke tests

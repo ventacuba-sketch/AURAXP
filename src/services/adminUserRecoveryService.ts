@@ -177,3 +177,15 @@ export async function recoverUserAccess(userId: string): Promise<RecoverAccessRe
   }
   return data as RecoverAccessResult;
 }
+
+export interface ReactivationOverview {
+  segments: Array<{ segment: string; eligibility: string; users: number }>;
+  campaigns: Array<{ id: string; segment: string; status: string; subject: string; body: string; landing_url: string; sent: number; delivered: number; bounced: number; unknown: number; returned: number; scanned_users: number; completed_scans: number; recorded_opens: number; recorded_clicks: number; attributed_returns: number }>;
+  contacts: Array<{ campaign_id: string; user_id: string; channel: string; status: string; sent_at: string | null; returned: boolean; completed_scans: number }>;
+}
+export async function getReactivationOverview(): Promise<ReactivationOverview> {
+  if (!supabase) throw new Error('Supabase no está configurado');
+  const { data, error } = await supabase.rpc('admin_reactivation_overview');
+  if (error) throw error;
+  return data as ReactivationOverview;
+}

@@ -43,6 +43,7 @@ Deno.serve(async (req: Request) => {
   // Declarados afuera del try para que el catch externo pueda usarlos como
   // red de seguridad (ver abajo) -- solo tienen valor una vez que el request
   // avanzó lo suficiente como para que exista algo que limpiar.
+  let ownsProcessing = false;
   let scanId: string | undefined;
   let admin: ReturnType<typeof createClient> | undefined;
 
@@ -77,6 +78,23 @@ Deno.serve(async (req: Request) => {
 
     if (scanErr || !scan) return jsonResponse({ error: 'Scan no encontrado' }, 404);
     if (scan.user_id !== user.id) return jsonResponse({ error: 'No autorizado' }, 403);
+
+    // Only the owner may claim a pending scan or retry a transient AI failure.
+    // The conditional UPDATE is atomic: concurrent requests cannot both win.
+    if (scan.status === 'done') return jsonResponse({ ok: true, alreadyDone: true });
+    if (scan.status === 'processing') return jsonResponse({ ok: true, processing: true }, 202);
+    const isRetry = scan.status === 'failed' && scan.error_message === 'gemini_unavailable';
+    if (scan.status !== 'pending' && !isRetry) {
+      return jsonResponse({ error: 'Este Scan no admite reintentos' }, 409);
+    }
+    let claim = admin.from('scans')
+      .update({ status: 'processing', error_message: null })
+      .eq('id', scanId).eq('status', scan.status);
+    if (isRetry) claim = claim.eq('error_message', 'gemini_unavailable');
+    const { data: claimed, error: claimError } = await claim.select('id');
+    if (claimError) return jsonResponse({ error: 'No se pudo iniciar el análisis' }, 503);
+    if (!claimed?.length) return jsonResponse({ ok: true, processing: true }, 202);
+    ownsProcessing = true;
 
     // Defensa en profundidad: el path SIEMPRE debe vivir bajo la carpeta
     // del dueño, aunque la policy de Storage ya lo garantice al mintear
@@ -129,13 +147,13 @@ Deno.serve(async (req: Request) => {
       .eq('day', today)
       .maybeSingle();
 
-    const uploadCount = (counter?.upload_count ?? 0) + 1;
-    await admin.from('daily_scan_counts').upsert(
+    const uploadCount = (counter?.upload_count ?? 0) + (isRetry ? 0 : 1);
+    if (!isRetry) await admin.from('daily_scan_counts').upsert(
       { user_id: user.id, day: today, upload_count: uploadCount, xp_scan_count: counter?.xp_scan_count ?? 0 },
       { onConflict: 'user_id,day' },
     );
 
-    if (uploadCount > cap) {
+    if (!isRetry && uploadCount > cap) {
       // Mismo código para FREE que antes ('daily_upload_limit' -- AnalyzingScreen
       // ya lo traduce a un mensaje claro con CTA a PRO). Un PRO que golpea el
       // techo de fair-use interno (caso excepcional) recibe un código distinto
@@ -177,7 +195,6 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: true, duplicate: true });
     }
 
-    await admin.from('scans').update({ status: 'processing' }).eq('id', scanId);
 
     // ── Leer el video y subirlo a Gemini sin bufferizarlo completo ──────
     // Antes: .download() (Blob completo) + .arrayBuffer() + base64 +
@@ -433,12 +450,12 @@ Deno.serve(async (req: Request) => {
     // para siempre: el cliente invoca esta función fire-and-forget (ver
     // scanService.ts) y nunca ve este 500, solo sigue haciendo polling de
     // un status que ya no va a cambiar.
-    if (scanId && admin) {
+    if (scanId && admin && ownsProcessing) {
       try {
         await admin
           .from('scans')
           .update({ status: 'failed', error_message: 'unexpected_error' })
-          .eq('id', scanId);
+          .eq('id', scanId).eq('status', 'processing');
       } catch (updateErr) {
         console.error('No se pudo marcar el scan como failed en el catch externo', updateErr);
       }
