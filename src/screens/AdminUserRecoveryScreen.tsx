@@ -54,8 +54,9 @@ export default function AdminUserRecoveryScreen() {
     try { setSelected(await getUserRecoveryDetail(userId)); } catch { setSelected(null); } finally { setDetailLoading(false); }
   }
   async function recoverOne(userId: string) {
-    if (selected?.user.user_id === userId && selected.recovery_actions.length > 0) return;
+    if (selected?.user.user_id === userId && selected.recovery_actions.some((a) => Date.now() - new Date(a.created_at).getTime() < 24 * 60 * 60 * 1000)) { setError('Espera 24 horas antes de repetir el envío.'); return; }
     const result = await recoverUserAccess(userId);
+    setError(result.passwordResetSent ? null : `Error al solicitar correo: ${result.error ?? 'desconocido'}`);
     await load();
     if (selected?.user.user_id === userId) await openDetail(userId);
     return result;
@@ -97,15 +98,15 @@ export default function AdminUserRecoveryScreen() {
   const bulkErrors = bulkItems.filter((x) => x.status === 'error').length;
 
   return <SafeAreaView style={styles.safe}><ScrollView contentContainerStyle={styles.content}>
-    <View style={styles.header}><View><Text style={styles.logo}>AURA VS · ADMIN</Text><Text style={styles.title}>Recuperación de usuarios</Text><Text style={styles.muted}>Recupera cuentas legacy bloqueadas y revisa usuarios sin primer Scan.</Text></View><Pressable style={styles.secondary} onPress={() => navigation.navigate('AdminDashboard')}><Text style={styles.secondaryText}>← DASHBOARD</Text></Pressable></View>
+    <View style={styles.header}><View><Text style={styles.logo}>AURA VS · ADMIN</Text><Text style={styles.title}>Recuperación de usuarios</Text><Text style={styles.muted}>Consulta recuperaciones: solicitud aceptada no significa correo entregado.</Text></View><Pressable style={styles.secondary} onPress={() => navigation.navigate('AdminDashboard')}><Text style={styles.secondaryText}>← DASHBOARD</Text></Pressable></View>
     {error && <Text style={styles.error}>{error}</Text>}
     <View style={styles.chips}>{([['all','Todos'],['unconfirmed','No confirmados (legacy)'],['no_first_scan','Sin primer Scan']] as const).map(([key,label]) => <Pressable key={key} style={[styles.chip, segment === key && styles.chipActive]} onPress={() => setSegment(key)} disabled={bulkState === 'running' || bulkState === 'paused'}><Text style={[styles.chipText, segment === key && styles.chipTextActive]}>{label}</Text></Pressable>)}</View>
     {kpis && <View style={styles.metrics}>
       <Metric label="Registrados" value={fmt(kpis.registered)} />
       <Metric label="No confirmados (legacy)" value={fmt(kpis.unconfirmed_legacy)} />
       <Metric label="Sin primer Scan" value={fmt(kpis.no_first_scan)} />
-      <Metric label="Recuperación enviada" value={fmt(kpis.recovery_sent)} />
-      <Metric label="Recuperados" value={fmt(kpis.recovered)} accent />
+      <Metric label="Solicitudes aceptadas" value={fmt(kpis.recovery_sent)} />
+      <Metric label="Usuarios que regresaron" value={fmt(kpis.recovered)} accent />
       <Metric label="% Recuperación real" value={`${kpis.recovery_rate_pct}%`} accent />
     </View>}
     {segment === 'unconfirmed' && bulkState === 'idle' && rows.some((r) => !r.confirmed && !r.recovered) && <View style={styles.bulkCard}><Text style={styles.cardTitle}>Recuperación lenta por lote</Text><Text style={styles.muted}>Procesará {rows.filter((r) => !r.confirmed && !r.recovered).length} cuentas, una cada ~7 segundos. Cada cuenta se audita por separado. Los errores no detienen el lote.</Text><Pressable style={styles.primary} onPress={prepareBulk}><Text style={styles.primaryText}>RECUPERAR TODOS LOS NO CONFIRMADOS</Text></Pressable></View>}
@@ -140,7 +141,7 @@ export default function AdminUserRecoveryScreen() {
     <Text style={styles.sectionTitle}>Usuarios ({fmt(rows[0]?.total_count ?? rows.length)})</Text>
     <View style={styles.tableCard}>{rows.map((row) => <Pressable key={row.user_id} style={styles.row} onPress={() => void openDetail(row.user_id)}><View style={styles.emailCol}><Text style={styles.rowMain} numberOfLines={1}>{row.email}</Text><Text style={styles.rowSub}>{dt(row.registered_at)}</Text></View><Text style={[styles.status, row.confirmed ? styles.ok : styles.warn]}>{row.confirmed ? 'Confirmado' : 'No confirmado'}</Text><Text style={styles.status}>{row.source_group}</Text><Text style={[styles.status, row.recovered && styles.ok]}>{row.recovered ? 'Enviada' : '—'}</Text><Text style={styles.link}>VER →</Text></Pressable>)}</View>
     {detailLoading && <ActivityIndicator color={colors.accent} style={{ marginTop: 24 }} />}
-    {selected && !detailLoading && <View style={styles.detail}><View style={styles.header}><View><Text style={styles.cardTitle}>Detalle</Text><Text style={styles.detailEmail}>{selected.user.email}</Text></View><Pressable onPress={() => setSelected(null)}><Text style={styles.secondaryText}>CERRAR ✕</Text></Pressable></View><Text style={styles.muted}>Registrado: {dt(selected.user.registered_at)}</Text><Text style={styles.muted}>Email habilitado administrativamente: {dt(selected.user.email_confirmed_at)}</Text><Text style={styles.muted}>Scans: {selected.scans.length} · Acciones de recuperación: {selected.recovery_actions.length}</Text>{selected.recovery_actions.length > 0 ? <Pressable style={[styles.primary, styles.recoveredButton]} disabled accessibilityState={{ disabled: true }}><Text style={styles.recoveredButtonText}>✓ RECUPERACIÓN ENVIADA</Text></Pressable> : <Pressable style={styles.primary} onPress={() => void recoverOne(selected.user.user_id)}><Text style={styles.primaryText}>RECUPERAR ESTA CUENTA</Text></Pressable>}</View>}
+    {selected && !detailLoading && <View style={styles.detail}><View style={styles.header}><View><Text style={styles.cardTitle}>Detalle</Text><Text style={styles.detailEmail}>{selected.user.email}</Text></View><Pressable onPress={() => setSelected(null)}><Text style={styles.secondaryText}>CERRAR ✕</Text></Pressable></View><Text style={styles.muted}>Registrado: {dt(selected.user.registered_at)}</Text><Text style={styles.muted}>Email habilitado administrativamente: {dt(selected.user.email_confirmed_at)}</Text><Text style={styles.muted}>Scans: {selected.scans.length} · Acciones de recuperación: {selected.recovery_actions.length}</Text>{<Pressable style={styles.primary} onPress={() => void recoverOne(selected.user.user_id)}><Text style={styles.primaryText}>{selected.recovery_actions.length > 0 ? 'REENVIAR RECUPERACIÓN (24 H)' : 'RECUPERAR ESTA CUENTA'}</Text></Pressable>}</View>}
   </ScrollView></SafeAreaView>;
 }
 
